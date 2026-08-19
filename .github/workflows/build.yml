@@ -1,0 +1,165 @@
+name: "Build"
+
+on:
+  workflow_call:
+    inputs:
+      platform:
+        required: true
+        type: string
+      target:
+        required: true
+        type: string
+      build-args:
+        required: false
+        type: string
+        default: ""
+      release-id:
+        required: false
+        type: string
+      sign-binaries:
+        required: false
+        type: boolean
+        default: false
+      upload-artifacts:
+        required: false
+        type: boolean
+        default: false
+      no-cache:
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      APPLE_CERTIFICATE:
+        required: false
+      APPLE_CERTIFICATE_PASSWORD:
+        required: false
+      APPLE_ID:
+        required: false
+      APPLE_PASSWORD:
+        required: false
+      APPLE_TEAM_ID:
+        required: false
+      KEYCHAIN_PASSWORD:
+        required: false
+      TAURI_SIGNING_PRIVATE_KEY:
+        required: false
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
+        required: false
+
+jobs:
+  build:
+    permissions:
+      contents: write
+    runs-on: ${{ inputs.platform }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Get version from tauri.conf.json
+        id: get-version
+        shell: bash
+        run: |
+          VERSION=$(grep -o '"version": "[^"]*"' src-tauri/tauri.conf.json | cut -d'"' -f4)
+          echo "Application version from tauri.conf.json: $VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # No rust-toolchain action: rustup on the runner reads rust-toolchain.toml
+      # and installs the pinned channel, so the CI toolchain always matches local.
+      - name: Rust cache
+        # Release builds skip the cache (no-cache: true) so the shipped artifact is
+        # always compiled clean — a stale cached object can never be linked in.
+        if: ${{ !inputs.no-cache }}
+        uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: ${{ inputs.platform }}-${{ inputs.target }}
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Import Apple Developer certificate
+        if: inputs.sign-binaries
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -t 3600 -u build.keychain
+          security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          rm certificate.p12
+
+      # Savvy ships outside the App Store, so only a Developer ID Application cert
+      # is valid. Fail loudly here rather than let tauri-action sign with whatever
+      # else happens to be in the keychain.
+      - name: Verify certificate
+        if: inputs.sign-binaries
+        run: |
+          set -euo pipefail
+          CERT_ID=$(security find-identity -v -p codesigning build.keychain \
+            | grep "Developer ID Application" \
+            | awk -F'"' '{print $2}' \
+            | head -1)
+          if [[ -z "$CERT_ID" ]]; then
+            echo "No 'Developer ID Application' certificate found in the keychain." >&2
+            exit 1
+          fi
+          # Written to the env, never echoed: CERT_ID embeds the signing identity's
+          # legal name and team ID, and public Actions logs are world-readable.
+          echo "CERT_ID=$CERT_ID" >> "$GITHUB_ENV"
+          echo "Developer ID Application certificate found."
+
+      - name: Build with Tauri
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # action-v1.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_ID: ${{ inputs.sign-binaries && secrets.APPLE_ID || '' }}
+          APPLE_PASSWORD: ${{ inputs.sign-binaries && secrets.APPLE_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ inputs.sign-binaries && secrets.APPLE_TEAM_ID || '' }}
+          APPLE_CERTIFICATE: ${{ inputs.sign-binaries && secrets.APPLE_CERTIFICATE || '' }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ inputs.sign-binaries && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+          APPLE_SIGNING_IDENTITY: ${{ inputs.sign-binaries && env.CERT_ID || '' }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ inputs.sign-binaries && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ inputs.sign-binaries && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
+        with:
+          tagName: ${{ inputs.release-id && format('v{0}', steps.get-version.outputs.version) || '' }}
+          releaseName: ${{ inputs.release-id && format('v{0}', steps.get-version.outputs.version) || '' }}
+          releaseId: ${{ inputs.release-id }}
+          args: ${{ inputs.build-args }}
+
+      # Notarization is only meaningful if the ticket is actually attached, and a
+      # stapled app opens offline. tauri-action staples during the build; this
+      # asserts it rather than trusting it.
+      - name: Verify signature and notarization
+        if: inputs.sign-binaries
+        env:
+          TARGET: ${{ inputs.target }}
+        run: |
+          set -euo pipefail
+          APP="target/$TARGET/release/bundle/macos/Savvy.app"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          xcrun stapler validate "$APP"
+
+      - name: Upload artifacts
+        if: inputs.upload-artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: savvy-${{ inputs.target }}
+          path: |
+            target/${{ inputs.target }}/release/bundle/dmg/*.dmg
+            target/${{ inputs.target }}/release/bundle/macos/*.app.tar.gz*
+          if-no-files-found: error

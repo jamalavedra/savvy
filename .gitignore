@@ -1,0 +1,57 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+target
+.DS_Store
+.env
+.env.*
+!.env.example
+*.audio.enc
+*.transcript.json
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.db
+*.wav
+*-transcript.txt
+savvy-brief-v*.md
+savy-brief-v*.md
+fixtures/private
+dist
+dist-ssr
+*.local
+
+# Signing material — never commit. The release workflow reads these from
+# repository secrets, not from the tree.
+*.p12
+*.pem
+*.key
+*.cer
+*.mobileprovision
+.tauri/
+
+# Local transcription model weights.
+*.ggml
+*.bin
+
+# Internal implementation plans and working docs; not published.
+plan/
+docs/
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

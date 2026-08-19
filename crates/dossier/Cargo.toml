@@ -1,0 +1,23 @@
+[package]
+name = "savvy-dossier"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+calamine = "0.36"
+savvy-domain = { path = "../domain" }
+csv = "1"
+hex = "0.4"
+lopdf = { version = "0.44", default-features = false }
+quick-xml = "0.41"
+sha2 = "0.10"
+serde_json.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+walkdir = "2"
+zip = { version = "6", default-features = false, features = ["deflate"] }
+
+[dev-dependencies]
+tempfile = "3"

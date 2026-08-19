@@ -1,0 +1,16 @@
+[package]
+name = "savvy-audio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+cpal = "0.17.3"
+flume.workspace = true
+hound = "3.5"
+serde.workspace = true
+thiserror.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+screencapturekit = { version = "8", features = ["macos_13_0"] }

@@ -1,0 +1,51 @@
+[package]
+name = "savvy"
+version = "0.1.0"
+description = "Savvy, a meeting assistant grounded in your own sources"
+authors = ["Alamas Labs, Inc."]
+repository = "https://github.com/jamalavedra/savvy"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "savvy_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["image-png", "macos-private-api", "protocol-asset", "tray-icon"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-log = "2.7.1"
+tauri-plugin-macos-permissions = "2.3.0"
+tauri-plugin-opener = "2"
+log = "0.4.25"
+chrono.workspace = true
+flume.workspace = true
+savvy-domain = { path = "../crates/domain" }
+savvy-dossier = { path = "../crates/dossier" }
+savvy-meeting = { path = "../crates/meeting" }
+savvy-providers = { path = "../crates/providers" }
+savvy-recommendations = { path = "../crates/recommendations" }
+savvy-storage = { path = "../crates/storage" }
+serde.workspace = true
+serde_json.workspace = true
+sha2 = "0.10"
+uuid.workspace = true
+tauri-plugin-updater = "2.10.1"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+savvy-audio = { path = "../crates/audio" }
+savvy-transcription = { path = "../crates/transcription" }
+security-framework = "3"
+tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", rev = "a3122e894383aa068ec5365a42994e3ac94ba1b6" }
+tauri-plugin-autostart = "2"
+tauri-plugin-global-shortcut = "2"
+tokio.workspace = true
