@@ -68,7 +68,8 @@ pub fn setup(app: &mut App, visible: bool) -> tauri::Result<()> {
                 let _ = app.emit("savvy://open-settings", ());
             }
             "check-updates" => {
-                crate::spawn_update_check(app.clone(), true);
+                show_main_window(app);
+                let _ = app.emit("savvy://check-updates", ());
             }
             "quit" => app.exit(0),
             _ => {}

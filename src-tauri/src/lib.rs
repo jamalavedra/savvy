@@ -722,9 +722,15 @@ fn apply_runtime_settings(
     Ok(())
 }
 
+/// Manual check from the footer button. Returns whether an update was offered, so the
+/// button can say "Up to date" itself instead of a dialog interrupting the user.
 #[tauri::command]
-async fn check_for_updates(app: AppHandle) {
-    run_update_check(app, true).await;
+async fn check_for_updates(app: AppHandle) -> Result<bool, String> {
+    let Some(update) = find_update(&app).await? else {
+        return Ok(false);
+    };
+    offer_update(app, update);
+    Ok(true)
 }
 
 #[tauri::command]
@@ -4456,49 +4462,41 @@ fn find_cli_binary(name: &str) -> Result<PathBuf, String> {
         .ok_or_else(|| format!("{name} is not installed or not on PATH"))
 }
 
-/// Checks for an update and, if the user agrees, installs it and restarts.
-///
-/// `notify_when_current` distinguishes the two entry points. The startup check passes
-/// `false` and stays silent unless an update exists — a missing endpoint, no network, or
-/// no build for this target are all normal and must never interrupt a meeting. The menu
-/// item passes `true`, because a user who asked deserves an answer either way. Updates
-/// are only offered, never applied unattended.
-pub(crate) fn spawn_update_check(app: tauri::AppHandle, notify_when_current: bool) {
-    tauri::async_runtime::spawn(run_update_check(app, notify_when_current));
+/// Startup check: silent unless an update exists. A missing endpoint, no network, or no
+/// build for this target are all normal and must never interrupt a meeting. Updates are
+/// only offered, never applied unattended.
+pub(crate) fn spawn_update_check(app: tauri::AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        match find_update(&app).await {
+            Ok(Some(update)) => offer_update(app, update),
+            Ok(None) => {}
+            Err(error) => log::info!("update check did not complete: {error}"),
+        }
+    });
 }
 
-async fn run_update_check(app: tauri::AppHandle, notify_when_current: bool) {
-    let report = |body: String| {
-        if notify_when_current {
-            app.dialog()
-                .message(body)
-                .title("Savvy Updates")
-                .show(|_| {});
-        }
-    };
-    let updater = match app.updater() {
-        Ok(updater) => updater,
-        Err(error) => {
-            log::warn!("updater is unavailable: {error}");
-            report(format!("Could not check for updates: {error}"));
-            return;
-        }
-    };
-    let update = match updater.check().await {
-        Ok(Some(update)) => update,
-        Ok(None) => {
-            report(format!(
-                "Savvy {} is the latest version.",
-                app.package_info().version
-            ));
-            return;
-        }
-        Err(error) => {
-            log::info!("update check did not complete: {error}");
-            report(update_check_error_message(&error));
-            return;
-        }
-    };
+async fn find_update(
+    app: &tauri::AppHandle,
+) -> Result<Option<tauri_plugin_updater::Update>, String> {
+    let updater = app
+        .updater()
+        .map_err(|error| format!("updater is unavailable: {error}"))?;
+    update_check_outcome(updater.check().await)
+}
+
+/// No published manifest means nothing newer exists, which is "up to date" from the
+/// user's point of view rather than a failure.
+fn update_check_outcome(
+    result: tauri_plugin_updater::Result<Option<tauri_plugin_updater::Update>>,
+) -> Result<Option<tauri_plugin_updater::Update>, String> {
+    match result {
+        Ok(update) => Ok(update),
+        Err(tauri_plugin_updater::Error::ReleaseNotFound) => Ok(None),
+        Err(error) => Err(format!("could not check for updates: {error}")),
+    }
+}
+
+fn offer_update(app: tauri::AppHandle, update: tauri_plugin_updater::Update) {
     let version = update.version.clone();
     let handle = app.clone();
     app.dialog()
@@ -4524,14 +4522,6 @@ async fn run_update_check(app: tauri::AppHandle, notify_when_current: bool) {
                 handle.restart();
             });
         });
-}
-
-fn update_check_error_message(error: &tauri_plugin_updater::Error) -> String {
-    if matches!(error, tauri_plugin_updater::Error::ReleaseNotFound) {
-        "No published Savvy updates are available yet.".into()
-    } else {
-        format!("Could not check for updates: {error}")
-    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -4563,7 +4553,7 @@ pub fn run() {
         .setup(|app| {
             let app_data = app.path().app_data_dir()?;
             create_private_directory(&app_data)?;
-            spawn_update_check(app.handle().clone(), false);
+            spawn_update_check(app.handle().clone());
             let recordings = app_data.join("recordings");
             create_private_directory(&recordings)?;
             let settings_path = app_data.join("settings.json");
@@ -5411,10 +5401,8 @@ mod tests {
     }
 
     #[test]
-    fn missing_update_manifest_is_not_reported_as_an_error() {
-        assert_eq!(
-            update_check_error_message(&tauri_plugin_updater::Error::ReleaseNotFound),
-            "No published Savvy updates are available yet."
-        );
+    fn missing_update_manifest_means_up_to_date() {
+        let outcome = update_check_outcome(Err(tauri_plugin_updater::Error::ReleaseNotFound));
+        assert!(matches!(outcome, Ok(None)));
     }
 }

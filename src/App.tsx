@@ -3438,6 +3438,16 @@ function Dropdown({
   );
 }
 
+type UpdateStatus = "idle" | "checking" | "up-to-date" | "available" | "failed";
+
+const updateStatusLabels: Record<UpdateStatus, string> = {
+  idle: "Check for updates",
+  checking: "Checking…",
+  "up-to-date": "Up to date",
+  available: "Update available",
+  failed: "Update check failed",
+};
+
 function AppFooter({
   settings,
   version,
@@ -3449,17 +3459,42 @@ function AppFooter({
   saving: boolean;
   onSave: (patch: Partial<AppSettings>) => Promise<boolean>;
 }) {
-  const [checkingForUpdates, setCheckingForUpdates] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>("idle");
+  const updateCheckInFlight = useRef(false);
 
   async function handleUpdateCheck() {
-    if (checkingForUpdates) return;
-    setCheckingForUpdates(true);
+    if (updateCheckInFlight.current) return;
+    updateCheckInFlight.current = true;
+    setUpdateStatus("checking");
+    let outcome: UpdateStatus;
     try {
-      await checkForUpdates();
-    } finally {
-      setCheckingForUpdates(false);
+      outcome = (await checkForUpdates()) ? "available" : "up-to-date";
+    } catch (error) {
+      console.error("Update check failed:", error);
+      outcome = "failed";
     }
+    updateCheckInFlight.current = false;
+    setUpdateStatus(outcome);
+    window.setTimeout(() => setUpdateStatus("idle"), 3000);
   }
+
+  useEffect(() => {
+    if (!window.__TAURI_INTERNALS__) return;
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    void import("@tauri-apps/api/event")
+      .then(({ listen }) =>
+        listen("savvy://check-updates", () => void handleUpdateCheck()),
+      )
+      .then((listener) => {
+        if (cancelled) listener();
+        else unlisten = listener;
+      });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
 
   return (
     <footer className="app-footer">
@@ -3494,10 +3529,10 @@ function AppFooter({
       <span className="footer-update">
         <button
           type="button"
-          disabled={checkingForUpdates}
+          disabled={updateStatus !== "idle"}
           onClick={() => void handleUpdateCheck()}
         >
-          {checkingForUpdates ? "Checking…" : "Check for updates"}
+          {updateStatusLabels[updateStatus]}
         </button>
         <span>•</span>
         <span>v{version}</span>

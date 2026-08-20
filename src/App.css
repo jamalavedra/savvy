@@ -21,11 +21,11 @@
   --muted: #77736e;
   --border: rgba(99, 94, 88, 0.2);
   --border-soft: rgba(99, 94, 88, 0.12);
-  --accent: #da5893;
-  --accent-soft: rgba(250, 162, 202, 0.8);
-  --accent-pale: rgba(250, 162, 202, 0.2);
+  --accent: #e8697a;
+  --accent-soft: rgba(249, 163, 171, 0.8);
+  --accent-pale: rgba(249, 163, 171, 0.2);
   --success: #368c66;
-  --warning: #c27a2c;
+  --warning: #cd8331;
   --danger: #d85664;
   --scrollbar-thumb: color-mix(in srgb, var(--text), transparent 85%);
   --scrollbar-thumb-hover: color-mix(in srgb, var(--text), transparent 70%);
@@ -142,14 +142,14 @@ textarea:focus-visible {
 }
 
 .savvy-wordmark {
-  color: #f39bc8;
+  color: #f9a3ab;
   font-family: "Arial Rounded MT Bold", "Arial Black", sans-serif;
   font-size: 40px;
   font-weight: 900;
   letter-spacing: -0.07em;
   line-height: 1;
-  -webkit-text-stroke: 1px #fbd8eb;
-  filter: drop-shadow(0 2px 0 #b84f82);
+  -webkit-text-stroke: 1px #fde1e4;
+  filter: drop-shadow(0 2px 0 #c9636f);
   paint-order: stroke fill;
   transform: rotate(-1deg);
 }
@@ -337,7 +337,7 @@ button.setting-row:hover {
 
 .button.primary {
   border-color: color-mix(in srgb, var(--accent) 75%, transparent);
-  color: #27161e;
+  color: #1f1f1f;
   background: var(--accent-soft);
 }
 
@@ -1129,7 +1129,7 @@ button.setting-row:hover {
   width: 48px;
   height: 48px;
   border-radius: 14px;
-  color: #382731;
+  color: #1f1f1f;
   font-size: 22px;
   background: var(--accent-soft);
 }
@@ -2181,21 +2181,21 @@ button.shortcut-chip {
     --muted: #aaa6a0;
     --border: rgba(251, 251, 251, 0.13);
     --border-soft: rgba(251, 251, 251, 0.08);
-    --accent: #f28cbb;
-    --accent-soft: rgba(242, 140, 187, 0.8);
-    --accent-pale: rgba(242, 140, 187, 0.16);
+    --accent: #f9a3ab;
+    --accent-soft: rgba(249, 163, 171, 0.8);
+    --accent-pale: rgba(249, 163, 171, 0.16);
     --success: #73c69d;
-    --warning: #e6aa67;
+    --warning: #fbbb73;
     --danger: #f08b96;
   }
 
   .brand-symbol,
   .large-mark {
-    color: #382731;
+    color: #1f1f1f;
   }
 
   .button.primary {
-    color: #27161e;
+    color: #1f1f1f;
   }
 }
 
@@ -2209,11 +2209,11 @@ button.shortcut-chip {
   --muted: #77736e;
   --border: rgba(99, 94, 88, 0.2);
   --border-soft: rgba(99, 94, 88, 0.12);
-  --accent: #da5893;
-  --accent-soft: rgba(250, 162, 202, 0.8);
-  --accent-pale: rgba(250, 162, 202, 0.2);
+  --accent: #e8697a;
+  --accent-soft: rgba(249, 163, 171, 0.8);
+  --accent-pale: rgba(249, 163, 171, 0.2);
   --success: #368c66;
-  --warning: #c27a2c;
+  --warning: #cd8331;
   --danger: #d85664;
 }
 
@@ -2227,11 +2227,11 @@ button.shortcut-chip {
   --muted: #aaa6a0;
   --border: rgba(251, 251, 251, 0.13);
   --border-soft: rgba(251, 251, 251, 0.08);
-  --accent: #f28cbb;
-  --accent-soft: rgba(242, 140, 187, 0.8);
-  --accent-pale: rgba(242, 140, 187, 0.16);
+  --accent: #f9a3ab;
+  --accent-soft: rgba(249, 163, 171, 0.8);
+  --accent-pale: rgba(249, 163, 171, 0.16);
   --success: #73c69d;
-  --warning: #e6aa67;
+  --warning: #fbbb73;
   --danger: #f08b96;
 }
 
