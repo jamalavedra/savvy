@@ -6,19 +6,18 @@ use savvy_domain::{
 use std::collections::HashSet;
 use thiserror::Error;
 
+/// Detects the two turn-level triggers that make Savvy visibly think: a remote
+/// question, or any speaker touching a hard constraint from the brief.
 #[derive(Debug, Clone)]
 pub struct TriggerDetector {
-    risk_terms: Vec<String>,
+    hard_constraints: Vec<String>,
     last_digest: Option<(String, u64)>,
 }
 
 impl TriggerDetector {
-    pub fn new(risk_terms: impl IntoIterator<Item = String>) -> Self {
+    pub fn new(hard_constraints: impl IntoIterator<Item = String>) -> Self {
         Self {
-            risk_terms: risk_terms
-                .into_iter()
-                .map(|term| term.to_lowercase())
-                .collect(),
+            hard_constraints: hard_constraints.into_iter().collect(),
             last_digest: None,
         }
     }
@@ -28,23 +27,13 @@ impl TriggerDetector {
             return None;
         }
         let text = turn.text.to_lowercase();
-        if self.risk_terms.iter().any(|term| text.contains(term)) {
-            return Some(Trigger::Risk);
-        }
-        if !is_meaningful_remote_turn(turn) {
-            return None;
-        }
-        let trigger = if contains_any(&text, COMMITMENT_TERMS) {
-            Some(Trigger::Commitment)
-        } else if contains_any(&text, OBJECTION_TERMS) {
-            Some(Trigger::Objection)
-        } else if text.ends_with('?') || starts_with_any(&text, QUESTION_PREFIXES) {
-            Some(Trigger::Question)
-        } else if contains_any(&text, DECISION_TERMS) {
-            Some(Trigger::Decision)
+        let trigger = if matching_constraint(&text, &self.hard_constraints).is_some() {
+            Trigger::Risk
+        } else if is_meaningful_remote_turn(turn) && is_question(&text) {
+            Trigger::Question
         } else {
-            None
-        }?;
+            return None;
+        };
         let digest = text
             .split_whitespace()
             .take(16)
@@ -62,6 +51,61 @@ impl TriggerDetector {
     }
 }
 
+/// A remote turn that signals the conversation has moved — a commitment,
+/// objection, or decision — and makes the silent scan worth running now.
+pub fn accelerates_scan(turn: &TranscriptTurn) -> bool {
+    if !is_meaningful_remote_turn(turn) {
+        return false;
+    }
+    let words = tokenize(&turn.text);
+    SCAN_ACCELERATOR_TERMS
+        .iter()
+        .any(|term| contains_phrase(&words, term))
+}
+
+fn is_question(text: &str) -> bool {
+    let trimmed = text.trim_end_matches(|character: char| {
+        character.is_whitespace() || "\"'”»)".contains(character)
+    });
+    trimmed.ends_with('?')
+        || QUESTION_PREFIXES
+            .iter()
+            .any(|prefix| text.starts_with(prefix))
+}
+
+/// The hard constraint that best matches the turn, if at least half of its
+/// distinctive words appear as whole words in the turn.
+pub fn matching_constraint<'a>(text: &str, constraints: &'a [String]) -> Option<&'a String> {
+    let words = tokenize(text);
+    constraints
+        .iter()
+        .filter_map(|constraint| {
+            let terms = tokenize(constraint);
+            if terms.is_empty() {
+                return None;
+            }
+            let matched = terms.iter().filter(|term| words.contains(*term)).count();
+            let score = matched as f32 / terms.len() as f32;
+            // ponytail: half-of-distinctive-words heuristic; swap for a phrase
+            // matcher if briefs start carrying long, stopword-heavy constraints.
+            (score >= 0.5).then_some((constraint, score))
+        })
+        .max_by(|left, right| left.1.total_cmp(&right.1))
+        .map(|(constraint, _)| constraint)
+}
+
+fn tokenize(text: &str) -> HashSet<String> {
+    text.to_lowercase()
+        .split(|character: char| !character.is_alphanumeric())
+        .filter(|word| word.len() >= 4)
+        .map(str::to_owned)
+        .collect()
+}
+
+fn contains_phrase(words: &HashSet<String>, phrase: &str) -> bool {
+    phrase.split_whitespace().all(|word| words.contains(word))
+}
+
 const QUESTION_PREFIXES: &[&str] = &[
     "what ",
     "why ",
@@ -69,70 +113,46 @@ const QUESTION_PREFIXES: &[&str] = &[
     "when ",
     "who ",
     "can you ",
+    "could you ",
     "què ",
-    "que ",
     "per què ",
-    "com ",
-    "quan ",
-    "qui ",
-    "quin ",
-    "quina ",
     "pots ",
     "podríeu ",
+    "qué ",
     "por qué ",
     "cómo ",
     "cuándo ",
     "quién ",
     "puedes ",
+    "podrías ",
 ];
-const OBJECTION_TERMS: &[&str] = &[
-    "disagree",
-    "too expensive",
-    "however",
-    "massa car",
-    "massa cara",
-    "no estem d'acord",
-    "però",
-    "preocupa",
-    "problema",
-    "demasiado caro",
-    "demasiado cara",
-    "no estamos de acuerdo",
-    "pero",
-    "preocupa",
-];
-const COMMITMENT_TERMS: &[&str] = &[
+const SCAN_ACCELERATOR_TERMS: &[&str] = &[
     "commit",
     "guarantee",
     "sign today",
-    "comprom",
-    "garant",
-    "signar avui",
-    "compromiso",
-    "garant",
-    "firmar hoy",
-];
-const DECISION_TERMS: &[&str] = &[
-    "we have decided",
+    "disagree",
+    "expensive",
+    "however",
+    "decided",
     "next step",
-    "hem decidit",
-    "següent pas",
-    "tirar endavant",
-    "hemos decidido",
+    "comprometre",
+    "garantir",
+    "signar avui",
+    "massa",
+    "preocupa",
+    "problema",
+    "decidit",
+    "següent",
+    "compromiso",
+    "garantizar",
+    "firmar",
+    "demasiado",
+    "decidido",
     "siguiente paso",
-    "seguir adelante",
 ];
 const BACKCHANNELS: &[&str] = &[
     "yes", "yeah", "right", "okay", "ok", "uh-huh", "sí", "si", "vale", "d'acord", "mhm",
 ];
-
-fn contains_any(text: &str, terms: &[&str]) -> bool {
-    terms.iter().any(|term| text.contains(term))
-}
-
-fn starts_with_any(text: &str, terms: &[&str]) -> bool {
-    terms.iter().any(|term| text.starts_with(term))
-}
 
 fn is_backchannel(text: &str) -> bool {
     let normalized = text.trim_matches(|character: char| !character.is_alphanumeric());
@@ -195,21 +215,10 @@ pub fn recommend_from_hard_constraint(
         .red_lines
         .iter()
         .chain(&brief.prohibited_claims)
-        .chain(&brief.unauthorized_commitments);
-    let red_line = constraints
-        .clone()
-        .find(|rule| {
-            let rule = rule.to_lowercase();
-            rule.split_whitespace()
-                .filter(|word| word.len() > 4)
-                .any(|word| turn.text.to_lowercase().contains(word))
-        })
-        .or_else(|| {
-            (trigger == Trigger::Risk)
-                .then(|| constraints.into_iter().next())
-                .flatten()
-        })?
-        .clone();
+        .chain(&brief.unauthorized_commitments)
+        .cloned()
+        .collect::<Vec<_>>();
+    let red_line = matching_constraint(&turn.text, &constraints)?.clone();
     let now = Utc::now();
     Some(Recommendation {
         id: uuid::Uuid::new_v4(),
@@ -277,38 +286,140 @@ mod tests {
     }
 
     #[test]
-    fn rejects_fabricated_source_identifiers() {
-        let recommendation = recommendation(Uuid::new_v4());
-        let allowed = HashSet::new();
+    fn validation_rejects_each_failure_mode_and_exempts_manual_confidence() {
+        let chunk_id = Uuid::new_v4();
+        let allowed = HashSet::from([chunk_id]);
         assert_eq!(
-            validate_recommendation(&recommendation, &allowed),
+            validate_recommendation(&recommendation(chunk_id), &allowed),
+            Ok(())
+        );
+        assert_eq!(
+            validate_recommendation(&recommendation(Uuid::new_v4()), &allowed),
             Err(RecommendationError::UnknownSource)
         );
-    }
-
-    #[test]
-    fn risk_recommendation_carries_the_approved_red_line() {
-        let mut brief = test_brief();
-        brief.red_lines = vec!["Do not commit to an unapproved date".into()];
-        let turn = transcript("Can you guarantee delivery next Friday?");
-        let recommendation = recommend_from_hard_constraint(&brief, &turn, Trigger::Risk, None)
-            .expect("matched hard constraint");
+        let mut low = recommendation(chunk_id);
+        low.grounding_score = 0.54;
         assert_eq!(
-            recommendation.avoid.as_deref(),
-            Some("Do not commit to an unapproved date")
+            validate_recommendation(&low, &allowed),
+            Err(RecommendationError::LowConfidence)
         );
-        assert_eq!(recommendation.source_turn_ids, vec![turn.id]);
+        low.trigger = Trigger::Manual;
+        assert_eq!(validate_recommendation(&low, &allowed), Ok(()));
+        let mut unsourced = recommendation(chunk_id);
+        unsourced.sources.clear();
+        assert_eq!(
+            validate_recommendation(&unsourced, &allowed),
+            Err(RecommendationError::MissingSource)
+        );
+        let mut long = recommendation(chunk_id);
+        long.say = "word ".repeat(91);
+        assert_eq!(
+            validate_recommendation(&long, &allowed),
+            Err(RecommendationError::TooLong)
+        );
     }
 
     #[test]
-    fn catalan_remote_question_triggers_but_self_question_does_not() {
+    fn detector_table() {
+        let constraints = vec![
+            "Do not promise a delivery date before Q3".to_owned(),
+            "Never discuss pricing without approval".to_owned(),
+        ];
+        let cases: &[(&str, SpeakerChannel, Option<Trigger>)] = &[
+            (
+                "Can you guarantee the delivery date?",
+                SpeakerChannel::Other,
+                Some(Trigger::Risk),
+            ),
+            (
+                "We can promise the delivery date",
+                SpeakerChannel::SelfSpeaker,
+                Some(Trigger::Risk),
+            ),
+            (
+                "The update is ready before lunch",
+                SpeakerChannel::Other,
+                None,
+            ),
+            ("Why?", SpeakerChannel::Other, Some(Trigger::Question)),
+            (
+                "So that is the plan? ",
+                SpeakerChannel::Other,
+                Some(Trigger::Question),
+            ),
+            (
+                "How soon can you start",
+                SpeakerChannel::Other,
+                Some(Trigger::Question),
+            ),
+            (
+                "Què necessiteu per tirar endavant",
+                SpeakerChannel::Other,
+                Some(Trigger::Question),
+            ),
+            ("Que sigui aviat", SpeakerChannel::Other, None),
+            ("Com a resum, tot bé", SpeakerChannel::Other, None),
+            ("Podemos revisar el borrador.", SpeakerChannel::Other, None),
+            (
+                "Podemos revisar el borrador?",
+                SpeakerChannel::Other,
+                Some(Trigger::Question),
+            ),
+            ("What is the timeline?", SpeakerChannel::SelfSpeaker, None),
+            ("What is the timeline?", SpeakerChannel::Unknown, None),
+            (
+                "However, the timeline worries us",
+                SpeakerChannel::Other,
+                None,
+            ),
+            ("We have decided to move on", SpeakerChannel::Other, None),
+            ("Okay.", SpeakerChannel::Other, None),
+        ];
+        for (text, channel, expected) in cases {
+            let mut detector = TriggerDetector::new(constraints.clone());
+            let mut turn = transcript(text);
+            turn.channel = *channel;
+            assert_eq!(detector.detect(&turn), *expected, "{text}");
+        }
+    }
+
+    #[test]
+    fn interim_turns_never_trigger() {
         let mut detector = TriggerDetector::new(Vec::new());
-        let mut turn = transcript("Què necessiteu per tirar endavant?");
-        turn.language = "ca".into();
-        assert_eq!(detector.detect(&turn), Some(Trigger::Question));
-        turn.channel = SpeakerChannel::SelfSpeaker;
-        turn.end_ms += 11_000;
+        let mut turn = transcript("Why?");
+        turn.is_final = false;
         assert_eq!(detector.detect(&turn), None);
+    }
+
+    #[test]
+    fn identical_turns_are_deduped_for_ten_seconds() {
+        let mut detector = TriggerDetector::new(vec!["pricing approval".into()]);
+        let mut question = transcript("Why is that?");
+        assert_eq!(detector.detect(&question), Some(Trigger::Question));
+        question.end_ms += 9_999;
+        assert_eq!(detector.detect(&question), None);
+        question.end_ms += 1;
+        assert_eq!(detector.detect(&question), Some(Trigger::Question));
+
+        let mut risk = transcript("We need pricing approval");
+        risk.end_ms = question.end_ms + 1_000;
+        assert_eq!(detector.detect(&risk), Some(Trigger::Risk));
+        risk.end_ms += 1_000;
+        assert_eq!(detector.detect(&risk), None);
+    }
+
+    #[test]
+    fn accelerators_are_remote_whole_word_matches() {
+        assert!(accelerates_scan(&transcript(
+            "However, the timeline worries us"
+        )));
+        assert!(accelerates_scan(&transcript("Hemos decidido seguir")));
+        assert!(!accelerates_scan(&transcript(
+            "The committee meets on Friday"
+        )));
+        let mut own = transcript("However, we disagree");
+        own.channel = SpeakerChannel::SelfSpeaker;
+        assert!(!accelerates_scan(&own));
     }
 
     #[test]
@@ -334,40 +445,27 @@ mod tests {
     }
 
     #[test]
-    fn one_word_remote_questions_trigger() {
-        let mut detector = TriggerDetector::new(Vec::new());
+    fn hard_constraint_card_quotes_the_matching_constraint_only() {
+        let mut brief = test_brief();
+        brief.red_lines = vec![
+            "Do not offer a standalone discount".into(),
+            "Do not commit to an unapproved date".into(),
+        ];
+        let turn = transcript("Can you commit to a date this week?");
+        let recommendation = recommend_from_hard_constraint(&brief, &turn, Trigger::Risk, None)
+            .expect("matched hard constraint");
         assert_eq!(
-            detector.detect(&transcript("Why?")),
-            Some(Trigger::Question)
+            recommendation.avoid.as_deref(),
+            Some("Do not commit to an unapproved date")
         );
-    }
-
-    #[test]
-    fn first_person_plural_statements_are_not_questions() {
-        let mut detector = TriggerDetector::new(Vec::new());
-        assert_eq!(
-            detector.detect(&transcript("Podem revisar l'esborrany.")),
+        assert_eq!(recommendation.source_turn_ids, vec![turn.id]);
+        assert!(recommend_from_hard_constraint(
+            &brief,
+            &transcript("What is the weather like?"),
+            Trigger::Risk,
             None
-        );
-        assert_eq!(
-            detector.detect(&transcript("Podemos revisar el borrador.")),
-            None
-        );
-        assert_eq!(
-            detector.detect(&transcript("Podemos revisar el borrador?")),
-            Some(Trigger::Question)
-        );
-    }
-
-    #[test]
-    fn self_speech_only_triggers_on_an_exact_hard_constraint() {
-        let mut detector = TriggerDetector::new(vec!["no prometre una data de lliurament".into()]);
-        let mut turn = transcript("Podem parlar de la data de lliurament");
-        turn.channel = SpeakerChannel::SelfSpeaker;
-        turn.language = "ca".into();
-        assert_eq!(detector.detect(&turn), None);
-        turn.text = "No prometre una data de lliurament".into();
-        assert_eq!(detector.detect(&turn), Some(Trigger::Risk));
+        )
+        .is_none());
     }
 
     fn transcript(text: &str) -> TranscriptTurn {

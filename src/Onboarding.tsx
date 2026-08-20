@@ -283,7 +283,7 @@ export default function Onboarding({
           >
             <strong>{option.label}</strong>
             {keyStatus[option.id] && (
-              <span className="onboarding-granted">
+              <span className="onboarding-status granted">
                 <Check /> Key saved
               </span>
             )}
@@ -397,20 +397,20 @@ function PermissionRow({
         <small>{detail}</small>
       </span>
       {status === "granted" ? (
-        <span className="onboarding-granted">
+        <span className="onboarding-status granted">
           <Check /> Allowed
+        </span>
+      ) : status === "checking" || status === "waiting" ? (
+        <span className="onboarding-status">
+          {status === "checking" ? "Checking…" : "Waiting…"}
         </span>
       ) : (
         <button
           className="button secondary"
-          disabled={status === "checking" || status === "waiting" || disabled}
+          disabled={disabled}
           onClick={() => void onGrant()}
         >
-          {status === "checking"
-            ? "Checking…"
-            : status === "waiting"
-              ? "Waiting…"
-              : "Allow"}
+          Allow
         </button>
       )}
     </div>

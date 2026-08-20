@@ -4,7 +4,9 @@ import App, { MeetingOverlay } from "./App";
 import {
   meetingEventIsStale,
   mergeTranscriptTurn,
+  reduceMeetingEvent,
   startsNewMeeting,
+  type GenerationCursor,
 } from "./lib/meetingEvents";
 import { resetBrowserDemoState } from "./lib/api";
 import { requestPermissionDecision } from "./lib/permissions";
@@ -48,6 +50,109 @@ describe("App", () => {
         { sessionId: "meeting", sequence: 5, generationId: 1 },
       ),
     ).toBe(false);
+  });
+
+  describe("reduceMeetingEvent", () => {
+    const cursor: GenerationCursor = {
+      sessionId: "meeting",
+      generationId: 1,
+      sequence: 3,
+      terminalGenerationId: 1,
+      trigger: null,
+    };
+    const started = (
+      trigger: "question" | "opportunity" | "manual",
+      generationId = 2,
+    ) =>
+      ({
+        type: "recommendationStarted",
+        sessionId: "meeting",
+        sequence: 4,
+        generationId,
+        transcriptRevision: 9,
+        trigger,
+        local: null,
+      }) as const;
+
+    it("shows a scan as checking notes without touching the current card", () => {
+      const effect = reduceMeetingEvent(cursor, started("opportunity"));
+      expect(effect.kind).toBe("started");
+      if (effect.kind !== "started") return;
+      expect(effect.thinking).toEqual({
+        trigger: "opportunity",
+        generationId: 2,
+        phase: "checking",
+      });
+      expect(effect.card).toBeUndefined();
+      expect(effect.cursor.generationId).toBe(2);
+    });
+
+    it("starts explicit triggers in the checking phase with their local card", () => {
+      const effect = reduceMeetingEvent(cursor, started("question"));
+      expect(effect.kind).toBe("started");
+      if (effect.kind !== "started") return;
+      expect(effect.thinking).toEqual({
+        trigger: "question",
+        generationId: 2,
+        phase: "checking",
+      });
+      expect(effect.card).toBeNull();
+    });
+
+    it("moves to the thinking phase on the model's first token, once per generation", () => {
+      const running = reduceMeetingEvent(cursor, started("question"));
+      if (running.kind !== "started") throw new Error("expected start");
+      const thinkingEvent = {
+        type: "recommendationThinking",
+        sessionId: "meeting",
+        sequence: 5,
+        generationId: 2,
+        transcriptRevision: 9,
+      } as const;
+      const effect = reduceMeetingEvent(running.cursor, thinkingEvent);
+      expect(effect.kind).toBe("phase");
+      if (effect.kind !== "phase") return;
+      expect(effect.generationId).toBe(2);
+      expect(effect.cursor.generationId).toBe(2);
+      expect(effect.cursor.sequence).toBe(5);
+      expect(
+        reduceMeetingEvent(effect.cursor, { ...thinkingEvent, generationId: 1 })
+          .kind,
+      ).toBe("ignored");
+    });
+
+    it("ends thinking on any terminal event, including cancellation", () => {
+      const running = reduceMeetingEvent(cursor, started("question"));
+      if (running.kind !== "started") throw new Error("expected start");
+      const effect = reduceMeetingEvent(running.cursor, {
+        type: "recommendationCancelled",
+        sessionId: "meeting",
+        sequence: 5,
+        generationId: 2,
+        transcriptRevision: 9,
+      });
+      expect(effect.kind).toBe("finished");
+      if (effect.kind !== "finished") return;
+      expect(effect.recommendation).toBeNull();
+      expect(effect.cursor.terminalGenerationId).toBe(2);
+      expect(
+        reduceMeetingEvent(effect.cursor, started("question", 2)).kind,
+      ).toBe("ignored");
+    });
+
+    it("forgets thinking when another meeting's transcript arrives", () => {
+      const effect = reduceMeetingEvent(cursor, {
+        type: "transcript",
+        sessionId: "other",
+        sequence: 1,
+        turn: {} as never,
+        interim: false,
+      });
+      expect(effect.kind).toBe("transcript");
+      if (effect.kind !== "transcript") return;
+      expect(effect.newSession).toBe(true);
+      expect(effect.cursor.generationId).toBe(0);
+    });
   });
 
   it("clears live state only when a different meeting starts", () => {
@@ -168,20 +273,42 @@ describe("App", () => {
     expect(screen.getAllByText("General guidelines")).toHaveLength(1);
     expect(screen.queryByText("Guidance Library")).not.toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Meeting language" }),
+      screen.getByRole("button", { name: "Conversation language" }),
     ).toHaveTextContent("Auto Detect");
     expect(
       screen.queryByRole("button", { name: /Manage sources/ }),
     ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Show documents" }));
+    expect(
+      await screen.findByRole("checkbox", { name: /msa-2024-signed\.pdf/ }),
+    ).toBeChecked();
+    const unsupported = screen.getByRole("checkbox", {
+      name: /roadmap\.sketch/,
+    });
+    expect(unsupported).toBeDisabled();
+    expect(unsupported).not.toBeChecked();
+    const finance = screen.getByRole("checkbox", { name: "Finance folder" });
+    expect(finance).toBeChecked();
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /q2-usage-export\.csv/ }),
+    );
+    expect(
+      await screen.findByText("23 of 24 documents selected"),
+    ).toBeVisible();
+    expect(finance).not.toBeChecked();
+    expect(screen.getByText("0 of 1")).toBeVisible();
+    fireEvent.click(finance);
+    expect(await screen.findByText("24 source documents")).toBeVisible();
     expect(
       screen.getByRole("button", { name: /Open client folder/ }),
     ).toBeVisible();
     expect(screen.getByRole("button", { name: /Remove client/ })).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: /General guidelines/ }));
-    expect(screen.getByText("Guidance Library")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Change…" })).toBeVisible();
     expect(
-      screen.getByText("Reusable guidance used across meetings"),
+      screen.getByRole("button", { name: "Clear guidance folder" }),
     ).toBeVisible();
+    expect(screen.getByText("Guidance", { selector: "small" })).toBeVisible();
     expect(screen.queryByText("Live recommendation")).not.toBeInTheDocument();
     expect(
       (await screen.findAllByText("Enterprise renewal")).length,
@@ -229,7 +356,7 @@ describe("App", () => {
     expect(await screen.findByText("Meeting history")).toBeVisible();
   });
 
-  it("disables Advice while an automatic recommendation is thinking", () => {
+  it("says what it is thinking about and disables Advice meanwhile", () => {
     render(
       <MeetingOverlay
         session={
@@ -256,16 +383,42 @@ describe("App", () => {
         style="live"
         position="bottom"
         showTranscript={false}
-        thinking
+        thinking={{ trigger: "question", phase: "thinking" }}
+        hasNotes
       />,
     );
 
-    expect(screen.getByText("Savvy is thinking")).toBeVisible();
+    expect(screen.getByText("Answering their question")).toBeVisible();
     expect(document.querySelector(".mascot-state.thinking")).toBeVisible();
-    expect(
-      screen.getByRole("button", { name: "Get recommendation now" }),
-    ).toBeDisabled();
-    expect(screen.getByText("Thinking…")).toBeVisible();
+    const advice = screen.getByRole("button", {
+      name: "Get recommendation now",
+    });
+    expect(advice).toBeDisabled();
+    expect(advice).not.toHaveTextContent("Advice");
+  });
+
+  it("says it is reading the conversation when there are no notes to check", () => {
+    const overlay = (hasNotes: boolean) => (
+      <MeetingOverlay
+        session={{ id: "meeting", state: "recording" } as never}
+        turns={[]}
+        recommendation={null}
+        onTogglePause={() => undefined}
+        onRequestRecommendation={() => undefined}
+        onStop={() => undefined}
+        busy={false}
+        error={null}
+        style="live"
+        position="bottom"
+        showTranscript={false}
+        thinking={{ trigger: "opportunity", phase: "checking" }}
+        hasNotes={hasNotes}
+      />
+    );
+    const { rerender } = render(overlay(false));
+    expect(screen.getByText("Reading the conversation")).toBeVisible();
+    rerender(overlay(true));
+    expect(screen.getByText("Checking notes")).toBeVisible();
   });
 
   it("starts a meeting with general guidelines and no client brief", async () => {
@@ -405,9 +558,8 @@ describe("App", () => {
       );
       fireEvent.click(await screen.findByRole("option", { name: /Northstar/ }));
       fireEvent.click(
-        await screen.findByRole("button", { name: "More brief actions" }),
+        await screen.findByRole("button", { name: "Unselect brief" }),
       );
-      fireEvent.click(screen.getByRole("button", { name: "Remove brief" }));
 
       // Removing it must leave the scope with no brief, not fall back to an
       // earlier version.
@@ -531,7 +683,9 @@ describe("App", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Prepare" }));
-    fireEvent.click(screen.getByRole("button", { name: "Meeting language" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Conversation language" }),
+    );
     fireEvent.change(
       screen.getByRole("textbox", { name: "Search languages" }),
       {
@@ -541,10 +695,14 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("option", { name: "Catalan" }));
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: "Meeting language" }),
+        screen.getByRole("button", { name: "Conversation language" }),
       ).toHaveTextContent("Catalan"),
     );
-    expect(screen.getByText(/via Deepgram Nova-3/)).toBeVisible();
+    expect(
+      screen.getByRole("button", {
+        name: /Conversation language: .*via Deepgram Nova-3/,
+      }),
+    ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Models" }));
     expect(
       await screen.findByRole("button", { name: "Transcription Provider" }),
@@ -587,23 +745,19 @@ describe("App", () => {
     ).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
     expect((await screen.findAllByText(/Version 4/)).length).toBeGreaterThan(0);
-    const customize = screen.getByRole("button", {
-      name: /Customize generation/,
-    });
+    expect(screen.getByText("SAVVY READS")).toBeVisible();
+    expect(screen.getByText("SAVVY USES")).toBeVisible();
+    const customize = screen.getByRole("button", { name: /Brief prompt/ });
     fireEvent.click(customize);
-    expect(customize).toHaveAttribute(
-      "aria-controls",
-      "customize-generation-panel",
-    );
+    expect(customize).toHaveAttribute("aria-controls", "brief-prompt-panel");
     expect(customize).toHaveAttribute("aria-expanded", "true");
     const prompt = screen.getByLabelText("Generation prompt");
-    expect(prompt.closest(".prepare-disclosure-panel")).toHaveAttribute(
+    expect(prompt.closest(".prepare-card-body")).toHaveAttribute(
       "id",
-      "customize-generation-panel",
+      "brief-prompt-panel",
     );
     expect((prompt as HTMLTextAreaElement).value).toContain("source-grounded");
     fireEvent.change(prompt, { target: { value: "Focus on delivery risk." } });
-    fireEvent.click(screen.getByRole("button", { name: "More brief actions" }));
     fireEvent.click(screen.getByRole("button", { name: "Regenerate" }));
     expect(
       (await screen.findAllByText(/savvy-brief-v4.md/)).length,

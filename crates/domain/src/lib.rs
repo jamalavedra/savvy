@@ -15,6 +15,20 @@ pub struct ClientWorkspace {
     pub document_count: usize,
     pub last_indexed_at: Option<DateTime<Utc>>,
     pub active_brief_id: Option<EntityId>,
+    /// Files in the folder the user has switched off. Stored as folder-relative
+    /// paths so the choice survives re-indexing and content changes.
+    #[serde(default)]
+    pub excluded_paths: Vec<PathBuf>,
+}
+
+/// One file in a client folder as the Prepare tab lists it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientDocument {
+    pub relative_path: PathBuf,
+    /// `None` when Savvy cannot read this file type.
+    pub kind: Option<DocumentKind>,
+    pub included: bool,
 }
 
 impl ClientWorkspace {
@@ -27,6 +41,7 @@ impl ClientWorkspace {
             document_count: 0,
             last_indexed_at: None,
             active_brief_id: None,
+            excluded_paths: Vec::new(),
         }
     }
 }
@@ -262,6 +277,8 @@ pub struct ContextPack {
     pub brief: Option<BriefSnapshot>,
     pub client_id: Option<EntityId>,
     pub source_revision: String,
+    #[serde(default)]
+    pub excluded_paths: Vec<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -298,7 +315,6 @@ pub enum Trigger {
     Decision,
     Risk,
     Opportunity,
-    Pause,
     Manual,
 }
 
@@ -419,6 +435,12 @@ pub enum MeetingEvent {
         transcript_revision: u64,
         trigger: Trigger,
         local: Option<Recommendation>,
+    },
+    RecommendationThinking {
+        session_id: EntityId,
+        sequence: u64,
+        generation_id: u64,
+        transcript_revision: u64,
     },
     RecommendationCompleted {
         session_id: EntityId,

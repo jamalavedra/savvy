@@ -1,16 +1,127 @@
-import type { MeetingEvent, MeetingSession, TranscriptTurn } from "../types";
+import type {
+  MeetingEvent,
+  MeetingSession,
+  Recommendation,
+  RecommendationTrigger,
+  TranscriptTurn,
+} from "../types";
 
-type GenerationCursor = {
+export type ThinkingPhase = "checking" | "thinking";
+
+export type GenerationCursor = {
   sessionId: string;
   generationId: number;
   sequence: number;
-  terminalGenerationId?: number;
+  terminalGenerationId: number;
+  trigger: RecommendationTrigger | null;
 };
 
-export function meetingEventIsStale(
-  event: MeetingEvent,
+type StaleCursor = Pick<
+  GenerationCursor,
+  "sessionId" | "generationId" | "sequence"
+> &
+  Partial<Pick<GenerationCursor, "terminalGenerationId">>;
+
+export type MeetingEventEffect =
+  | { kind: "ignored" }
+  | {
+      kind: "transcript";
+      cursor: GenerationCursor;
+      turn: TranscriptTurn;
+      newSession: boolean;
+    }
+  | {
+      kind: "started";
+      cursor: GenerationCursor;
+      thinking: {
+        trigger: RecommendationTrigger;
+        generationId: number;
+        phase: ThinkingPhase;
+      };
+      card: Recommendation | null | undefined;
+    }
+  | { kind: "phase"; cursor: GenerationCursor; generationId: number }
+  | {
+      kind: "finished";
+      cursor: GenerationCursor;
+      recommendation: Recommendation | null;
+    };
+
+/**
+ * Folds one backend meeting event into the generation cursor and says what the
+ * UI should do about it. Every generation starts in the "checking" phase (the
+ * model is reading notes and transcript) and moves to "thinking" once it begins
+ * answering; a scan additionally leaves the current card alone (`card` is
+ * undefined) until it has something to show.
+ */
+export function reduceMeetingEvent(
   current: GenerationCursor,
-) {
+  event: MeetingEvent,
+): MeetingEventEffect {
+  if (meetingEventIsStale(event, current)) return { kind: "ignored" };
+  const sameSession = event.sessionId === current.sessionId;
+  if (event.type === "transcript") {
+    return {
+      kind: "transcript",
+      cursor: {
+        sessionId: event.sessionId,
+        generationId: sameSession ? current.generationId : 0,
+        sequence: event.sequence,
+        terminalGenerationId: sameSession ? current.terminalGenerationId : 0,
+        trigger: sameSession ? current.trigger : null,
+      },
+      turn: event.turn,
+      newSession: !sameSession,
+    };
+  }
+  if (event.type === "recommendationStarted") {
+    const scan = event.trigger === "opportunity";
+    return {
+      kind: "started",
+      cursor: {
+        sessionId: event.sessionId,
+        generationId: event.generationId,
+        sequence: Math.max(current.sequence, event.sequence),
+        terminalGenerationId: sameSession ? current.terminalGenerationId : 0,
+        trigger: event.trigger,
+      },
+      thinking: {
+        trigger: event.trigger,
+        generationId: event.generationId,
+        phase: "checking",
+      },
+      card: scan ? undefined : event.local,
+    };
+  }
+  if (!sameSession) return { kind: "ignored" };
+  if (event.type === "recommendationThinking") {
+    return {
+      kind: "phase",
+      cursor: {
+        ...current,
+        sequence: Math.max(current.sequence, event.sequence),
+      },
+      generationId: event.generationId,
+    };
+  }
+  return {
+    kind: "finished",
+    cursor: {
+      sessionId: event.sessionId,
+      generationId: event.generationId,
+      sequence: Math.max(current.sequence, event.sequence),
+      terminalGenerationId: Math.max(
+        current.terminalGenerationId,
+        event.generationId,
+      ),
+      trigger: null,
+    },
+    recommendation:
+      event.type === "recommendationCompleted" ? event.recommendation : null,
+  };
+}
+
+export function meetingEventIsStale(event: MeetingEvent, current: StaleCursor) {
   if (event.sessionId !== current.sessionId) return false;
   if (event.type === "transcript") return event.sequence <= current.sequence;
   if (event.type === "recommendationStarted") {

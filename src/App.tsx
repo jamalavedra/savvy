@@ -10,7 +10,9 @@ import {
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
+  BookOpen,
   ChevronDown,
+  ChevronsUpDown,
   Check,
   Cpu,
   FileText,
@@ -20,7 +22,6 @@ import {
   Info,
   Mic,
   MicOff,
-  MoreHorizontal,
   Pause,
   Play,
   RotateCcw,
@@ -30,6 +31,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
+import { listClientDocuments, setClientDocumentSelection } from "./lib/api";
 import "./App.css";
 import mascotListening from "./assets/mascot-states/savvy-listening-upload.png";
 import mascotMuted from "./assets/mascot-states/savvy-muted-upload.png";
@@ -73,9 +75,11 @@ import {
 import Onboarding from "./Onboarding";
 import { requestPermissionDecision } from "./lib/permissions";
 import {
-  meetingEventIsStale,
   mergeTranscriptTurn,
+  reduceMeetingEvent,
   startsNewMeeting,
+  type GenerationCursor,
+  type ThinkingPhase,
 } from "./lib/meetingEvents";
 import type {
   AppPaths,
@@ -93,6 +97,8 @@ import type {
   RecommendationTrigger,
   TranscriptTurn,
   TranscriptionKeyStatus,
+  ClientDocument,
+  DocumentKind,
 } from "./types";
 
 type View =
@@ -100,6 +106,42 @@ type View =
 
 const MIN_RECOMMENDATION_DISPLAY_MS = 15_000;
 const MAX_RECOMMENDATION_DISPLAY_MS = 30_000;
+// Provider calls are capped at 30 s backend-side; this only catches a lost terminal event.
+const THINKING_WATCHDOG_MS = 35_000;
+const THINKING_LABELS: Partial<Record<RecommendationTrigger, string>> = {
+  question: "Answering their question",
+  risk: "Checking a red line",
+  manual: "Getting advice",
+};
+const CARD_TITLES: Partial<Record<RecommendationTrigger, string>> = {
+  question: "Answer",
+  risk: "Red line",
+  manual: "Advice",
+  opportunity: "Savvy noticed",
+};
+type ThinkingState = {
+  trigger: RecommendationTrigger;
+  generationId: number;
+  phase: ThinkingPhase;
+} | null;
+type ThinkingDisplay = Pick<
+  NonNullable<ThinkingState>,
+  "trigger" | "phase"
+> | null;
+
+function thinkingLabel(
+  thinking: NonNullable<ThinkingDisplay>,
+  hasNotes: boolean,
+) {
+  if (thinking.phase === "checking") {
+    return hasNotes ? "Checking notes" : "Reading the conversation";
+  }
+  return THINKING_LABELS[thinking.trigger] ?? "Thinking";
+}
+
+function recommendationKey(recommendation: Recommendation) {
+  return `${recommendation.id}:${recommendation.lifecycle}`;
+}
 
 const icons = {
   prepare: Sparkles,
@@ -151,26 +193,28 @@ function App() {
   >(null);
   const [version, setVersion] = useState("0.1.0");
   const [transcriptTurns, setTranscriptTurns] = useState<TranscriptTurn[]>([]);
-  const [thinking, setThinking] = useState(false);
+  const [thinking, setThinking] = useState<ThinkingState>(null);
   const visibleSessionRef = useRef("");
-  const generationRef = useRef<{
-    sessionId: string;
-    generationId: number;
-    sequence: number;
-    terminalGenerationId: number;
-    trigger: RecommendationTrigger | null;
-  }>({
+  const generationRef = useRef<GenerationCursor>({
     sessionId: "",
     generationId: 0,
     sequence: 0,
     terminalGenerationId: 0,
     trigger: null,
   });
-  const handleStartRequest = useEffectEvent(() =>
-    dashboard?.activeSession
-      ? void endActiveMeeting()
-      : void startActiveMeeting(),
-  );
+  const handleStartRequest = useEffectEvent(() => {
+    if (onboarding !== "done") {
+      // Tray and shortcut starts land here too; while setup is showing, surface
+      // it instead of starting a meeting underneath it.
+      if (window.__TAURI_INTERNALS__) {
+        const mainWindow = getCurrentWindow();
+        void mainWindow.show().then(() => mainWindow.setFocus());
+      }
+      return;
+    }
+    if (dashboard?.activeSession) void endActiveMeeting();
+    else void startActiveMeeting();
+  });
   const handleStopRequest = useEffectEvent(() => void endActiveMeeting());
   function applyRecommendation(recommendation: Recommendation) {
     setDashboard((current) =>
@@ -178,60 +222,44 @@ function App() {
     );
   }
   const handleMeetingEvent = useEffectEvent((event: MeetingEvent) => {
-    const current = generationRef.current;
-    if (meetingEventIsStale(event, current)) return;
-    if (event.type === "transcript") {
-      const sameSession = event.sessionId === current.sessionId;
-      generationRef.current = {
-        sessionId: event.sessionId,
-        generationId: sameSession ? current.generationId : 0,
-        sequence: event.sequence,
-        terminalGenerationId: sameSession ? current.terminalGenerationId : 0,
-        trigger: sameSession ? current.trigger : null,
-      };
-      if (!sameSession) setThinking(false);
-      setTranscriptTurns((turns) => mergeTranscriptTurn(turns, event.turn));
+    const effect = reduceMeetingEvent(generationRef.current, event);
+    if (effect.kind === "ignored") return;
+    generationRef.current = effect.cursor;
+    if (effect.kind === "transcript") {
+      if (effect.newSession) setThinking(null);
+      setTranscriptTurns((turns) => mergeTranscriptTurn(turns, effect.turn));
       return;
     }
-    if (
-      event.type === "recommendationStarted" &&
-      (event.sessionId !== current.sessionId ||
-        event.generationId >= current.generationId)
-    ) {
-      generationRef.current = {
-        sessionId: event.sessionId,
-        generationId: event.generationId,
-        sequence: Math.max(current.sequence, event.sequence),
-        terminalGenerationId: current.terminalGenerationId,
-        trigger: event.trigger,
-      };
-      setThinking(true);
-      if (event.trigger !== "opportunity") {
+    if (effect.kind === "phase") {
+      setThinking((current) =>
+        current && current.generationId === effect.generationId
+          ? { ...current, phase: "thinking" }
+          : current,
+      );
+      return;
+    }
+    if (effect.kind === "started") {
+      setThinking(effect.thinking);
+      if (effect.card !== undefined) {
+        const card = effect.card;
         setDashboard((dashboard) =>
-          dashboard
-            ? { ...dashboard, latestRecommendation: event.local }
-            : dashboard,
+          dashboard ? { ...dashboard, latestRecommendation: card } : dashboard,
         );
       }
       return;
     }
-    if (event.sessionId !== current.sessionId) {
-      return;
-    }
-    generationRef.current = {
-      sessionId: event.sessionId,
-      generationId: event.generationId,
-      sequence: Math.max(current.sequence, event.sequence),
-      terminalGenerationId: Math.max(
-        current.terminalGenerationId,
-        event.generationId,
-      ),
-      trigger: null,
-    };
-    setThinking(false);
-    if (event.type === "recommendationCompleted")
-      applyRecommendation(event.recommendation);
+    setThinking(null);
+    if (effect.recommendation) applyRecommendation(effect.recommendation);
   });
+
+  useEffect(() => {
+    if (!thinking) return;
+    const timer = window.setTimeout(
+      () => setThinking(null),
+      THINKING_WATCHDOG_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [thinking]);
 
   async function refreshDashboard() {
     try {
@@ -371,7 +399,7 @@ function App() {
                 trigger: null,
               };
               setTranscriptTurns([]);
-              setThinking(false);
+              setThinking(null);
               setError(null);
             }
             setDashboard((current) =>
@@ -389,8 +417,8 @@ function App() {
                   }
                 : current,
             );
+            if (event.payload.state === "completed") setThinking(null);
             if (!overlayWindow && event.payload.state === "completed") {
-              setThinking(false);
               setView("meetings");
             }
           }),
@@ -609,7 +637,7 @@ function App() {
   }
 
   async function startActiveMeeting() {
-    if (dashboard?.activeSession) {
+    if (dashboard?.activeSession || busy) {
       return;
     }
     const brief =
@@ -714,7 +742,7 @@ function App() {
         session.state === "paused"
           ? await resumeMeeting(session.id)
           : await pauseMeeting(session.id);
-      if (updated.state === "paused") setThinking(false);
+      if (updated.state === "paused") setThinking(null);
       setDashboard((current) =>
         current ? { ...current, activeSession: updated } : current,
       );
@@ -729,7 +757,11 @@ function App() {
     const session = dashboard?.activeSession;
     if (!session) return;
     generationRef.current = { ...generationRef.current, trigger: "manual" };
-    setThinking(true);
+    setThinking({
+      trigger: "manual",
+      generationId: generationRef.current.generationId + 1,
+      phase: "checking",
+    });
     setError(null);
     setDashboard((current) =>
       current ? { ...current, latestRecommendation: null } : current,
@@ -738,7 +770,7 @@ function App() {
       await requestRecommendation(session.id);
     } catch (reason) {
       generationRef.current = { ...generationRef.current, trigger: null };
-      setThinking(false);
+      setThinking(null);
       setError(reason instanceof Error ? reason.message : String(reason));
     }
   }
@@ -776,6 +808,11 @@ function App() {
         style={appSettings?.overlayStyle ?? "live"}
         position={appSettings?.overlayPosition ?? "bottom"}
         showTranscript={appSettings?.showLiveTranscript ?? false}
+        hasNotes={Boolean(
+          dashboard.activeSession?.clientId ||
+          dashboard.activeSession?.briefId ||
+          appSettings?.guidanceFolder,
+        )}
         thinking={thinking}
       />
     );
@@ -852,6 +889,18 @@ function App() {
               onSelectClient={setActiveClientId}
               onAddClient={addClient}
               onRemoveClient={removeClient}
+              onClientUpdated={(client) =>
+                setDashboard((current) =>
+                  current
+                    ? {
+                        ...current,
+                        clients: current.clients.map((item) =>
+                          item.id === client.id ? client : item,
+                        ),
+                      }
+                    : current,
+                )
+              }
               generationPrompt={appSettings?.briefGenerationPrompt ?? ""}
               provider={appSettings?.recommendationProvider ?? "codex"}
               transcriptionProvider={
@@ -936,6 +985,7 @@ function PrepareView({
   onSelectClient,
   onAddClient,
   onRemoveClient,
+  onClientUpdated,
   generationPrompt,
   provider,
   transcriptionProvider,
@@ -960,6 +1010,7 @@ function PrepareView({
   onSelectClient: (id: string | null) => void;
   onAddClient: () => void;
   onRemoveClient: (client: ClientWorkspace) => void;
+  onClientUpdated: (client: ClientWorkspace) => void;
   generationPrompt: string;
   provider: AppSettings["recommendationProvider"];
   transcriptionProvider: AppSettings["transcriptionProvider"];
@@ -979,8 +1030,9 @@ function PrepareView({
   onSaveSettings: (patch: Partial<AppSettings>) => Promise<boolean>;
 }) {
   const [prompt, setPrompt] = useState(generationPrompt);
-  const [customizeOpen, setCustomizeOpen] = useState(false);
+  const [promptOpen, setPromptOpen] = useState(false);
   const [guidelinesOpen, setGuidelinesOpen] = useState(false);
+  const [documentsOpen, setDocumentsOpen] = useState(false);
   const brief = preparation?.brief ?? null;
   const providerName = provider === "claude" ? "Claude" : "Codex";
   const selectedTranscriptionModel =
@@ -994,6 +1046,7 @@ function PrepareView({
         models.some((model) => model.languages.includes(value)),
       ),
   );
+  const guidanceFolderName = guidanceFolder?.split(/[\\/]/).pop() ?? null;
 
   return (
     <div className="page-content prepare-page">
@@ -1014,25 +1067,139 @@ function PrepareView({
       </div>
 
       <section className="prepare-section">
-        <h2 className="group-title">MEETING LANGUAGE</h2>
-        <div className="meeting-language-row">
-          <span className="setting-copy">
-            <strong>Conversation language</strong>
-            <small>
-              Used for transcripts and recommendations via{" "}
-              {transcriptionProviders.find(
+        <h2 className="group-title">SAVVY READS</h2>
+        <div className="prepare-card">
+          <div className="prepare-card-header">
+            <MeetingContextSelector
+              clients={dashboard.clients}
+              selectedClient={activeClient}
+              disabled={busy}
+              onSelect={onSelectClient}
+              onAddClient={onAddClient}
+            />
+            {activeClient && <span className="prepare-tag">this client</span>}
+            {activeClient && (
+              <button
+                type="button"
+                className="prepare-card-expand"
+                aria-label={documentsOpen ? "Hide documents" : "Show documents"}
+                aria-expanded={documentsOpen}
+                aria-controls="client-documents-panel"
+                onClick={() => setDocumentsOpen((value) => !value)}
+              >
+                <ChevronDown
+                  className={`chevron ${documentsOpen ? "open" : ""}`}
+                />
+              </button>
+            )}
+          </div>
+          {activeClient && documentsOpen && (
+            <div id="client-documents-panel" className="prepare-card-body">
+              <ClientDocumentList
+                key={activeClient.id}
+                client={activeClient}
+                disabled={busy || settingsBusy}
+                onClientUpdated={onClientUpdated}
+              />
+              <div className="prepare-card-actions">
+                <button
+                  className="button secondary"
+                  disabled={busy || settingsBusy}
+                  onClick={() => void revealPath(activeClient.folderPath)}
+                >
+                  <FolderOpen /> Open client folder
+                </button>
+                <button
+                  className="button danger"
+                  disabled={busy || settingsBusy}
+                  onClick={() => onRemoveClient(activeClient)}
+                >
+                  <Trash2 /> Remove client
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="prepare-card">
+          <button
+            type="button"
+            className="prepare-card-header"
+            aria-expanded={guidelinesOpen}
+            aria-controls="general-guidelines-panel"
+            onClick={() => setGuidelinesOpen((value) => !value)}
+          >
+            <span className="tile-icon">
+              <BookOpen />
+            </span>
+            <span className="prepare-card-title">
+              <strong>General guidelines</strong>
+              <small>
+                {guidanceFolderName ?? "Reusable guidance used across meetings"}
+              </small>
+            </span>
+            <span className="prepare-tag">every meeting</span>
+            <ChevronDown
+              className={`chevron ${guidelinesOpen ? "open" : ""}`}
+            />
+          </button>
+          {guidelinesOpen && (
+            <div id="general-guidelines-panel" className="prepare-card-body">
+              <GuidanceFolderSetting
+                path={guidanceFolder}
+                disabled={busy || settingsBusy}
+                onSave={onSaveSettings}
+              />
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section className="prepare-section">
+        <h2 className="group-title">SAVVY USES</h2>
+        <div className="prepare-card">
+          <button
+            type="button"
+            className="prepare-card-header"
+            aria-expanded={promptOpen}
+            aria-controls="brief-prompt-panel"
+            onClick={() => setPromptOpen((value) => !value)}
+          >
+            <span className="prepare-card-title">
+              <strong>Brief prompt</strong>
+              <small>{prompt.trim() || "No instructions yet"}</small>
+            </span>
+            <span className="prepare-tag">this brief</span>
+            <ChevronDown className={`chevron ${promptOpen ? "open" : ""}`} />
+          </button>
+          {promptOpen && (
+            <div id="brief-prompt-panel" className="prepare-card-body">
+              <label htmlFor="brief-generation-prompt">Generation prompt</label>
+              <textarea
+                id="brief-generation-prompt"
+                value={prompt}
+                disabled={busy}
+                onChange={(event) => setPrompt(event.target.value)}
+              />
+              <small>
+                Used when generating or regenerating the brief with{" "}
+                {providerName}.
+              </small>
+            </div>
+          )}
+        </div>
+        <div className="prepare-card">
+          <SettingSelect
+            title="Conversation language"
+            detail={`Used for transcripts and recommendations via ${
+              transcriptionProviders.find(
                 ({ value }) => value === transcriptionProvider,
-              )?.label ?? transcriptionProvider}{" "}
-              {selectedTranscriptionModel.label}.
-            </small>
-          </span>
-          <Dropdown
-            label="Meeting language"
+              )?.label ?? transcriptionProvider
+            } ${selectedTranscriptionModel.label}.`}
+            value={transcriptionLanguage}
             options={meetingLanguageOptions}
-            selectedValue={transcriptionLanguage}
             disabled={busy || settingsBusy}
             searchable
-            onSelect={(value) => {
+            onChange={(value) => {
               const currentSupports =
                 selectedTranscriptionModel.languages.includes(value);
               if (currentSupports) {
@@ -1056,35 +1223,6 @@ function PrepareView({
         </div>
       </section>
 
-      <section className="prepare-section">
-        <h2 className="group-title">MEETING CONTEXT</h2>
-        <MeetingContextSelector
-          clients={dashboard.clients}
-          selectedClient={activeClient}
-          disabled={busy}
-          onSelect={onSelectClient}
-          onAddClient={onAddClient}
-        />
-        {activeClient && (
-          <div className="client-context-actions">
-            <button
-              className="button secondary"
-              disabled={busy || settingsBusy}
-              onClick={() => void revealPath(activeClient.folderPath)}
-            >
-              <FolderOpen /> Open client folder
-            </button>
-            <button
-              className="button danger"
-              disabled={busy || settingsBusy}
-              onClick={() => onRemoveClient(activeClient)}
-            >
-              <Trash2 /> Remove client
-            </button>
-          </div>
-        )}
-      </section>
-
       {brief ? (
         <BriefPreview
           brief={brief}
@@ -1103,53 +1241,6 @@ function PrepareView({
           onImport={onImportBrief}
         />
       )}
-
-      <div className="prepare-accordion">
-        <DisclosureButton
-          label="Customize generation"
-          detail={`Prompt and ${providerName} provider`}
-          open={customizeOpen}
-          controls="customize-generation-panel"
-          onClick={() => setCustomizeOpen((value) => !value)}
-        />
-        {customizeOpen && (
-          <div
-            id="customize-generation-panel"
-            className="prepare-disclosure-panel"
-          >
-            <label htmlFor="brief-generation-prompt">Generation prompt</label>
-            <textarea
-              id="brief-generation-prompt"
-              value={prompt}
-              disabled={busy}
-              onChange={(event) => setPrompt(event.target.value)}
-            />
-            <small>Uses the active reasoning provider: {providerName}</small>
-          </div>
-        )}
-      </div>
-
-      <div className="prepare-accordion">
-        <DisclosureButton
-          label="General guidelines"
-          detail="Reusable guidance used across meetings"
-          open={guidelinesOpen}
-          controls="general-guidelines-panel"
-          onClick={() => setGuidelinesOpen((value) => !value)}
-        />
-        {guidelinesOpen && (
-          <div
-            id="general-guidelines-panel"
-            className="prepare-disclosure-panel guidance-management"
-          >
-            <GuidanceFolderSetting
-              path={guidanceFolder}
-              disabled={busy || settingsBusy}
-              onSave={onSaveSettings}
-            />
-          </div>
-        )}
-      </div>
     </div>
   );
 }
@@ -1203,11 +1294,11 @@ function MeetingContextSelector({
           <strong>{selectedClient?.name ?? "General guidelines only"}</strong>
           <small>
             {selectedClient
-              ? `${selectedClient.documentCount} source documents`
+              ? documentSummary(selectedClient)
               : "No client folder required"}
           </small>
         </span>
-        <ChevronDown />
+        <ChevronsUpDown />
       </button>
       {open && !disabled && (
         <div
@@ -1275,6 +1366,207 @@ function MeetingContextSelector({
   );
 }
 
+function documentSummary(client: ClientWorkspace) {
+  const excluded = client.excludedPaths.length;
+  if (excluded === 0) return `${client.documentCount} source documents`;
+  return `${Math.max(client.documentCount - excluded, 0)} of ${client.documentCount} documents selected`;
+}
+
+const DOCUMENT_KIND_LABELS: Record<DocumentKind, string> = {
+  pdf: "PDF",
+  docx: "Word",
+  pptx: "Slides",
+  xlsx: "Spreadsheet",
+  csv: "CSV",
+  markdown: "Markdown",
+  text: "Text",
+  epub: "EPUB",
+};
+
+function ClientDocumentList({
+  client,
+  disabled,
+  onClientUpdated,
+}: {
+  client: ClientWorkspace;
+  disabled: boolean;
+  onClientUpdated: (client: ClientWorkspace) => void;
+}) {
+  const [documents, setDocuments] = useState<ClientDocument[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [openFolders, setOpenFolders] = useState<Record<string, boolean>>({});
+  useEffect(() => {
+    let cancelled = false;
+    listClientDocuments(client.id)
+      .then((items) => {
+        if (!cancelled) setDocuments(items);
+      })
+      .catch((reason: unknown) => {
+        if (!cancelled)
+          setError(reason instanceof Error ? reason.message : String(reason));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [client.id]);
+
+  async function applySelection(next: ClientDocument[]) {
+    setDocuments(next);
+    const excluded = next
+      .filter((document) => document.kind !== null && !document.included)
+      .map((document) => document.relativePath);
+    try {
+      onClientUpdated(await setClientDocumentSelection(client.id, excluded));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    }
+  }
+
+  if (error) return <p className="document-list-note">{error}</p>;
+  if (!documents) return <p className="document-list-note">Reading folder…</p>;
+  const supported = documents.filter((document) => document.kind !== null);
+  const setAll = (included: boolean) =>
+    void applySelection(
+      documents.map((document) =>
+        document.kind === null ? document : { ...document, included },
+      ),
+    );
+  const groups = groupDocuments(documents, client.name);
+  return (
+    <div className="document-list">
+      <div className="document-list-toolbar">
+        <button
+          type="button"
+          className="link-button"
+          disabled={
+            disabled || supported.every((document) => document.included)
+          }
+          onClick={() => setAll(true)}
+        >
+          Select all
+        </button>
+        <button
+          type="button"
+          className="link-button"
+          disabled={
+            disabled || supported.every((document) => !document.included)
+          }
+          onClick={() => setAll(false)}
+        >
+          Select none
+        </button>
+        <span className="document-list-note">
+          Unselected files stay in the folder
+        </span>
+      </div>
+      {groups.map((group) => {
+        const open = openFolders[group.key] ?? group.files.length <= 6;
+        const groupSupported = group.files.filter((file) => file.kind !== null);
+        const includedCount = groupSupported.filter(
+          (file) => file.included,
+        ).length;
+        const allIncluded =
+          groupSupported.length > 0 && includedCount === groupSupported.length;
+        const inGroup = new Set(group.files.map((file) => file.relativePath));
+        return (
+          <div key={group.key} className="document-group">
+            <div className="document-group-header">
+              <input
+                type="checkbox"
+                aria-label={`${group.label} folder`}
+                checked={allIncluded}
+                disabled={disabled || groupSupported.length === 0}
+                ref={(element) => {
+                  if (element) {
+                    element.indeterminate = includedCount > 0 && !allIncluded;
+                  }
+                }}
+                onChange={(event) =>
+                  void applySelection(
+                    documents.map((item) =>
+                      item.kind !== null && inGroup.has(item.relativePath)
+                        ? { ...item, included: event.target.checked }
+                        : item,
+                    ),
+                  )
+                }
+              />
+              <button
+                type="button"
+                className="document-group-toggle"
+                aria-expanded={open}
+                onClick={() =>
+                  setOpenFolders((current) => ({
+                    ...current,
+                    [group.key]: !open,
+                  }))
+                }
+              >
+                <ChevronDown className={`chevron ${open ? "open" : ""}`} />
+                <span className="document-group-name">{group.label}</span>
+                <span className="document-group-count">
+                  {groupSupported.length === 0
+                    ? `${group.files.length} not supported`
+                    : `${includedCount} of ${groupSupported.length}`}
+                </span>
+              </button>
+            </div>
+            {open &&
+              group.files.map((document) => {
+                const unsupported = document.kind === null;
+                return (
+                  <label
+                    key={document.relativePath}
+                    className={`document-row ${unsupported ? "unsupported" : ""}`}
+                    title={document.relativePath}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={document.included}
+                      disabled={disabled || unsupported}
+                      onChange={(event) =>
+                        void applySelection(
+                          documents.map((item) =>
+                            item.relativePath === document.relativePath
+                              ? { ...item, included: event.target.checked }
+                              : item,
+                          ),
+                        )
+                      }
+                    />
+                    <span className="document-name">
+                      {document.relativePath.split("/").pop()}
+                    </span>
+                    <span className="document-kind">
+                      {document.kind
+                        ? DOCUMENT_KIND_LABELS[document.kind]
+                        : "Not supported"}
+                    </span>
+                  </label>
+                );
+              })}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** One level of folders, the way Finder shows them: loose files first, then subfolders A–Z. */
+function groupDocuments(documents: ClientDocument[], rootLabel: string) {
+  const groups = new Map<string, ClientDocument[]>();
+  for (const document of documents) {
+    const slash = document.relativePath.indexOf("/");
+    const key = slash === -1 ? "" : document.relativePath.slice(0, slash);
+    groups.set(key, [...(groups.get(key) ?? []), document]);
+  }
+  return [...groups.entries()]
+    .sort(([left], [right]) =>
+      left === "" ? -1 : right === "" ? 1 : left.localeCompare(right),
+    )
+    .map(([key, files]) => ({ key, label: key || rootLabel, files }));
+}
+
 function BriefEmptyState({
   busy,
   providerName,
@@ -1326,156 +1618,82 @@ function BriefPreview({
   onRegenerate: () => void;
   onRemove: () => void;
 }) {
+  const hasFile = Boolean(brief.documentPath);
   return (
-    <section className="prepare-section brief-preview-section">
-      <div className="brief-preview-heading">
-        <div>
-          <h2>{brief.title}</h2>
-          <p>
-            {briefFileName(brief)} · Version {brief.version}
-          </p>
-        </div>
-        <BriefActions
-          busy={busy}
-          path={brief.documentPath}
-          onOpen={onOpen}
-          onRefresh={onRefresh}
-          onReplace={onReplace}
-          onRegenerate={onRegenerate}
-          onRemove={onRemove}
-        />
+    <section className="prepare-card brief-card">
+      <div className="prepare-card-header">
+        <span className="tile-icon">
+          <FileText />
+        </span>
+        <span className="prepare-card-title">
+          <strong>
+            {briefFileName(brief)}
+            <span className="in-use-badge">In use</span>
+          </strong>
+          <small>
+            {brief.title} · Version {brief.version} ·{" "}
+            {formatBriefDate(brief.createdAt)}
+          </small>
+        </span>
+        <span className="brief-header-actions">
+          <button
+            type="button"
+            className="link-button"
+            disabled={busy || !hasFile}
+            aria-label="Open in editor"
+            onClick={onOpen}
+          >
+            Open
+          </button>
+          <button
+            type="button"
+            className="link-button"
+            disabled={busy || !hasFile}
+            onClick={onRefresh}
+          >
+            Refresh
+          </button>
+        </span>
       </div>
       <div className="brief-markdown-preview">
         {renderBriefMarkdown(
           brief.documentContent || `# ${brief.title}\n\n${brief.objective}`,
         )}
       </div>
+      <div className="prepare-card-body prepare-card-actions">
+        <button
+          className="button secondary"
+          disabled={busy}
+          onClick={onRegenerate}
+        >
+          <RotateCcw /> Regenerate
+        </button>
+        <button
+          className="button secondary"
+          disabled={busy}
+          onClick={onReplace}
+        >
+          Choose another file
+        </button>
+        <button className="button danger" disabled={busy} onClick={onRemove}>
+          <X /> Unselect brief
+        </button>
+      </div>
     </section>
   );
 }
 
-function BriefActions({
-  busy,
-  path,
-  onOpen,
-  onRefresh,
-  onReplace,
-  onRegenerate,
-  onRemove,
-}: {
-  busy: boolean;
-  path: string | null;
-  onOpen: () => void;
-  onRefresh: () => void;
-  onReplace: () => void;
-  onRegenerate: () => void;
-  onRemove: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const close = (event: MouseEvent) => {
-      if (!ref.current?.contains(event.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
-  }, [open]);
-  return (
-    <div className="brief-actions">
-      <button
-        className="button secondary"
-        disabled={busy || !path}
-        onClick={onOpen}
-      >
-        Open in editor
-      </button>
-      <button
-        className="button secondary"
-        disabled={busy || !path}
-        onClick={onRefresh}
-      >
-        Refresh
-      </button>
-      <div className="brief-more" ref={ref}>
-        <button
-          className="icon-button"
-          aria-label="More brief actions"
-          aria-expanded={open}
-          onClick={() => setOpen((value) => !value)}
-        >
-          <MoreHorizontal />
-        </button>
-        {open && (
-          <div className="brief-more-menu">
-            <button
-              disabled={!path}
-              onClick={() => path && void revealPath(path)}
-            >
-              Reveal in Finder
-            </button>
-            <button
-              disabled={busy}
-              onClick={() => {
-                setOpen(false);
-                onReplace();
-              }}
-            >
-              Replace Markdown file
-            </button>
-            <button
-              disabled={busy}
-              onClick={() => {
-                setOpen(false);
-                onRegenerate();
-              }}
-            >
-              Regenerate
-            </button>
-            <button
-              className="danger"
-              disabled={busy}
-              onClick={() => {
-                setOpen(false);
-                onRemove();
-              }}
-            >
-              Remove brief
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function DisclosureButton({
-  label,
-  detail,
-  open,
-  controls,
-  onClick,
-}: {
-  label: string;
-  detail: string;
-  open: boolean;
-  controls: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      className="prepare-disclosure"
-      aria-expanded={open}
-      aria-controls={controls}
-      onClick={onClick}
-    >
-      <span>
-        <strong>{label}</strong>
-        <small>{detail}</small>
-      </span>
-      <ChevronDown className={open ? "open" : ""} />
-    </button>
-  );
+function formatBriefDate(iso: string) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const today = new Date().toDateString() === date.toDateString();
+  const time = date.toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  return today
+    ? `today ${time}`
+    : `${date.toLocaleDateString(undefined, { dateStyle: "medium" })} ${time}`;
 }
 
 function briefFileName(brief: NegotiationBrief) {
@@ -1557,7 +1775,9 @@ function RecommendationPreview({
     <section className="recommendation-card">
       <div className="recommendation-top">
         <span className="recommendation-title">
-          <i /> Live recommendation
+          <i />{" "}
+          {(recommendation && CARD_TITLES[recommendation.trigger]) ??
+            "Live recommendation"}
         </span>
         {onDismiss && (
           <button
@@ -1603,8 +1823,13 @@ function RecommendationPreview({
         </div>
       )}
       {recommendation?.sources[0] && (
-        <button className="source-button">
-          ⌁ {recommendation.sources[0].relativePath}
+        <button
+          className="source-button"
+          title={recommendation.sources[0].relativePath}
+        >
+          <span className="source-path">
+            ⌁ {recommendation.sources[0].relativePath}
+          </span>
           <span>↗</span>
         </button>
       )}
@@ -1625,6 +1850,7 @@ export function MeetingOverlay({
   position,
   showTranscript,
   thinking,
+  hasNotes,
 }: {
   session: DashboardSnapshot["activeSession"];
   turns: TranscriptTurn[];
@@ -1637,17 +1863,18 @@ export function MeetingOverlay({
   style: AppSettings["overlayStyle"];
   position: AppSettings["overlayPosition"];
   showTranscript: boolean;
-  thinking: boolean;
+  thinking: ThinkingDisplay;
+  hasNotes: boolean;
 }) {
   const [elapsed, setElapsed] = useState(0);
   const [audioLevel, setAudioLevel] = useState(0);
   const [confirmingStop, setConfirmingStop] = useState(false);
-  const [dismissedRecommendationId, setDismissedRecommendationId] = useState<
+  const [dismissedRecommendation, setDismissedRecommendation] = useState<
     string | null
   >(null);
-  const [keptRecommendationId, setKeptRecommendationId] = useState<
-    string | null
-  >(null);
+  const [keptRecommendation, setKeptRecommendation] = useState<string | null>(
+    null,
+  );
   const transcriptRef = useRef<HTMLDivElement>(null);
   const paused = session?.state === "paused";
   const mascot = thinking
@@ -1659,7 +1886,10 @@ export function MeetingOverlay({
   const recentTurns = turns.slice(-12);
   const hasText = showTranscript && Boolean(lastTurn);
   const visibleRecommendation =
-    recommendation?.id === dismissedRecommendationId ? null : recommendation;
+    recommendation &&
+    recommendationKey(recommendation) !== dismissedRecommendation
+      ? recommendation
+      : null;
   const showExtension = Boolean(
     visibleRecommendation || error || confirmingStop,
   );
@@ -1742,12 +1972,22 @@ export function MeetingOverlay({
           <div className="ai-extension-clip">
             {visibleRecommendation && (
               <RecommendationPreview
+                key={recommendationKey(visibleRecommendation)}
                 recommendation={visibleRecommendation}
                 onDismiss={() =>
-                  setDismissedRecommendationId(visibleRecommendation.id)
+                  setDismissedRecommendation(
+                    recommendationKey(visibleRecommendation),
+                  )
                 }
-                onKeep={() => setKeptRecommendationId(visibleRecommendation.id)}
-                autoDismiss={visibleRecommendation.id !== keptRecommendationId}
+                onKeep={() =>
+                  setKeptRecommendation(
+                    recommendationKey(visibleRecommendation),
+                  )
+                }
+                autoDismiss={
+                  recommendationKey(visibleRecommendation) !==
+                  keptRecommendation
+                }
               />
             )}
             {confirmingStop && (
@@ -1790,22 +2030,28 @@ export function MeetingOverlay({
               height="26"
               draggable="false"
             />
-            {thinking
-              ? "Savvy is thinking"
-              : paused
-                ? "Savvy is muted"
-                : "Savvy is listening"}
+            <span className="overlay-status-label">
+              {thinking
+                ? thinkingLabel(thinking, hasNotes)
+                : paused
+                  ? "Savvy is muted"
+                  : "Savvy is listening"}
+            </span>
           </span>
           {lastTurn && (
             <button
               className={`sx srecommend ${thinking ? "thinking" : ""}`}
               onClick={onRequestRecommendation}
-              disabled={thinking || busy || !session}
+              disabled={
+                (thinking !== null && thinking.trigger !== "opportunity") ||
+                busy ||
+                !session
+              }
               aria-label="Get recommendation now"
               title="Get recommendation now"
             >
               <Sparkles />
-              <span>{thinking ? "Thinking…" : "Advice"}</span>
+              {!thinking && <span>Advice</span>}
             </button>
           )}
         </div>
@@ -3071,51 +3317,65 @@ function GuidanceFolderSetting({
   disabled: boolean;
   onSave: (patch: Partial<AppSettings>) => Promise<boolean>;
 }) {
+  const name = path?.split(/[\\/]/).pop() ?? null;
   return (
-    <div
-      className={`setting-row preference-row directory-setting ${disabled ? "disabled" : ""}`}
-    >
-      <span className="preference-label">
-        <strong>Guidance Library</strong>
-        <InfoTooltip
-          title="Guidance Library"
-          detail="Reusable guidance applied to every meeting. Every subfolder is scanned; PDF, Word, PowerPoint, Excel, CSV, Markdown, text, and EPUB files are indexed."
-        />
+    <div className={`folder-row ${disabled ? "disabled" : ""}`}>
+      <span className="tile-icon">
+        <FolderOpen />
       </span>
-      <span className="path-display">
-        <code title={path ?? undefined}>{path ?? "Not selected"}</code>
-        {path && (
-          <button
-            type="button"
-            disabled={disabled}
-            onClick={() => void revealPath(path)}
-          >
-            Open
-          </button>
-        )}
+      {path ? (
         <button
           type="button"
+          className="folder-row-path"
           disabled={disabled}
-          onClick={() =>
-            void chooseGuidanceFolder().then((guidanceFolder) => {
-              if (guidanceFolder) void onSave({ guidanceFolder });
-            })
-          }
+          title={`${path} — Reveal in Finder`}
+          onClick={() => void revealPath(path)}
         >
-          Choose
+          <strong>{name}</strong>
+          <small>{abbreviatePath(path)}</small>
         </button>
-        {path && (
-          <button
-            type="button"
-            disabled={disabled}
-            onClick={() => void onSave({ guidanceFolder: null })}
-          >
-            Clear
-          </button>
-        )}
-      </span>
+      ) : (
+        <span className="folder-row-path">
+          <strong>No guidance folder</strong>
+          <small>Choose a folder Savvy reads before every meeting.</small>
+        </span>
+      )}
+      <button
+        type="button"
+        className="button secondary"
+        disabled={disabled}
+        onClick={() =>
+          void chooseGuidanceFolder().then((guidanceFolder) => {
+            if (guidanceFolder) void onSave({ guidanceFolder });
+          })
+        }
+      >
+        {path ? "Change…" : "Choose…"}
+      </button>
+      {path && (
+        <button
+          type="button"
+          className="icon-button"
+          aria-label="Clear guidance folder"
+          title="Clear guidance folder"
+          disabled={disabled}
+          onClick={() => void onSave({ guidanceFolder: null })}
+        >
+          <X />
+        </button>
+      )}
     </div>
   );
+}
+
+/** `/Users/me/Projects/acme/library` → `~/Projects/acme`, trimmed from the middle when long. */
+function abbreviatePath(path: string) {
+  const parent = path
+    .replace(/[\\/][^\\/]+$/, "")
+    .replace(/^\/Users\/[^/]+/, "~");
+  const parts = parent.split("/").filter(Boolean);
+  if (parts.length <= 4) return parent;
+  return [parts[0], parts[1], "…", parts[parts.length - 1]].join("/");
 }
 
 function InfoTooltip({ title, detail }: { title: string; detail: string }) {

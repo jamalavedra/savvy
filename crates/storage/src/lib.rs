@@ -4,7 +4,7 @@ use savvy_domain::{
     NegotiationBrief, Recommendation, SourceReference, TranscriptTurn,
 };
 use std::collections::HashSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -399,6 +399,7 @@ impl Storage {
         scopes: &[(ContextSourceKind, EntityId)],
         query: &str,
         limit: usize,
+        excluded_paths: &HashSet<PathBuf>,
     ) -> Result<Vec<SourceReference>, StorageError> {
         let query = fts_query(query);
         if query.is_empty() || scopes.is_empty() || limit == 0 {
@@ -427,6 +428,9 @@ impl Storage {
         let mut results = Vec::new();
         for row in rows {
             let source: SourceReference = serde_json::from_str(&row?)?;
+            if excluded_paths.contains(&source.relative_path) {
+                continue;
+            }
             if documents.insert(source.document_id) {
                 results.push(source);
             }
@@ -778,6 +782,7 @@ mod tests {
                 &[(ContextSourceKind::Client, Uuid::new_v4())],
                 "pilot price",
                 6,
+                &HashSet::new(),
             )
             .expect("wrong scope search")
             .is_empty());
@@ -787,6 +792,7 @@ mod tests {
                     &[(ContextSourceKind::Client, client_id)],
                     "pilot price 40000",
                     6,
+                    &HashSet::new(),
                 )
                 .expect("search"),
             vec![source]

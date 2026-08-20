@@ -15,6 +15,7 @@ import type {
   ProviderHealth,
   TranscriptUpdate,
   TranscriptionKeyStatus,
+  ClientDocument,
 } from "../types";
 
 declare global {
@@ -31,7 +32,25 @@ const demoClient: ClientWorkspace = {
   documentCount: 24,
   lastIndexedAt: new Date().toISOString(),
   activeBriefId: "demo-brief",
+  excludedPaths: [],
 };
+
+const demoDocuments: ClientDocument[] = [
+  {
+    relativePath: "Commercial/Renewal strategy.md",
+    kind: "markdown",
+    included: true,
+  },
+  {
+    relativePath: "Contracts/msa-2024-signed.pdf",
+    kind: "pdf",
+    included: true,
+  },
+  { relativePath: "Finance/q2-usage-export.csv", kind: "csv", included: true },
+  { relativePath: "Notes/call-notes-may.md", kind: "markdown", included: true },
+  { relativePath: "Design/roadmap.sketch", kind: null, included: false },
+];
+const demoExcludedPaths = new Map<string, string[]>();
 
 const demoBrief: NegotiationBrief = {
   id: "demo-brief",
@@ -118,6 +137,7 @@ export function resetBrowserDemoState({
 }: { onboardingCompleted?: boolean } = {}): void {
   removedDemoClientIds.clear();
   removedDemoBriefScopes.clear();
+  demoExcludedPaths.clear();
   demoOnboardingCompleted = onboardingCompleted;
 }
 
@@ -404,6 +424,33 @@ export async function chooseClientFolder(): Promise<ClientWorkspace | null> {
   });
   if (typeof selected !== "string") return null;
   return invoke<ClientWorkspace>("add_client_folder", { path: selected });
+}
+
+export async function listClientDocuments(
+  clientId: string,
+): Promise<ClientDocument[]> {
+  if (!window.__TAURI_INTERNALS__) {
+    const excluded = new Set(demoExcludedPaths.get(clientId) ?? []);
+    return demoDocuments.map((document) => ({
+      ...document,
+      included: document.kind !== null && !excluded.has(document.relativePath),
+    }));
+  }
+  return invoke<ClientDocument[]>("list_client_documents", { clientId });
+}
+
+export async function setClientDocumentSelection(
+  clientId: string,
+  excludedPaths: string[],
+): Promise<ClientWorkspace> {
+  if (!window.__TAURI_INTERNALS__) {
+    demoExcludedPaths.set(clientId, excludedPaths);
+    return { ...demoClient, id: clientId, excludedPaths };
+  }
+  return invoke<ClientWorkspace>("set_client_document_selection", {
+    clientId,
+    excludedPaths,
+  });
 }
 
 export async function removeClientContext(clientId: string): Promise<void> {
