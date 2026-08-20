@@ -114,7 +114,7 @@ describe("Onboarding on macOS", () => {
     await waitFor(() => expect(rowButton("Microphone")).toBeEnabled());
     const advance = screen.getByRole("button", { name: "Continue" });
     expect(advance).toBeDisabled();
-    // A disabled control with no explanation strands the user: the screen has to
+    // A disabled control with no explanation strands the user. The screen has to
     // say which permission is still missing.
     expect(
       screen.getByText(/[Mm]icrophone .*(required|needed|before)/),
@@ -141,7 +141,7 @@ describe("Onboarding on macOS", () => {
 
     await exhaustPermissionPolling();
 
-    // The user is still in System Settings: the row must keep waiting and keep
+    // The user is still in System Settings. The row must keep waiting and keep
     // saying where to go, not revert to "Allow" as if nothing had happened.
     expect(row("Microphone")).toHaveTextContent("Waiting…");
     expect(guidanceText()).toMatch(/System Settings/);
@@ -155,7 +155,7 @@ describe("Onboarding on macOS", () => {
     fireEvent.click(rowButton("Microphone"));
     await exhaustPermissionPolling();
 
-    // The user is in System Settings; granting there must be picked up without
+    // The user is in System Settings. Setup must notice the grant without them
     // hunting for a "Check again" button they cannot see from that window.
     checkMicrophonePermission.mockResolvedValue(true);
     await act(async () => {
@@ -364,7 +364,7 @@ describe("Onboarding gate on relaunch", () => {
     render(<App />);
 
     // Onboarding itself treats system audio as optional, so an install that
-    // declined it must not meet a setup wall on every launch.
+    // declined it must not hit a setup screen on every launch.
     expect(
       await screen.findByRole("heading", { name: "Prepare for your meeting" }),
     ).toBeVisible();

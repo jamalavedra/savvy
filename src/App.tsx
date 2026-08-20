@@ -268,9 +268,9 @@ function App() {
           const { checkMicrophonePermission } =
             await import("tauri-plugin-macos-permissions-api");
           // Only the microphone is required. Setup itself lets the user continue
-          // without screen recording, so demanding it here would wall off the app
-          // on every launch with no way to satisfy it. `startActiveMeeting` asks
-          // again when a meeting actually needs system audio.
+          // without screen recording, so demanding it here would block the app on
+          // every launch with no way to satisfy it. `startActiveMeeting` asks again
+          // when a meeting needs system audio.
           setOnboarding(
             (await checkMicrophonePermission()) ? "done" : "returning",
           );

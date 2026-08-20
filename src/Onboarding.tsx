@@ -30,22 +30,21 @@ async function macosPermissions() {
   return import("tauri-plugin-macos-permissions-api");
 }
 
-type PermissionReading =
-  { ok: true; macos: boolean; mic: boolean; capture: boolean } | { ok: false };
+type PermissionReading = { macos: boolean; mic: boolean; capture: boolean };
 
 /**
  * Reads the current permission state. Returns rather than sets, so callers own the
  * state update — a reader that set state itself would be a synchronous setState
- * inside an effect. A failed read is reported as such: guessing "denied" would put
- * the user in front of buttons that cannot work, with nothing explaining why.
+ * inside an effect. A failed read returns null. Guessing "denied" would show the
+ * user buttons that cannot work, with nothing explaining why.
  */
-async function readPermissions(): Promise<PermissionReading> {
+async function readPermissions(): Promise<PermissionReading | null> {
   try {
     const status = await getAppStatus();
     if (status.platform !== "macos") {
       // Nothing to grant off macOS; report satisfied rather than showing controls
       // that cannot do anything.
-      return { ok: true, macos: false, mic: true, capture: true };
+      return { macos: false, mic: true, capture: true };
     }
     const { checkMicrophonePermission, checkScreenRecordingPermission } =
       await macosPermissions();
@@ -53,24 +52,10 @@ async function readPermissions(): Promise<PermissionReading> {
       checkMicrophonePermission(),
       checkScreenRecordingPermission(),
     ]);
-    return { ok: true, macos: true, mic, capture };
+    return { macos: true, mic, capture };
   } catch {
-    return { ok: false };
+    return null;
   }
-}
-
-/**
- * Folds a reading into a row. A grant always wins. While the user is away in System
- * Settings the row stays `waiting` instead of snapping back to `needed` under them;
- * only an explicit re-check resets that.
- */
-function nextStatus(
-  current: PermissionStatus,
-  granted: boolean,
-  resetWaiting: boolean,
-): PermissionStatus {
-  if (granted) return "granted";
-  return current === "waiting" && !resetWaiting ? "waiting" : "needed";
 }
 
 /**
@@ -100,20 +85,13 @@ export default function Onboarding({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const applyPermissions = useCallback(
-    (reading: PermissionReading, resetWaiting: boolean) => {
-      if (!reading.ok) return false;
-      setIsMacos(reading.macos);
-      setMicrophone((current) =>
-        nextStatus(current, reading.mic, resetWaiting),
-      );
-      setScreen((current) =>
-        nextStatus(current, reading.capture, resetWaiting),
-      );
-      return true;
-    },
-    [],
-  );
+  const applyPermissions = useCallback((reading: PermissionReading | null) => {
+    if (!reading) return false;
+    setIsMacos(reading.macos);
+    setMicrophone(reading.mic ? "granted" : "needed");
+    setScreen(reading.capture ? "granted" : "needed");
+    return true;
+  }, []);
 
   /** The rows would otherwise sit on "Checking…" forever with nothing explaining it. */
   const reportCheckFailure = useCallback(() => {
@@ -127,19 +105,19 @@ export default function Onboarding({
     setError(null);
     setMicrophone("checking");
     setScreen("checking");
-    if (!applyPermissions(await readPermissions(), true)) reportCheckFailure();
+    if (!applyPermissions(await readPermissions())) reportCheckFailure();
   }, [applyPermissions, reportCheckFailure]);
 
   useEffect(() => {
     void readPermissions().then((reading) => {
-      if (!applyPermissions(reading, true)) reportCheckFailure();
+      if (!applyPermissions(reading)) reportCheckFailure();
     });
   }, [applyPermissions, reportCheckFailure]);
 
   const settled = microphone === "granted" && screen === "granted";
 
-  // A grant is made in System Settings, outside this window, so the answer arrives
-  // whenever the user comes back — not within any fixed wait. Watch until it lands.
+  // The user grants permissions in System Settings, outside this window, so the
+  // answer arrives whenever they come back, not within any fixed wait. Watch for it.
   useEffect(() => {
     if (step !== "permissions" || !isMacos || settled) return;
     let failures = 0;
@@ -148,15 +126,19 @@ export default function Onboarding({
       if (stopped) return;
       const reading = await readPermissions();
       if (stopped) return;
-      if (applyPermissions(reading, false)) {
-        failures = 0;
+      if (!reading) {
+        failures += 1;
+        if (failures < MAX_CONSECUTIVE_CHECK_FAILURES) return;
+        stopped = true;
+        window.clearInterval(timer);
+        setError(CHECK_FAILED);
         return;
       }
-      failures += 1;
-      if (failures < MAX_CONSECUTIVE_CHECK_FAILURES) return;
-      stopped = true;
-      window.clearInterval(timer);
-      setError(CHECK_FAILED);
+      failures = 0;
+      // Promote only. The user may be part way through granting in System
+      // Settings, and a row must not snap back to "Allow" under them.
+      if (reading.mic) setMicrophone("granted");
+      if (reading.capture) setScreen("granted");
     };
     const timer = window.setInterval(() => void poll(), PERMISSION_POLL_MS);
     const onFocus = () => void poll();
@@ -166,7 +148,7 @@ export default function Onboarding({
       window.clearInterval(timer);
       window.removeEventListener("focus", onFocus);
     };
-  }, [applyPermissions, isMacos, settled, step]);
+  }, [isMacos, settled, step]);
 
   useEffect(() => {
     if (returningUser) return;
@@ -275,7 +257,7 @@ export default function Onboarding({
         </div>
         {microphone !== "granted" && microphone !== "checking" && (
           <p className="onboarding-note">
-            Microphone access is required before you can continue.
+            Savvy needs microphone access before you can continue.
           </p>
         )}
         {screen !== "granted" && microphone === "granted" && (
@@ -348,7 +330,7 @@ export default function Onboarding({
   );
 }
 
-/** Setup errors are announced and dismissible, like the workspace error banner. */
+/** Shows a setup error the user can dismiss, matching the workspace error banner. */
 function ErrorNotice({
   message,
   onDismiss,
