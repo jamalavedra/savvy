@@ -723,8 +723,8 @@ fn apply_runtime_settings(
 }
 
 #[tauri::command]
-fn check_for_updates(app: AppHandle) {
-    spawn_update_check(app, true);
+async fn check_for_updates(app: AppHandle) {
+    run_update_check(app, true).await;
 }
 
 #[tauri::command]
@@ -4464,64 +4464,74 @@ fn find_cli_binary(name: &str) -> Result<PathBuf, String> {
 /// item passes `true`, because a user who asked deserves an answer either way. Updates
 /// are only offered, never applied unattended.
 pub(crate) fn spawn_update_check(app: tauri::AppHandle, notify_when_current: bool) {
-    tauri::async_runtime::spawn(async move {
-        let report = |body: String| {
-            if notify_when_current {
-                app.dialog()
-                    .message(body)
-                    .title("Savvy Updates")
-                    .show(|_| {});
-            }
-        };
-        let updater = match app.updater() {
-            Ok(updater) => updater,
-            Err(error) => {
-                log::warn!("updater is unavailable: {error}");
-                report(format!("Could not check for updates: {error}"));
+    tauri::async_runtime::spawn(run_update_check(app, notify_when_current));
+}
+
+async fn run_update_check(app: tauri::AppHandle, notify_when_current: bool) {
+    let report = |body: String| {
+        if notify_when_current {
+            app.dialog()
+                .message(body)
+                .title("Savvy Updates")
+                .show(|_| {});
+        }
+    };
+    let updater = match app.updater() {
+        Ok(updater) => updater,
+        Err(error) => {
+            log::warn!("updater is unavailable: {error}");
+            report(format!("Could not check for updates: {error}"));
+            return;
+        }
+    };
+    let update = match updater.check().await {
+        Ok(Some(update)) => update,
+        Ok(None) => {
+            report(format!(
+                "Savvy {} is the latest version.",
+                app.package_info().version
+            ));
+            return;
+        }
+        Err(error) => {
+            log::info!("update check did not complete: {error}");
+            report(update_check_error_message(&error));
+            return;
+        }
+    };
+    let version = update.version.clone();
+    let handle = app.clone();
+    app.dialog()
+        .message(format!(
+            "Savvy {version} is available. Install it and restart now?"
+        ))
+        .title("Update available")
+        .buttons(MessageDialogButtons::OkCancelCustom(
+            "Install and restart".into(),
+            "Later".into(),
+        ))
+        // Installing from inside the callback keeps the whole flow on the async
+        // runtime without a channel; `tokio` is a macOS-only dependency here.
+        .show(move |accepted| {
+            if !accepted {
                 return;
             }
-        };
-        let update = match updater.check().await {
-            Ok(Some(update)) => update,
-            Ok(None) => {
-                report(format!(
-                    "Savvy {} is the latest version.",
-                    app.package_info().version
-                ));
-                return;
-            }
-            Err(error) => {
-                log::info!("update check did not complete: {error}");
-                report(format!("Could not check for updates: {error}"));
-                return;
-            }
-        };
-        let version = update.version.clone();
-        let handle = app.clone();
-        app.dialog()
-            .message(format!(
-                "Savvy {version} is available. Install it and restart now?"
-            ))
-            .title("Update available")
-            .buttons(MessageDialogButtons::OkCancelCustom(
-                "Install and restart".into(),
-                "Later".into(),
-            ))
-            // Installing from inside the callback keeps the whole flow on the async
-            // runtime without a channel; `tokio` is a macOS-only dependency here.
-            .show(move |accepted| {
-                if !accepted {
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = update.download_and_install(|_, _| {}, || {}).await {
+                    log::error!("could not install update {version}: {error}");
                     return;
                 }
-                tauri::async_runtime::spawn(async move {
-                    if let Err(error) = update.download_and_install(|_, _| {}, || {}).await {
-                        log::error!("could not install update {version}: {error}");
-                        return;
-                    }
-                    handle.restart();
-                });
+                handle.restart();
             });
-    });
+        });
+}
+
+fn update_check_error_message(error: &tauri_plugin_updater::Error) -> String {
+    if matches!(error, tauri_plugin_updater::Error::ReleaseNotFound) {
+        "No published Savvy updates are available yet.".into()
+    } else {
+        format!("Could not check for updates: {error}")
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -5398,5 +5408,13 @@ mod tests {
             message: "not authenticated".into(),
         }];
         assert!(choose_healthy_provider("codex", &providers).is_err());
+    }
+
+    #[test]
+    fn missing_update_manifest_is_not_reported_as_an_error() {
+        assert_eq!(
+            update_check_error_message(&tauri_plugin_updater::Error::ReleaseNotFound),
+            "No published Savvy updates are available yet."
+        );
     }
 }

@@ -126,17 +126,21 @@ describe("App", () => {
     ).toEqual([final.text, "working correctly"]);
   });
 
-  it("waits for a permission prompt to close before checking the result", async () => {
-    const check = vi.fn().mockResolvedValue(false);
-    const result = requestPermissionDecision(async () => {
-      window.dispatchEvent(new Event("blur"));
-    }, check);
+  it("polls until macOS reports a permission grant", async () => {
+    vi.useFakeTimers();
+    try {
+      const check = vi
+        .fn<() => Promise<boolean>>()
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(true);
+      const result = requestPermissionDecision(vi.fn(), check);
 
-    await new Promise((resolve) => window.setTimeout(resolve, 300));
-    expect(check).not.toHaveBeenCalled();
-    window.dispatchEvent(new Event("focus"));
-    await expect(result).resolves.toBe(false);
-    expect(check).toHaveBeenCalledOnce();
+      await vi.advanceTimersByTimeAsync(500);
+      await expect(result).resolves.toBe(true);
+      expect(check).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("shows one grounded preparation workspace", async () => {

@@ -10,10 +10,7 @@ import type { TranscriptionKeyStatus } from "./types";
 
 type Step = "permissions" | "transcription";
 
-type Permission = {
-  granted: boolean;
-  checking: boolean;
-};
+type PermissionStatus = "checking" | "needed" | "waiting" | "granted";
 
 const PROVIDERS = [
   { id: "deepgram", label: "Deepgram", keyUrl: "https://console.deepgram.com" },
@@ -75,14 +72,8 @@ export default function Onboarding({
 }) {
   const [step, setStep] = useState<Step>("permissions");
   const [isMacos, setIsMacos] = useState(false);
-  const [microphone, setMicrophone] = useState<Permission>({
-    granted: false,
-    checking: true,
-  });
-  const [screen, setScreen] = useState<Permission>({
-    granted: false,
-    checking: true,
-  });
+  const [microphone, setMicrophone] = useState<PermissionStatus>("checking");
+  const [screen, setScreen] = useState<PermissionStatus>("checking");
   const [provider, setProvider] = useState<ProviderId>("deepgram");
   const [apiKey, setApiKey] = useState("");
   const [keyStatus, setKeyStatus] = useState<TranscriptionKeyStatus>({
@@ -95,16 +86,18 @@ export default function Onboarding({
   const applyPermissions = useCallback(
     ({ macos, mic, capture }: PermissionReading) => {
       setIsMacos(macos);
-      setMicrophone({ granted: mic, checking: false });
-      setScreen({ granted: capture, checking: false });
+      setMicrophone(mic ? "granted" : "needed");
+      setScreen(capture ? "granted" : "needed");
     },
     [],
   );
 
-  const refreshPermissions = useCallback(
-    () => readPermissions().then(applyPermissions),
-    [applyPermissions],
-  );
+  const refreshPermissions = useCallback(async () => {
+    setError(null);
+    setMicrophone("checking");
+    setScreen("checking");
+    applyPermissions(await readPermissions());
+  }, [applyPermissions]);
 
   useEffect(() => {
     void readPermissions().then(applyPermissions);
@@ -119,33 +112,45 @@ export default function Onboarding({
 
   async function grantMicrophone() {
     setError(null);
-    const { checkMicrophonePermission, requestMicrophonePermission } =
-      await macosPermissions();
-    const granted = await requestPermissionDecision(
-      requestMicrophonePermission,
-      checkMicrophonePermission,
-    );
-    setMicrophone({ granted, checking: false });
-    if (!granted) {
+    setMicrophone("waiting");
+    try {
+      const { checkMicrophonePermission, requestMicrophonePermission } =
+        await macosPermissions();
+      const granted = await requestPermissionDecision(
+        requestMicrophonePermission,
+        checkMicrophonePermission,
+      );
+      setMicrophone(granted ? "granted" : "needed");
+      if (granted) return;
       setError(
         "Allow Savvy microphone access in System Settings, then check again.",
       );
+    } catch {
+      setMicrophone("needed");
+      setError("Savvy could not request microphone access. Try again.");
     }
   }
 
   async function grantScreenRecording() {
     setError(null);
-    const { checkScreenRecordingPermission, requestScreenRecordingPermission } =
-      await macosPermissions();
-    const granted = await requestPermissionDecision(
-      requestScreenRecordingPermission,
-      checkScreenRecordingPermission,
-    );
-    setScreen({ granted, checking: false });
-    if (!granted) {
+    setScreen("waiting");
+    try {
+      const {
+        checkScreenRecordingPermission,
+        requestScreenRecordingPermission,
+      } = await macosPermissions();
+      const granted = await requestPermissionDecision(
+        requestScreenRecordingPermission,
+        checkScreenRecordingPermission,
+      );
+      setScreen(granted ? "granted" : "needed");
+      if (granted) return;
       setError(
         "Allow Savvy screen recording in System Settings, then check again. macOS may ask you to reopen Savvy.",
       );
+    } catch {
+      setScreen("needed");
+      setError("Savvy could not request screen recording access. Try again.");
     }
   }
 
@@ -178,8 +183,7 @@ export default function Onboarding({
           icon={Mic}
           title="Microphone"
           detail="Transcribes your side of the meeting."
-          granted={microphone.granted}
-          checking={microphone.checking}
+          status={microphone}
           onGrant={grantMicrophone}
           disabled={!isMacos}
         />
@@ -187,8 +191,7 @@ export default function Onboarding({
           icon={MonitorPlay}
           title="Screen &amp; system audio"
           detail="Transcribes everyone else in an online meeting."
-          granted={screen.granted}
-          checking={screen.checking}
+          status={screen}
           onGrant={grantScreenRecording}
           disabled={!isMacos}
         />
@@ -202,7 +205,7 @@ export default function Onboarding({
           </button>
           <button
             className="button"
-            disabled={!microphone.granted}
+            disabled={microphone !== "granted"}
             onClick={() =>
               returningUser ? onComplete() : setStep("transcription")
             }
@@ -210,7 +213,7 @@ export default function Onboarding({
             Continue
           </button>
         </div>
-        {!screen.granted && microphone.granted && (
+        {screen !== "granted" && microphone === "granted" && (
           <p className="onboarding-note">
             Without screen &amp; system audio, Savvy only hears you — not the
             people you are meeting.
@@ -302,16 +305,14 @@ function PermissionRow({
   icon: Icon,
   title,
   detail,
-  granted,
-  checking,
+  status,
   disabled,
   onGrant,
 }: {
   icon: typeof Mic;
   title: string;
   detail: string;
-  granted: boolean;
-  checking: boolean;
+  status: PermissionStatus;
   disabled: boolean;
   onGrant: () => Promise<void>;
 }) {
@@ -324,17 +325,21 @@ function PermissionRow({
         <strong>{title}</strong>
         <small>{detail}</small>
       </span>
-      {granted ? (
+      {status === "granted" ? (
         <span className="onboarding-granted">
           <Check /> Allowed
         </span>
       ) : (
         <button
           className="button secondary"
-          disabled={checking || disabled}
+          disabled={status === "checking" || status === "waiting" || disabled}
           onClick={() => void onGrant()}
         >
-          {checking ? "Checking…" : "Allow"}
+          {status === "checking"
+            ? "Checking…"
+            : status === "waiting"
+              ? "Waiting…"
+              : "Allow"}
         </button>
       )}
     </div>

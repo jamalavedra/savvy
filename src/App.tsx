@@ -3447,6 +3447,18 @@ function AppFooter({
   saving: boolean;
   onSave: (patch: Partial<AppSettings>) => Promise<boolean>;
 }) {
+  const [checkingForUpdates, setCheckingForUpdates] = useState(false);
+
+  async function handleUpdateCheck() {
+    if (checkingForUpdates) return;
+    setCheckingForUpdates(true);
+    try {
+      await checkForUpdates();
+    } finally {
+      setCheckingForUpdates(false);
+    }
+  }
+
   return (
     <footer className="app-footer">
       {settings ? (
@@ -3478,8 +3490,12 @@ function AppFooter({
         </span>
       )}
       <span className="footer-update">
-        <button type="button" onClick={() => void checkForUpdates()}>
-          Check for updates
+        <button
+          type="button"
+          disabled={checkingForUpdates}
+          onClick={() => void handleUpdateCheck()}
+        >
+          {checkingForUpdates ? "Checking…" : "Check for updates"}
         </button>
         <span>•</span>
         <span>v{version}</span>
