@@ -163,6 +163,8 @@ export default function Onboarding({
     try {
       const { requestMicrophonePermission } = await macosPermissions();
       await requestMicrophonePermission();
+      // The system dialog has closed; show the answer now instead of on the next poll.
+      if ((await readPermissions())?.mic) setMicrophone("granted");
     } catch {
       setMicrophone("needed");
       setError("Savvy could not request microphone access. Try again.");
@@ -175,6 +177,7 @@ export default function Onboarding({
     try {
       const { requestScreenRecordingPermission } = await macosPermissions();
       await requestScreenRecordingPermission();
+      if ((await readPermissions())?.capture) setScreen("granted");
     } catch {
       setScreen("needed");
       setError("Savvy could not request screen recording access. Try again.");
