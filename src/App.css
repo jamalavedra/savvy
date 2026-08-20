@@ -2383,8 +2383,37 @@ button.shortcut-chip {
 }
 
 .onboarding-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
   margin: 0;
   color: var(--danger);
   font-size: 12px;
   font-weight: 600;
+}
+
+.onboarding-error > span {
+  flex: 1;
+}
+
+.onboarding-error > button {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  color: inherit;
+  background: transparent;
+}
+
+.onboarding-error > button:hover {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
+.onboarding-error > button svg {
+  width: 13px;
+  height: 13px;
 }

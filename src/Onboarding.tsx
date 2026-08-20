@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { Check, FileText, Mic, MonitorPlay } from "lucide-react";
+import { Check, FileText, Mic, MonitorPlay, X } from "lucide-react";
 import {
   getAppStatus,
   getTranscriptionKeyStatus,
   setTranscriptionApiKey,
 } from "./lib/api";
-import { requestPermissionDecision } from "./lib/permissions";
 import type { TranscriptionKeyStatus } from "./types";
 
 type Step = "permissions" | "transcription";
@@ -23,6 +22,10 @@ const PROVIDERS = [
 
 type ProviderId = (typeof PROVIDERS)[number]["id"];
 
+const PERMISSION_POLL_MS = 1_000;
+const MAX_CONSECUTIVE_CHECK_FAILURES = 3;
+const CHECK_FAILED = "Savvy could not check its permissions. Try again.";
+
 async function macosPermissions() {
   return import("tauri-plugin-macos-permissions-api");
 }
@@ -32,9 +35,10 @@ type PermissionReading = { macos: boolean; mic: boolean; capture: boolean };
 /**
  * Reads the current permission state. Returns rather than sets, so callers own the
  * state update — a reader that set state itself would be a synchronous setState
- * inside an effect.
+ * inside an effect. A failed read returns null. Guessing "denied" would show the
+ * user buttons that cannot work, with nothing explaining why.
  */
-async function readPermissions(): Promise<PermissionReading> {
+async function readPermissions(): Promise<PermissionReading | null> {
   try {
     const status = await getAppStatus();
     if (status.platform !== "macos") {
@@ -50,9 +54,7 @@ async function readPermissions(): Promise<PermissionReading> {
     ]);
     return { macos: true, mic, capture };
   } catch {
-    // If the check itself fails, stop showing "Checking…" rather than trapping the
-    // user on a step whose state can never resolve.
-    return { macos: true, mic: false, capture: false };
+    return null;
   }
 }
 
@@ -83,25 +85,70 @@ export default function Onboarding({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const applyPermissions = useCallback(
-    ({ macos, mic, capture }: PermissionReading) => {
-      setIsMacos(macos);
-      setMicrophone(mic ? "granted" : "needed");
-      setScreen(capture ? "granted" : "needed");
-    },
-    [],
-  );
+  const applyPermissions = useCallback((reading: PermissionReading | null) => {
+    if (!reading) return false;
+    setIsMacos(reading.macos);
+    setMicrophone(reading.mic ? "granted" : "needed");
+    setScreen(reading.capture ? "granted" : "needed");
+    return true;
+  }, []);
+
+  /** The rows would otherwise sit on "Checking…" forever with nothing explaining it. */
+  const reportCheckFailure = useCallback(() => {
+    setIsMacos(true);
+    setMicrophone("needed");
+    setScreen("needed");
+    setError(CHECK_FAILED);
+  }, []);
 
   const refreshPermissions = useCallback(async () => {
     setError(null);
     setMicrophone("checking");
     setScreen("checking");
-    applyPermissions(await readPermissions());
-  }, [applyPermissions]);
+    if (!applyPermissions(await readPermissions())) reportCheckFailure();
+  }, [applyPermissions, reportCheckFailure]);
 
   useEffect(() => {
-    void readPermissions().then(applyPermissions);
-  }, [applyPermissions]);
+    void readPermissions().then((reading) => {
+      if (!applyPermissions(reading)) reportCheckFailure();
+    });
+  }, [applyPermissions, reportCheckFailure]);
+
+  const settled = microphone === "granted" && screen === "granted";
+
+  // The user grants permissions in System Settings, outside this window, so the
+  // answer arrives whenever they come back, not within any fixed wait. Watch for it.
+  useEffect(() => {
+    if (step !== "permissions" || !isMacos || settled) return;
+    let failures = 0;
+    let stopped = false;
+    const poll = async () => {
+      if (stopped) return;
+      const reading = await readPermissions();
+      if (stopped) return;
+      if (!reading) {
+        failures += 1;
+        if (failures < MAX_CONSECUTIVE_CHECK_FAILURES) return;
+        stopped = true;
+        window.clearInterval(timer);
+        setError(CHECK_FAILED);
+        return;
+      }
+      failures = 0;
+      // Promote only. The user may be part way through granting in System
+      // Settings, and a row must not snap back to "Allow" under them.
+      if (reading.mic) setMicrophone("granted");
+      if (reading.capture) setScreen("granted");
+    };
+    const timer = window.setInterval(() => void poll(), PERMISSION_POLL_MS);
+    const onFocus = () => void poll();
+    window.addEventListener("focus", onFocus);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [isMacos, settled, step]);
 
   useEffect(() => {
     if (returningUser) return;
@@ -114,17 +161,8 @@ export default function Onboarding({
     setError(null);
     setMicrophone("waiting");
     try {
-      const { checkMicrophonePermission, requestMicrophonePermission } =
-        await macosPermissions();
-      const granted = await requestPermissionDecision(
-        requestMicrophonePermission,
-        checkMicrophonePermission,
-      );
-      setMicrophone(granted ? "granted" : "needed");
-      if (granted) return;
-      setError(
-        "Allow Savvy microphone access in System Settings, then check again.",
-      );
+      const { requestMicrophonePermission } = await macosPermissions();
+      await requestMicrophonePermission();
     } catch {
       setMicrophone("needed");
       setError("Savvy could not request microphone access. Try again.");
@@ -135,19 +173,8 @@ export default function Onboarding({
     setError(null);
     setScreen("waiting");
     try {
-      const {
-        checkScreenRecordingPermission,
-        requestScreenRecordingPermission,
-      } = await macosPermissions();
-      const granted = await requestPermissionDecision(
-        requestScreenRecordingPermission,
-        checkScreenRecordingPermission,
-      );
-      setScreen(granted ? "granted" : "needed");
-      if (granted) return;
-      setError(
-        "Allow Savvy screen recording in System Settings, then check again. macOS may ask you to reopen Savvy.",
-      );
+      const { requestScreenRecordingPermission } = await macosPermissions();
+      await requestScreenRecordingPermission();
     } catch {
       setScreen("needed");
       setError("Savvy could not request screen recording access. Try again.");
@@ -195,7 +222,20 @@ export default function Onboarding({
           onGrant={grantScreenRecording}
           disabled={!isMacos}
         />
-        {error && <p className="onboarding-error">{error}</p>}
+        {microphone === "waiting" && (
+          <p className="onboarding-note">
+            Waiting for macOS. If no prompt appeared, allow Savvy under System
+            Settings › Privacy &amp; Security › Microphone.
+          </p>
+        )}
+        {screen === "waiting" && (
+          <p className="onboarding-note">
+            Waiting for macOS. Allow Savvy under System Settings › Privacy &amp;
+            Security › Screen &amp; System Audio Recording. macOS may ask you to
+            reopen Savvy.
+          </p>
+        )}
+        <ErrorNotice message={error} onDismiss={() => setError(null)} />
         <div className="onboarding-actions">
           <button
             className="button secondary"
@@ -206,13 +246,20 @@ export default function Onboarding({
           <button
             className="button"
             disabled={microphone !== "granted"}
-            onClick={() =>
-              returningUser ? onComplete() : setStep("transcription")
-            }
+            onClick={() => {
+              setError(null);
+              if (returningUser) onComplete();
+              else setStep("transcription");
+            }}
           >
             Continue
           </button>
         </div>
+        {microphone !== "granted" && microphone !== "checking" && (
+          <p className="onboarding-note">
+            Savvy needs microphone access before you can continue.
+          </p>
+        )}
         {screen !== "granted" && microphone === "granted" && (
           <p className="onboarding-note">
             Without screen &amp; system audio, Savvy only hears you — not the
@@ -256,7 +303,7 @@ export default function Onboarding({
       <p className="onboarding-note">
         <FileText /> Stored in the macOS Keychain, never in settings or logs.
       </p>
-      {error && <p className="onboarding-error">{error}</p>}
+      <ErrorNotice message={error} onDismiss={() => setError(null)} />
       <div className="onboarding-actions">
         <button
           className="button secondary"
@@ -280,6 +327,30 @@ export default function Onboarding({
         </p>
       )}
     </OnboardingShell>
+  );
+}
+
+/** Shows a setup error the user can dismiss, matching the workspace error banner. */
+function ErrorNotice({
+  message,
+  onDismiss,
+}: {
+  message: string | null;
+  onDismiss: () => void;
+}) {
+  if (!message) return null;
+  return (
+    <p className="onboarding-error" role="alert">
+      <span>{message}</span>
+      <button
+        type="button"
+        aria-label="Dismiss alert"
+        title="Dismiss"
+        onClick={onDismiss}
+      >
+        <X />
+      </button>
+    </p>
   );
 }
 
