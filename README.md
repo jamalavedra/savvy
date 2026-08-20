@@ -21,6 +21,16 @@ Savvy keeps your documents and history on your Mac, but live transcription is no
 
 Application-owned directories use owner-only permissions (`0700`) and sensitive files `0600`. FileVault provides encryption at rest when enabled; Savvy does not add an application-layer encryption claim. Audio and transcripts are deleted after 30 days, with cleanup running at startup. Removing a client deletes derived data but never touches your source folder.
 
+## When Savvy speaks up
+
+During a meeting the overlay mascot switches to _thinking_ for exactly three reasons. The status line first says **Checking notes** while the model reads your brief, notes, and transcript, then names the reason once it starts composing:
+
+1. **Answering their question** — the other side asked a question.
+2. **Checking a red line** — someone touched a hard constraint from your brief.
+3. **Getting advice** — you pressed Advice.
+
+Between those, Savvy periodically re-reads your brief and notes against the last minute of conversation — **Checking notes**, then **Thinking** — with Advice still available; if it finds something concrete a card labelled _Savvy noticed_ appears. Savvy never thinks when no recommendation CLI is signed in; it shows one notice instead. Quitting Savvy during a meeting stops the meeting first.
+
 ## Install
 
 Download `Savvy_<version>_aarch64.dmg` from the [latest release](https://github.com/jamalavedra/savvy/releases/latest), open it, and drag Savvy to Applications.

@@ -155,7 +155,7 @@ impl RecommendationCoordinator {
             .flatten()
     }
 
-    pub fn allows_automatic_generation(&self) -> bool {
+    pub fn is_idle(&self) -> bool {
         !self.stopped && self.active_generation.is_none()
     }
 
@@ -170,10 +170,6 @@ impl RecommendationCoordinator {
     pub fn next_sequence(&mut self) -> u64 {
         self.event_sequence += 1;
         self.event_sequence
-    }
-
-    pub fn cancel_generation(&mut self) {
-        self.active_generation = None;
     }
 
     pub fn stop(&mut self) {
@@ -304,10 +300,10 @@ mod tests {
         assert!(!coordinator.accepts(old));
         assert!(coordinator.accepts(latest));
         assert_eq!(coordinator.active_trigger(), Some(Trigger::Manual));
-        assert!(!coordinator.allows_automatic_generation());
+        assert!(!coordinator.is_idle());
         assert_eq!(coordinator.active_generation(), Some(latest));
         assert!(coordinator.finish_generation(latest));
-        assert!(coordinator.allows_automatic_generation());
+        assert!(coordinator.is_idle());
         assert_eq!(coordinator.active_generation(), None);
         assert!(!coordinator.finish_generation(latest));
         let stopped = coordinator.start_generation(Trigger::Risk);
@@ -317,13 +313,25 @@ mod tests {
     }
 
     #[test]
-    fn automatic_generation_is_single_flight_and_survives_new_turns() {
+    fn scan_is_single_flight_and_survives_new_turns() {
         let mut coordinator = RecommendationCoordinator::new(Uuid::new_v4());
         let token = coordinator.start_generation(Trigger::Opportunity);
         coordinator.observe_turn();
         assert!(coordinator.accepts(token));
-        assert!(!coordinator.allows_automatic_generation());
+        assert!(!coordinator.is_idle());
         assert!(coordinator.finish_generation(token));
-        assert!(coordinator.allows_automatic_generation());
+        assert!(coordinator.is_idle());
+    }
+
+    #[test]
+    fn superseded_generation_is_finished_once_and_never_accepted_again() {
+        let mut coordinator = RecommendationCoordinator::new(Uuid::new_v4());
+        let scan = coordinator.start_generation(Trigger::Opportunity);
+        assert!(coordinator.finish_generation(scan));
+        let question = coordinator.start_generation(Trigger::Question);
+        assert!(!coordinator.accepts(scan));
+        assert!(!coordinator.finish_generation(scan));
+        assert!(coordinator.accepts(question));
+        assert_eq!(coordinator.active_trigger(), Some(Trigger::Question));
     }
 }

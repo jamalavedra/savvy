@@ -12,6 +12,8 @@ use tokio_tungstenite::{
     tungstenite::{client::IntoClientRequest, http::HeaderValue, Message},
 };
 
+const ASSUMED_CONFIDENCE: f32 = 0.8;
+
 #[derive(Debug, Error)]
 pub enum TranscriptionError {
     #[error("transcription failed: {0}")]
@@ -583,6 +585,8 @@ fn parse_assembly_ai(
         .and_then(|word| word.get("end"))
         .and_then(Value::as_u64)
         .unwrap_or(start_ms);
+    // AssemblyAI omits per-word confidence on some turns. Treat that as typical
+    // rather than zero, so downstream grounding scores do not reject the advice.
     let confidence = words
         .map(|words| {
             let values = words
@@ -590,12 +594,12 @@ fn parse_assembly_ai(
                 .filter_map(|word| word.get("confidence").and_then(Value::as_f64))
                 .collect::<Vec<_>>();
             if values.is_empty() {
-                0.0
+                ASSUMED_CONFIDENCE
             } else {
                 (values.iter().sum::<f64>() / values.len() as f64) as f32
             }
         })
-        .unwrap_or(0.0);
+        .unwrap_or(ASSUMED_CONFIDENCE);
     Some(LiveTranscript {
         kind: if value
             .get("end_of_turn")

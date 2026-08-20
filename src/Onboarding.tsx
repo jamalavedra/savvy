@@ -163,6 +163,8 @@ export default function Onboarding({
     try {
       const { requestMicrophonePermission } = await macosPermissions();
       await requestMicrophonePermission();
+      // The system dialog has closed; show the answer now instead of on the next poll.
+      if ((await readPermissions())?.mic) setMicrophone("granted");
     } catch {
       setMicrophone("needed");
       setError("Savvy could not request microphone access. Try again.");
@@ -175,6 +177,7 @@ export default function Onboarding({
     try {
       const { requestScreenRecordingPermission } = await macosPermissions();
       await requestScreenRecordingPermission();
+      if ((await readPermissions())?.capture) setScreen("granted");
     } catch {
       setScreen("needed");
       setError("Savvy could not request screen recording access. Try again.");
@@ -283,7 +286,7 @@ export default function Onboarding({
           >
             <strong>{option.label}</strong>
             {keyStatus[option.id] && (
-              <span className="onboarding-granted">
+              <span className="onboarding-status granted">
                 <Check /> Key saved
               </span>
             )}
@@ -397,20 +400,20 @@ function PermissionRow({
         <small>{detail}</small>
       </span>
       {status === "granted" ? (
-        <span className="onboarding-granted">
+        <span className="onboarding-status granted">
           <Check /> Allowed
+        </span>
+      ) : status === "checking" || status === "waiting" ? (
+        <span className="onboarding-status">
+          {status === "checking" ? "Checking…" : "Waiting…"}
         </span>
       ) : (
         <button
           className="button secondary"
-          disabled={status === "checking" || status === "waiting" || disabled}
+          disabled={disabled}
           onClick={() => void onGrant()}
         >
-          {status === "checking"
-            ? "Checking…"
-            : status === "waiting"
-              ? "Waiting…"
-              : "Allow"}
+          Allow
         </button>
       )}
     </div>

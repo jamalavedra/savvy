@@ -8,6 +8,16 @@ export type ClientWorkspace = {
   documentCount: number;
   lastIndexedAt: string | null;
   activeBriefId: string | null;
+  excludedPaths: string[];
+};
+
+export type DocumentKind =
+  "pdf" | "docx" | "pptx" | "xlsx" | "csv" | "markdown" | "text" | "epub";
+
+export type ClientDocument = {
+  relativePath: string;
+  kind: DocumentKind | null;
+  included: boolean;
 };
 
 export type OutlineSection = {
@@ -121,7 +131,6 @@ export type RecommendationTrigger =
   | "decision"
   | "risk"
   | "opportunity"
-  | "pause"
   | "manual";
 
 export type MeetingEvent =
@@ -140,6 +149,13 @@ export type MeetingEvent =
       transcriptRevision: number;
       trigger: RecommendationTrigger;
       local: Recommendation | null;
+    }
+  | {
+      type: "recommendationThinking";
+      sessionId: string;
+      sequence: number;
+      generationId: number;
+      transcriptRevision: number;
     }
   | {
       type: "recommendationCompleted";
