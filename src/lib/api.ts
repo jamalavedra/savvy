@@ -300,9 +300,10 @@ export async function getOutputDevices(): Promise<AudioDevice[]> {
   return invoke<AudioDevice[]>("get_output_devices");
 }
 
-export async function checkForUpdates(): Promise<void> {
-  if (!window.__TAURI_INTERNALS__) return;
-  return invoke("check_for_updates");
+/** Resolves to true when an update was found (the app then offers to install it). */
+export async function checkForUpdates(): Promise<boolean> {
+  if (!window.__TAURI_INTERNALS__) return false;
+  return invoke<boolean>("check_for_updates");
 }
 
 export async function setShortcutRecording(active: boolean): Promise<void> {

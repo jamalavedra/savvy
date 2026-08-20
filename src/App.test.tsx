@@ -625,8 +625,9 @@ describe("App", () => {
     expect(screen.getByText("Log Directory")).toBeVisible();
     expect(screen.getAllByRole("button", { name: "Open" })).toHaveLength(2);
     expect(screen.getAllByText("v0.1.0")).toHaveLength(2);
+    fireEvent.click(screen.getByRole("button", { name: "Check for updates" }));
     expect(
-      screen.getByRole("button", { name: "Check for updates" }),
-    ).toBeVisible();
+      await screen.findByRole("button", { name: "Up to date" }),
+    ).toBeDisabled();
   }, 15_000);
 });
