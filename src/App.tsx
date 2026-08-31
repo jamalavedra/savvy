@@ -66,6 +66,7 @@ import {
   removeBrief,
   removeClientContext,
   resumeMeeting,
+  setOverlayExpanded,
   setTranscriptionApiKey,
   setShortcutRecording,
   startMeeting,
@@ -1894,6 +1895,22 @@ export function MeetingOverlay({
     visibleRecommendation || error || confirmingStop,
   );
   const open = style === "live" && (hasText || showExtension);
+  // The card grows vertically whenever `.has-text` or `.ai-open` applies
+  // (regardless of overlay style), so the native window must grow with it.
+  const expanded = hasText || showExtension;
+
+  // Grow the window before the card's open animation needs the room; shrink
+  // only after the 440-460ms close animation has finished, so the card is
+  // never clipped. The window otherwise stays wrapped tightly around the card
+  // because its transparent regions still swallow clicks on macOS.
+  useEffect(() => {
+    if (expanded) {
+      void setOverlayExpanded(true);
+      return;
+    }
+    const timer = window.setTimeout(() => void setOverlayExpanded(false), 520);
+    return () => window.clearTimeout(timer);
+  }, [expanded]);
 
   useEffect(() => {
     if (!session) return;

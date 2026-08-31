@@ -841,6 +841,26 @@ fn set_shortcut_recording(
     }
 }
 
+#[tauri::command]
+fn set_overlay_expanded(
+    expanded: bool,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let settings = state
+            .settings
+            .lock()
+            .map_err(|_| "settings lock poisoned")?
+            .clone();
+        overlay::set_expanded(&app, &settings, expanded);
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = (expanded, app, state);
+    Ok(())
+}
+
 fn validate_settings(settings: &AppSettings) -> Result<(), String> {
     if !(0.0..=1.0).contains(&settings.audio_feedback_volume) {
         return Err("audio feedback volume must be between 0 and 1".into());
@@ -5033,6 +5053,7 @@ pub fn run() {
             get_output_devices,
             check_for_updates,
             set_shortcut_recording,
+            set_overlay_expanded,
             get_dashboard,
             get_preparation_snapshot,
             get_meeting_history,
