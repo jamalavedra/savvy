@@ -326,6 +326,11 @@ export async function checkForUpdates(): Promise<boolean> {
   return invoke<boolean>("check_for_updates");
 }
 
+export async function setOverlayExpanded(expanded: boolean): Promise<void> {
+  if (!window.__TAURI_INTERNALS__) return;
+  return invoke("set_overlay_expanded", { expanded });
+}
+
 export async function setShortcutRecording(active: boolean): Promise<void> {
   if (!window.__TAURI_INTERNALS__) return;
   return invoke("set_shortcut_recording", { active });
