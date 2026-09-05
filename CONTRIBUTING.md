@@ -6,10 +6,9 @@ Build prerequisites are in the [README](README.md#building-from-source). Run `pn
 opening a pull request — it runs formatting, typecheck, lint, the frontend and Rust test suites,
 a production build, and Clippy with warnings denied. CI runs the same command.
 
-The test suite runs on macOS only — `savvy-audio` depends on ScreenCaptureKit, so the workspace
-does not compile anywhere else. CI additionally `cargo check`s Linux and Windows so the
-non-macOS stubs do not rot. Audio capture, Keychain access, the overlay window, and the tray are
-macOS-only, so changes touching those need a Mac to verify.
+CI runs the full test suite on macOS and `cargo check` on Linux and Windows. The workspace
+compiles on all three platforms. Audio capture, Keychain access, the overlay window, and the
+tray are macOS-only, so changes touching those need a Mac to verify.
 
 ## Implementation rules
 

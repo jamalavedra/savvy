@@ -3,6 +3,8 @@ import { Check, FileText, Mic, MonitorPlay, X } from "lucide-react";
 import {
   getAppStatus,
   getTranscriptionKeyStatus,
+  reopenApp,
+  probeSystemAudioPermission,
   setTranscriptionApiKey,
 } from "./lib/api";
 import type { TranscriptionKeyStatus } from "./types";
@@ -32,13 +34,10 @@ async function macosPermissions() {
 
 type PermissionReading = { macos: boolean; mic: boolean; capture: boolean };
 
-/**
- * Reads the current permission state. Returns rather than sets, so callers own the
- * state update — a reader that set state itself would be a synchronous setState
- * inside an effect. A failed read returns null. Guessing "denied" would show the
- * user buttons that cannot work, with nothing explaining why.
- */
-async function readPermissions(): Promise<PermissionReading | null> {
+/** Returns null when permission status cannot be read. */
+async function readPermissions(
+  probeCapture = false,
+): Promise<PermissionReading | null> {
   try {
     const status = await getAppStatus();
     if (status.platform !== "macos") {
@@ -52,26 +51,22 @@ async function readPermissions(): Promise<PermissionReading | null> {
       checkMicrophonePermission(),
       checkScreenRecordingPermission(),
     ]);
+    if (probeCapture && !capture) {
+      try {
+        await probeSystemAudioPermission();
+        return { macos: true, mic, capture: true };
+      } catch {
+        // A failed capture probe must not erase the microphone result.
+      }
+    }
     return { macos: true, mic, capture };
   } catch {
     return null;
   }
 }
 
-/**
- * First-run setup.
- *
- * `returningUser` restricts the flow to the permission step: someone who already
- * finished onboarding but has since revoked a permission needs to repair it, not to
- * be onboarded again.
- */
-export default function Onboarding({
-  returningUser,
-  onComplete,
-}: {
-  returningUser: boolean;
-  onComplete: () => void;
-}) {
+/** First-run setup. Permission repair for existing installs happens at meeting start. */
+export default function Onboarding({ onComplete }: { onComplete: () => void }) {
   const [step, setStep] = useState<Step>("permissions");
   const [isMacos, setIsMacos] = useState(false);
   const [microphone, setMicrophone] = useState<PermissionStatus>("checking");
@@ -105,7 +100,7 @@ export default function Onboarding({
     setError(null);
     setMicrophone("checking");
     setScreen("checking");
-    if (!applyPermissions(await readPermissions())) reportCheckFailure();
+    if (!applyPermissions(await readPermissions(true))) reportCheckFailure();
   }, [applyPermissions, reportCheckFailure]);
 
   useEffect(() => {
@@ -116,8 +111,7 @@ export default function Onboarding({
 
   const settled = microphone === "granted" && screen === "granted";
 
-  // The user grants permissions in System Settings, outside this window, so the
-  // answer arrives whenever they come back, not within any fixed wait. Watch for it.
+  // Watch for permission changes made in System Settings while setup stays open.
   useEffect(() => {
     if (step !== "permissions" || !isMacos || settled) return;
     let failures = 0;
@@ -151,11 +145,10 @@ export default function Onboarding({
   }, [isMacos, settled, step]);
 
   useEffect(() => {
-    if (returningUser) return;
     void getTranscriptionKeyStatus()
       .then(setKeyStatus)
       .catch(() => undefined);
-  }, [returningUser]);
+  }, []);
 
   async function grantMicrophone() {
     setError(null);
@@ -163,7 +156,7 @@ export default function Onboarding({
     try {
       const { requestMicrophonePermission } = await macosPermissions();
       await requestMicrophonePermission();
-      // The system dialog has closed; show the answer now instead of on the next poll.
+      // The request returns before the dialog is answered; polling picks up a later grant.
       if ((await readPermissions())?.mic) setMicrophone("granted");
     } catch {
       setMicrophone("needed");
@@ -177,7 +170,7 @@ export default function Onboarding({
     try {
       const { requestScreenRecordingPermission } = await macosPermissions();
       await requestScreenRecordingPermission();
-      if ((await readPermissions())?.capture) setScreen("granted");
+      if ((await readPermissions(true))?.capture) setScreen("granted");
     } catch {
       setScreen("needed");
       setError("Savvy could not request screen recording access. Try again.");
@@ -198,17 +191,23 @@ export default function Onboarding({
     }
   }
 
+  async function reopen() {
+    setBusy(true);
+    setError(null);
+    try {
+      await reopenApp();
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const hasAnyKey = keyStatus.deepgram || keyStatus.assemblyAi;
 
   if (step === "permissions") {
     return (
-      <OnboardingShell
-        subtitle={
-          returningUser
-            ? "Savvy needs its permissions back before the next meeting."
-            : "To get started, let Savvy hear the meeting."
-        }
-      >
+      <OnboardingShell subtitle="To get started, let Savvy hear the meeting.">
         <PermissionRow
           icon={Mic}
           title="Microphone"
@@ -238,6 +237,19 @@ export default function Onboarding({
             reopen Savvy.
           </p>
         )}
+        {(microphone === "waiting" || screen === "waiting") && (
+          <p className="onboarding-note">
+            Already allowed in System Settings? macOS may need a fresh launch to
+            recognize the change.
+            <button
+              className="button secondary"
+              disabled={busy}
+              onClick={() => void reopen()}
+            >
+              Reopen Savvy
+            </button>
+          </p>
+        )}
         <ErrorNotice message={error} onDismiss={() => setError(null)} />
         <div className="onboarding-actions">
           <button
@@ -251,8 +263,7 @@ export default function Onboarding({
             disabled={microphone !== "granted"}
             onClick={() => {
               setError(null);
-              if (returningUser) onComplete();
-              else setStep("transcription");
+              setStep("transcription");
             }}
           >
             Continue

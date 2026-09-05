@@ -1,5 +1,12 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { version } from "../package.json";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App, { MeetingOverlay } from "./App";
 import {
   meetingEventIsStale,
@@ -9,11 +16,119 @@ import {
   type GenerationCursor,
 } from "./lib/meetingEvents";
 import { resetBrowserDemoState } from "./lib/api";
+import * as api from "./lib/api";
+import { listen } from "@tauri-apps/api/event";
+
+vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 import { requestPermissionDecision } from "./lib/permissions";
 import type { TranscriptTurn } from "./types";
 
 describe("App", () => {
-  beforeEach(() => resetBrowserDemoState());
+  beforeEach(() => {
+    resetBrowserDemoState();
+    window.history.replaceState({}, "", "/");
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+    delete window.__TAURI_INTERNALS__;
+    window.history.replaceState({}, "", "/");
+  });
+
+  it("keeps an idle overlay unmounted and applies saved settings from the main window", async () => {
+    const snapshot = await api.getDashboard();
+    const settings = await api.getAppSettings();
+    const preparation = await api.getPreparationSnapshot(null);
+    vi.spyOn(api, "getDashboard").mockResolvedValue(snapshot);
+    vi.spyOn(api, "getAppSettings").mockResolvedValue(settings);
+    vi.spyOn(api, "getAppStatus").mockResolvedValue({
+      version: "0.1.1",
+      platform: "macos",
+    });
+    vi.spyOn(api, "getPreparationSnapshot").mockResolvedValue(preparation);
+    const meter = vi.spyOn(api, "getAudioLevel");
+    vi.mocked(listen).mockResolvedValue(vi.fn());
+    window.__TAURI_INTERNALS__ = {};
+    window.history.replaceState({}, "", "/?overlay=1");
+    const view = render(<App />);
+    await waitFor(() =>
+      expect(listen).toHaveBeenCalledWith(
+        "savvy://settings-changed",
+        expect.any(Function),
+      ),
+    );
+    const handler = vi
+      .mocked(listen)
+      .mock.calls.find(([name]) => name === "savvy://settings-changed")![1];
+    act(() =>
+      handler({
+        event: "savvy://settings-changed",
+        id: 1,
+        payload: { ...settings, theme: "dark" },
+      }),
+    );
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(view.container.querySelector(".ov-stage")).toBeNull();
+    expect(meter).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
+  it("bounds microphone polling and stops it on visibility changes, pause, and unmount", async () => {
+    const session = await api.startMeeting(null, null);
+    const props = {
+      session,
+      turns: [],
+      recommendation: null,
+      onTogglePause: vi.fn(),
+      onRequestRecommendation: vi.fn(),
+      onStop: vi.fn(),
+      busy: false,
+      error: null,
+      style: "live" as const,
+      position: "bottom" as const,
+      showTranscript: false,
+      thinking: null,
+      hasNotes: false,
+    };
+    vi.useFakeTimers();
+    let resolveLevel!: (value: number) => void;
+    const meter = vi.spyOn(api, "getAudioLevel").mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveLevel = resolve;
+      }),
+    );
+    const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+    const view = render(<MeetingOverlay {...props} />);
+    await act(() => vi.advanceTimersByTimeAsync(1000));
+    expect(meter).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      resolveLevel(0.1);
+    });
+    hidden.mockReturnValue(true);
+    fireEvent(document, new Event("visibilitychange"));
+    await act(() => vi.advanceTimersByTimeAsync(1000));
+    expect(meter).toHaveBeenCalledTimes(1);
+    meter.mockRejectedValueOnce(new Error("Microphone disconnected"));
+    hidden.mockReturnValue(false);
+    await act(async () => {
+      fireEvent(document, new Event("visibilitychange"));
+    });
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Microphone disconnected",
+    );
+    meter.mockResolvedValue(0.1);
+    await act(() => vi.advanceTimersByTimeAsync(80));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    view.rerender(
+      <MeetingOverlay {...props} session={{ ...session, state: "paused" }} />,
+    );
+    const calls = meter.mock.calls.length;
+    await act(() => vi.advanceTimersByTimeAsync(1000));
+    expect(meter).toHaveBeenCalledTimes(calls);
+    view.unmount();
+    await act(() => vi.advanceTimersByTimeAsync(1000));
+    expect(meter).toHaveBeenCalledTimes(calls);
+  });
 
   it("tombstones cancelled opportunity results", () => {
     expect(
@@ -436,6 +551,11 @@ describe("App", () => {
   });
 
   it("removes a recommendation when its Keep countdown completes", async () => {
+    const snapshot = await api.getDashboard();
+    vi.spyOn(api, "getDashboard").mockResolvedValue({
+      ...snapshot,
+      activeSession: await api.startMeeting(null, null),
+    });
     window.history.replaceState({}, "", "/?overlay=1");
     render(<App />);
 
@@ -462,6 +582,11 @@ describe("App", () => {
   });
 
   it("can keep a recommendation until it is manually dismissed", async () => {
+    const snapshot = await api.getDashboard();
+    vi.spyOn(api, "getDashboard").mockResolvedValue({
+      ...snapshot,
+      activeSession: await api.startMeeting(null, null),
+    });
     window.history.replaceState({}, "", "/?overlay=1");
     render(<App />);
 
@@ -778,7 +903,7 @@ describe("App", () => {
     expect(screen.getByText("App Data Directory")).toBeVisible();
     expect(screen.getByText("Log Directory")).toBeVisible();
     expect(screen.getAllByRole("button", { name: "Open" })).toHaveLength(2);
-    expect(screen.getAllByText("v0.1.0")).toHaveLength(2);
+    expect(screen.getAllByText(`v${version}`)).toHaveLength(2);
     fireEvent.click(screen.getByRole("button", { name: "Check for updates" }));
     expect(
       await screen.findByRole("button", { name: "Up to date" }),

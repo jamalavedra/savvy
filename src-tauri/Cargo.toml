@@ -1,6 +1,6 @@
 [package]
 name = "savvy"
-version = "0.1.1"
+version = "0.1.2"
 description = "Savvy, a meeting assistant grounded in your own sources"
 authors = ["Alamas Labs, Inc."]
 repository = "https://github.com/jamalavedra/savvy"

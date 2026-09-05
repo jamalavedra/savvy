@@ -92,6 +92,14 @@ impl Default for SystemAudioCapture {
 
 #[cfg(target_os = "macos")]
 impl SystemAudioCapture {
+    /// Explicit user-requested permission probe. ScreenCaptureKit may show the
+    /// system prompt, so do not run this during passive startup polling.
+    pub fn check_permission() -> Result<(), AudioError> {
+        SCShareableContent::get()
+            .map(|_| ())
+            .map_err(|error| AudioError::Capture(error.to_string()))
+    }
+
     pub fn new() -> Self {
         let (sender, receiver) = flume::bounded(64);
         Self {
@@ -137,8 +145,13 @@ impl MicrophoneCapture {
         self.last_error.lock().ok().and_then(|value| value.clone())
     }
 
-    pub fn level(&self) -> f32 {
-        f32::from_bits(self.level.load(Ordering::Relaxed))
+    pub fn level(&self) -> Result<f32, AudioError> {
+        if let Some(error) = self.last_error() {
+            return Err(AudioError::Capture(format!(
+                "Microphone capture stopped: {error}. Stop this meeting, reconnect your microphone, then start a new meeting."
+            )));
+        }
+        Ok(f32::from_bits(self.level.load(Ordering::Relaxed)))
     }
 
     pub fn configure(
@@ -449,30 +462,55 @@ fn find_device(
     selected: Option<&str>,
     input: bool,
 ) -> Result<cpal::Device, AudioError> {
-    if let Some(selected) = selected {
+    let devices = if selected.is_some() {
         let devices = if input {
             host.input_devices()
         } else {
             host.output_devices()
         }
         .map_err(|error| AudioError::DeviceUnavailable(error.to_string()))?;
-        return devices
+        devices
             .filter_map(|device| {
                 device
                     .description()
                     .ok()
                     .map(|description| (description.name().to_owned(), device))
             })
-            .find(|(name, _)| name == selected)
-            .map(|(_, device)| device)
-            .ok_or_else(|| AudioError::DeviceUnavailable(selected.into()));
-    }
-    (if input {
-        host.default_input_device()
+            .collect()
     } else {
-        host.default_output_device()
+        Vec::new()
+    };
+    resolve_device(
+        selected,
+        devices,
+        || {
+            if input {
+                host.default_input_device()
+            } else {
+                host.default_output_device()
+            }
+        },
+        input,
+    )
+}
+
+fn resolve_device<T>(
+    selected: Option<&str>,
+    devices: Vec<(String, T)>,
+    default: impl FnOnce() -> Option<T>,
+    input: bool,
+) -> Result<T, AudioError> {
+    if let Some(selected) = selected {
+        if let Some((_, device)) = devices.into_iter().find(|(name, _)| name == selected) {
+            return Ok(device);
+        }
+        if !input {
+            return Err(AudioError::DeviceUnavailable(selected.into()));
+        }
+    }
+    default().ok_or_else(|| {
+        AudioError::DeviceUnavailable("no system default device is configured".into())
     })
-    .ok_or_else(|| AudioError::DeviceUnavailable("no system default device is configured".into()))
 }
 
 fn send_input_frame(
@@ -526,6 +564,7 @@ fn select_channel(
 impl AudioCapture for MicrophoneCapture {
     fn start(&mut self) -> Result<(), AudioError> {
         if self.stream.is_some() {
+            self.level()?;
             return Ok(());
         }
         if let Ok(mut error) = self.last_error.lock() {
@@ -564,6 +603,7 @@ impl AudioCapture for MicrophoneCapture {
     }
 
     fn resume(&mut self) -> Result<(), AudioError> {
+        self.level()?;
         self.stream
             .as_ref()
             .ok_or_else(|| AudioError::Capture("microphone is not running".into()))?
@@ -775,6 +815,33 @@ pub fn downmix_to_mono(frame: &AudioFrame) -> Vec<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn missing_microphone_falls_back_but_output_selection_stays_explicit() {
+        assert_eq!(
+            resolve_device(Some("USB"), vec![("USB".into(), 1)], || Some(2), true).unwrap(),
+            1
+        );
+        assert_eq!(
+            resolve_device(Some("USB"), vec![], || Some(2), true).unwrap(),
+            2
+        );
+        assert!(resolve_device::<i32>(Some("USB"), vec![], || None, true).is_err());
+        assert!(resolve_device(Some("USB"), vec![], || Some(2), false).is_err());
+        assert_eq!(
+            resolve_device(None, vec![("USB".into(), 1)], || Some(2), false).unwrap(),
+            2
+        );
+        let mut capture = MicrophoneCapture::new();
+        capture.level.store(0.5f32.to_bits(), Ordering::Relaxed);
+        *capture.last_error.lock().unwrap() = Some("device disconnected".into());
+        assert!(capture
+            .level()
+            .unwrap_err()
+            .to_string()
+            .contains("Stop this meeting"));
+        assert!(capture.resume().is_err());
+    }
 
     #[test]
     fn stereo_frames_are_downmixed_without_crossing_frames() {

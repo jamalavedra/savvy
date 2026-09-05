@@ -14,6 +14,8 @@ const checkMicrophonePermission = vi.fn<() => Promise<boolean>>();
 const checkScreenRecordingPermission = vi.fn<() => Promise<boolean>>();
 const requestMicrophonePermission = vi.fn<() => Promise<void>>();
 const requestScreenRecordingPermission = vi.fn<() => Promise<void>>();
+const probeSystemAudioPermission = vi.fn<() => Promise<void>>();
+const reopenApp = vi.fn<() => Promise<void>>();
 
 vi.mock("tauri-plugin-macos-permissions-api", () => ({
   checkMicrophonePermission: () => checkMicrophonePermission(),
@@ -37,6 +39,8 @@ const setTranscriptionApiKey =
 vi.mock("./lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./lib/api")>()),
   getAppStatus: () => getAppStatus(),
+  probeSystemAudioPermission: () => probeSystemAudioPermission(),
+  reopenApp: () => reopenApp(),
   getTranscriptionKeyStatus: () => getTranscriptionKeyStatus(),
   setTranscriptionApiKey: (provider: string, key: string) =>
     setTranscriptionApiKey(provider, key),
@@ -79,9 +83,9 @@ function rowButton(title: string) {
   return control;
 }
 
-function renderOnboarding(returningUser = false) {
+function renderOnboarding() {
   const onComplete = vi.fn();
-  render(<Onboarding returningUser={returningUser} onComplete={onComplete} />);
+  render(<Onboarding onComplete={onComplete} />);
   return onComplete;
 }
 
@@ -101,11 +105,44 @@ describe("Onboarding on macOS", () => {
     checkScreenRecordingPermission.mockResolvedValue(false);
     requestMicrophonePermission.mockResolvedValue(undefined);
     requestScreenRecordingPermission.mockResolvedValue(undefined);
+    probeSystemAudioPermission.mockRejectedValue(
+      new Error("Screen capture is unavailable"),
+    );
+    reopenApp.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
     vi.useRealTimers();
     vi.clearAllMocks();
+  });
+
+  it("uses ScreenCaptureKit on an explicit recheck when preflight is stale", async () => {
+    checkMicrophonePermission.mockResolvedValue(true);
+    renderOnboarding();
+    await waitFor(() =>
+      expect(rowButton("Screen & system audio")).toBeEnabled(),
+    );
+    expect(probeSystemAudioPermission).not.toHaveBeenCalled();
+    probeSystemAudioPermission.mockResolvedValueOnce(undefined);
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    await waitFor(() =>
+      expect(row("Screen & system audio")).toHaveTextContent("Allowed"),
+    );
+    expect(row("Microphone")).toHaveTextContent("Allowed");
+    expect(requestScreenRecordingPermission).not.toHaveBeenCalled();
+  });
+
+  it("offers reopening for an already allowed but still unrecognized permission", async () => {
+    renderOnboarding();
+    await waitFor(() => expect(rowButton("Microphone")).toBeEnabled());
+    fireEvent.click(rowButton("Microphone"));
+    const reopen = await screen.findByRole("button", { name: "Reopen Savvy" });
+    reopenApp.mockRejectedValueOnce(
+      new Error("Stop the meeting before reopening Savvy."),
+    );
+    fireEvent.click(reopen);
+    expect(await findErrorText()).toContain("Stop the meeting");
+    expect(reopenApp).toHaveBeenCalledTimes(1);
   });
 
   it("blocks Continue until the microphone is allowed and says why", async () => {
@@ -317,20 +354,6 @@ describe("Onboarding on macOS", () => {
     expect(await screen.findByText(/Deepgram API key/)).toBeVisible();
     expect(errorText()).toBeNull();
   });
-
-  it("sends a returning user straight back to work once repaired", async () => {
-    checkMicrophonePermission.mockResolvedValue(true);
-    checkScreenRecordingPermission.mockResolvedValue(true);
-    const onComplete = renderOnboarding(true);
-
-    expect(await screen.findByText(/needs its permissions back/)).toBeVisible();
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled(),
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    expect(onComplete).toHaveBeenCalled();
-    expect(getTranscriptionKeyStatus).not.toHaveBeenCalled();
-  });
 });
 
 describe("Onboarding gate on relaunch", () => {
@@ -343,19 +366,26 @@ describe("Onboarding gate on relaunch", () => {
     });
     requestMicrophonePermission.mockResolvedValue(undefined);
     requestScreenRecordingPermission.mockResolvedValue(undefined);
+    probeSystemAudioPermission.mockRejectedValue(
+      new Error("Screen capture is unavailable"),
+    );
+    reopenApp.mockResolvedValue(undefined);
   });
 
   afterEach(() => vi.clearAllMocks());
 
-  it("fronts setup when the microphone was revoked", async () => {
+  it("preserves completed onboarding when macOS reports no microphone grant after an update", async () => {
     checkMicrophonePermission.mockResolvedValue(false);
     checkScreenRecordingPermission.mockResolvedValue(true);
     render(<App />);
 
     expect(
-      await screen.findByRole("dialog", { name: "Set up Savvy" }),
+      await screen.findByRole("heading", { name: "Prepare for your meeting" }),
     ).toBeVisible();
-    expect(screen.getByText(/needs its permissions back/)).toBeVisible();
+    expect(
+      screen.queryByRole("dialog", { name: "Set up Savvy" }),
+    ).not.toBeInTheDocument();
+    expect(checkMicrophonePermission).not.toHaveBeenCalled();
   });
 
   it("does not wall off the app over the optional screen recording permission", async () => {

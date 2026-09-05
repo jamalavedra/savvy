@@ -1,3 +1,4 @@
+import { version } from "../../package.json";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
@@ -210,7 +211,7 @@ const browserSettings: AppSettings = {
 export async function getAppStatus(): Promise<AppStatus> {
   if (!window.__TAURI_INTERNALS__) {
     return {
-      version: "0.1.0",
+      version,
       platform: "browser",
     };
   }
@@ -687,4 +688,12 @@ export async function stopMeeting(sessionId: string): Promise<MeetingSession> {
     };
   }
   return invoke<MeetingSession>("stop_meeting", { sessionId });
+}
+
+export async function reopenApp(): Promise<void> {
+  if (window.__TAURI_INTERNALS__) await invoke("reopen_app");
+}
+
+export async function probeSystemAudioPermission(): Promise<void> {
+  if (window.__TAURI_INTERNALS__) await invoke("probe_system_audio_permission");
 }
