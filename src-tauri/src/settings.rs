@@ -65,16 +65,27 @@ impl Default for AppSettings {
 
 pub fn load(path: &Path) -> AppSettings {
     let Ok(bytes) = fs::read(path) else {
-        // No settings file: a fresh install, which should see onboarding.
+        // Missing or unreadable settings use first-run defaults.
         return AppSettings::default();
     };
     let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
         return AppSettings::default();
     };
-    let has_onboarding_flag = value.get("onboardingCompleted").is_some();
-    let Ok(mut settings) = serde_json::from_value::<AppSettings>(value) else {
+    let Some(fields) = value.as_object() else {
         return AppSettings::default();
     };
+    let has_onboarding_flag = fields.contains_key("onboardingCompleted");
+    let mut settings = serde_json::from_value::<AppSettings>(value.clone()).unwrap_or_else(|_| {
+        let mut recovered = serde_json::Map::new();
+        for (key, value) in fields {
+            recovered.insert(key.clone(), value.clone());
+            if serde_json::from_value::<AppSettings>(recovered.clone().into()).is_err() {
+                recovered.remove(key);
+                log::warn!("Ignoring invalid settings field: {key}");
+            }
+        }
+        serde_json::from_value(recovered.into()).unwrap_or_default()
+    });
     if !has_onboarding_flag {
         // Settings written before onboarding existed. The install is already in use,
         // so onboarding it now would be a regression for every current user.
@@ -137,6 +148,30 @@ mod tests {
         });
         assert_eq!(settings.transcription_model, "u3-rt-pro");
         assert_eq!(settings.transcription_language, "multi");
+    }
+
+    #[test]
+    fn invalid_fields_do_not_reset_completed_setup_or_other_preferences() {
+        let directory =
+            std::env::temp_dir().join(format!("savvy-settings-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("settings.json");
+        let stored = br#"{"onboardingCompleted":true,"theme":"dark","selectedMicrophone":"USB mic","audioFeedbackVolume":"bad","selectedChannel":-1,"briefGenerationPrompt":"Keep this prompt","transcriptionProvider":"assemblyAi","transcriptionModel":"universal-3-5-pro"}"#;
+        fs::write(&path, stored).unwrap();
+        let settings = load(&path);
+        assert!(settings.onboarding_completed);
+        assert_eq!(settings.theme, "dark");
+        assert_eq!(settings.selected_microphone.as_deref(), Some("USB mic"));
+        assert_eq!(settings.audio_feedback_volume, 0.5);
+        assert_eq!(settings.selected_channel, None);
+        assert_eq!(settings.brief_generation_prompt, "Keep this prompt");
+        assert_eq!(settings.transcription_model, "u3-rt-pro");
+        assert_eq!(fs::read(&path).unwrap(), stored);
+        for invalid in ["null", "[]", "{broken"] {
+            fs::write(&path, invalid).unwrap();
+            assert!(!load(&path).onboarding_completed);
+        }
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

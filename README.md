@@ -55,7 +55,13 @@ On first launch the app asks for microphone and screen-recording permission, the
 
 To use the recommendation features you also need `codex` or `claude` on your `PATH` and signed in; Savvy reports provider status in Settings.
 
-Tests run on macOS only — `savvy-audio` depends on ScreenCaptureKit, so the workspace does not compile anywhere else. CI additionally runs `cargo check` on Linux and Windows so the non-macOS `cfg` stubs do not rot. Audio capture, Keychain access, and the overlay are macOS-only and guarded by `cfg(target_os = "macos")`.
+Completed setup survives application updates. Microphone access is checked when you start a meeting. If macOS already lists Savvy as allowed but setup disagrees, use **Check again** to verify system-audio access through ScreenCaptureKit. If it still waits after you press Allow, choose **Reopen Savvy**. Savvy does not require Accessibility permission. Development-signed and release-signed builds can have different macOS permission identities.
+
+If your preferred microphone is disconnected before a meeting starts, Savvy uses the system default for that recording and remembers your preference for when it reconnects. A disconnect during a meeting shows a capture error; stop the meeting, reconnect the device, and start again. Savvy does not switch formats inside an existing recording.
+
+Using a Bluetooth headset's microphone can reduce the headset's playback quality while it records. Select the Mac's built-in microphone or a USB microphone if you want to keep Bluetooth playback quality.
+
+CI runs the full test suite on macOS and `cargo check` on Linux and Windows. The workspace compiles on all three platforms, but audio capture, Keychain access, the overlay, and the tray are guarded by `cfg(target_os = "macos")` and need a Mac to verify.
 
 ## Repository layout
 

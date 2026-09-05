@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import { listClientDocuments, setClientDocumentSelection } from "./lib/api";
 import "./App.css";
+import { version as appVersion } from "../package.json";
 import mascotListening from "./assets/mascot-states/savvy-listening-upload.png";
 import mascotMuted from "./assets/mascot-states/savvy-muted-upload.png";
 import mascotThinking from "./assets/mascot-states/savvy-thinking.png";
@@ -189,10 +190,8 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
   // null while the check is in flight, so onboarding never flashes on startup.
-  const [onboarding, setOnboarding] = useState<
-    "new" | "returning" | "done" | null
-  >(null);
-  const [version, setVersion] = useState("0.1.0");
+  const [onboarding, setOnboarding] = useState<"new" | "done" | null>(null);
+  const [version, setVersion] = useState(appVersion);
   const [transcriptTurns, setTranscriptTurns] = useState<TranscriptTurn[]>([]);
   const [thinking, setThinking] = useState<ThinkingState>(null);
   const visibleSessionRef = useRef("");
@@ -279,7 +278,7 @@ function App() {
 
   useEffect(() => {
     Promise.all([getAppStatus(), getAppSettings()])
-      .then(async ([status, settings]) => {
+      .then(([status, settings]) => {
         setAppSettings(settings);
         setVersion(status.version);
         document.documentElement.dataset.platform = status.platform;
@@ -287,26 +286,9 @@ function App() {
           setOnboarding("new");
           return;
         }
-        // Already onboarded, but a permission can be revoked at any time. Repair it
-        // up front rather than failing when a meeting is about to start.
-        if (status.platform !== "macos") {
-          setOnboarding("done");
-          return;
-        }
-        try {
-          const { checkMicrophonePermission } =
-            await import("tauri-plugin-macos-permissions-api");
-          // Only the microphone is required. Setup itself lets the user continue
-          // without screen recording, so demanding it here would block the app on
-          // every launch with no way to satisfy it. `startActiveMeeting` asks again
-          // when a meeting needs system audio.
-          setOnboarding(
-            (await checkMicrophonePermission()) ? "done" : "returning",
-          );
-        } catch {
-          // If the permissions cannot be read, do not block the app.
-          setOnboarding("done");
-        }
+        // macOS can return a stale permission result after an update. Completed
+        // setup stays completed; check actual capture access when starting a meeting.
+        setOnboarding("done");
       })
       .catch((reason: unknown) =>
         setError(reason instanceof Error ? reason.message : String(reason)),
@@ -382,6 +364,12 @@ function App() {
     void import("@tauri-apps/api/event")
       .then(({ listen }) =>
         Promise.all([
+          listen<AppSettings>("savvy://settings-changed", (event) =>
+            setAppSettings(event.payload),
+          ),
+          listen<string>("meeting://capture-error", (event) =>
+            setError(event.payload),
+          ),
           listen<MeetingEvent>("meeting://event", (event) =>
             handleMeetingEvent(event.payload),
           ),
@@ -779,17 +767,8 @@ function App() {
   if (!dashboard) return <LoadingState />;
 
   // The overlay window is a separate surface and must never be fronted by setup.
-  if (
-    !overlayWindow &&
-    (onboarding === "new" || onboarding === "returning") &&
-    appSettings
-  ) {
-    return (
-      <Onboarding
-        returningUser={onboarding === "returning"}
-        onComplete={() => void completeOnboarding()}
-      />
-    );
+  if (!overlayWindow && onboarding === "new" && appSettings) {
+    return <Onboarding onComplete={() => void completeOnboarding()} />;
   }
 
   if (
@@ -797,25 +776,28 @@ function App() {
     (!window.__TAURI_INTERNALS__ && dashboard.activeSession)
   ) {
     return (
-      <MeetingOverlay
-        session={dashboard.activeSession}
-        turns={transcriptTurns}
-        recommendation={dashboard.latestRecommendation}
-        onTogglePause={toggleMeetingPause}
-        onRequestRecommendation={forceRecommendation}
-        onStop={endActiveMeeting}
-        busy={busy}
-        error={error}
-        style={appSettings?.overlayStyle ?? "live"}
-        position={appSettings?.overlayPosition ?? "bottom"}
-        showTranscript={appSettings?.showLiveTranscript ?? false}
-        hasNotes={Boolean(
-          dashboard.activeSession?.clientId ||
-          dashboard.activeSession?.briefId ||
-          appSettings?.guidanceFolder,
-        )}
-        thinking={thinking}
-      />
+      dashboard.activeSession && (
+        <MeetingOverlay
+          key={dashboard.activeSession.id}
+          session={dashboard.activeSession}
+          turns={transcriptTurns}
+          recommendation={dashboard.latestRecommendation}
+          onTogglePause={toggleMeetingPause}
+          onRequestRecommendation={forceRecommendation}
+          onStop={endActiveMeeting}
+          busy={busy}
+          error={error}
+          style={appSettings?.overlayStyle ?? "live"}
+          position={appSettings?.overlayPosition ?? "bottom"}
+          showTranscript={appSettings?.showLiveTranscript ?? false}
+          hasNotes={Boolean(
+            dashboard.activeSession?.clientId ||
+            dashboard.activeSession?.briefId ||
+            appSettings?.guidanceFolder,
+          )}
+          thinking={thinking}
+        />
+      )
     );
   }
 
@@ -1869,6 +1851,7 @@ export function MeetingOverlay({
 }) {
   const [elapsed, setElapsed] = useState(0);
   const [audioLevel, setAudioLevel] = useState(0);
+  const [captureError, setCaptureError] = useState<string | null>(null);
   const [confirmingStop, setConfirmingStop] = useState(false);
   const [dismissedRecommendation, setDismissedRecommendation] = useState<
     string | null
@@ -1877,6 +1860,7 @@ export function MeetingOverlay({
     null,
   );
   const transcriptRef = useRef<HTMLDivElement>(null);
+  const sessionId = session?.id;
   const paused = session?.state === "paused";
   const mascot = thinking
     ? { image: mascotThinking, state: "thinking" }
@@ -1891,8 +1875,9 @@ export function MeetingOverlay({
     recommendationKey(recommendation) !== dismissedRecommendation
       ? recommendation
       : null;
+  const displayedError = error ?? captureError;
   const showExtension = Boolean(
-    visibleRecommendation || error || confirmingStop,
+    visibleRecommendation || displayedError || confirmingStop,
   );
   const open = style === "live" && (hasText || showExtension);
   // The card grows vertically whenever `.has-text` or `.ai-open` applies
@@ -1929,17 +1914,44 @@ export function MeetingOverlay({
   }, [session]);
 
   useEffect(() => {
-    if (!session) return;
-    if (paused) return;
-    const timer = window.setInterval(() => {
-      void getAudioLevel().then((level) =>
-        setAudioLevel(
-          (current) => current * 0.6 + Math.min(1, level * 12) * 0.4,
-        ),
-      );
-    }, 80);
-    return () => window.clearInterval(timer);
-  }, [paused, session]);
+    if (!sessionId || paused) return;
+    let stopped = false;
+    let pending = false;
+    let timer: number | undefined;
+    const poll = async () => {
+      if (stopped || pending || document.hidden) return;
+      pending = true;
+      try {
+        const level = await getAudioLevel();
+        if (!stopped) {
+          setCaptureError(null);
+          setAudioLevel(
+            (current) => current * 0.6 + Math.min(1, level * 12) * 0.4,
+          );
+        }
+      } catch (reason) {
+        if (!stopped) {
+          setAudioLevel(0);
+          setCaptureError(String(reason));
+        }
+      } finally {
+        pending = false;
+        if (!stopped && !document.hidden)
+          timer = window.setTimeout(() => void poll(), 80);
+      }
+    };
+    const onVisibility = () => {
+      window.clearTimeout(timer);
+      if (!document.hidden) void poll();
+    };
+    timer = window.setTimeout(() => void poll(), 80);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      stopped = true;
+      window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [paused, sessionId]);
 
   useEffect(() => {
     if (hasText)
@@ -2033,7 +2045,11 @@ export function MeetingOverlay({
                 </div>
               </div>
             )}
-            {error && <p className="overlay-error">{error}</p>}
+            {displayedError && (
+              <p className="overlay-error" role="alert">
+                {displayedError}
+              </p>
+            )}
           </div>
         </div>
 
@@ -2827,7 +2843,7 @@ function SettingsView({
         <SettingsGroup title="Sound">
           <SettingSelect
             title="Microphone"
-            detail="Select your preferred microphone device."
+            detail="Uses the system default if your preferred microphone is disconnected."
             value={settings.selectedMicrophone ?? ""}
             disabled={saving}
             options={inputs.map((device) => ({

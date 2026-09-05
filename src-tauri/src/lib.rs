@@ -61,6 +61,8 @@ use uuid::Uuid;
 
 #[cfg(target_os = "macos")]
 mod overlay;
+#[cfg(target_os = "macos")]
+mod relaunch;
 mod settings;
 #[cfg(target_os = "macos")]
 mod tray;
@@ -106,6 +108,8 @@ struct AppState {
     storage: Mutex<Storage>,
     live_meeting: Mutex<Option<LiveMeeting>>,
     settings: Mutex<AppSettings>,
+    // Serializes capture/settings changes; true blocks new work during restart.
+    app_operation: Mutex<bool>,
     settings_path: PathBuf,
     provider_health: Mutex<Vec<ProviderHealth>>,
     #[cfg(target_os = "macos")]
@@ -701,6 +705,17 @@ fn missing_transcription_key_message(provider: &str) -> String {
 }
 
 #[tauri::command]
+async fn probe_system_audio_permission() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    return tauri::async_runtime::spawn_blocking(SystemAudioCapture::check_permission)
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string());
+    #[cfg(not(target_os = "macos"))]
+    Ok(())
+}
+
+#[tauri::command]
 async fn get_input_devices() -> Result<Vec<AudioDevice>, String> {
     #[cfg(target_os = "macos")]
     {
@@ -727,10 +742,14 @@ async fn get_output_devices() -> Result<Vec<AudioDevice>, String> {
 }
 
 #[tauri::command]
-fn update_app_settings(
+async fn update_app_settings(settings: AppSettings, app: AppHandle) -> Result<AppSettings, String> {
+    run_app_command(app, move |app, state| update_settings(settings, app, state)).await
+}
+
+fn update_settings(
     settings: AppSettings,
-    app: AppHandle,
-    state: State<'_, AppState>,
+    app: &AppHandle,
+    state: &AppState,
 ) -> Result<AppSettings, String> {
     validate_settings(&settings)?;
     let previous = state
@@ -738,12 +757,12 @@ fn update_app_settings(
         .lock()
         .map_err(|_| "settings lock poisoned")?
         .clone();
-    if let Err(error) = apply_runtime_settings(&app, &state, &previous, &settings) {
-        let _ = apply_runtime_settings(&app, &state, &settings, &previous);
+    if let Err(error) = apply_runtime_settings(app, state, &previous, &settings) {
+        let _ = apply_runtime_settings(app, state, &settings, &previous);
         return Err(error);
     }
     if let Err(error) = settings::save(&state.settings_path, &settings) {
-        let _ = apply_runtime_settings(&app, &state, &settings, &previous);
+        let _ = apply_runtime_settings(app, state, &settings, &previous);
         return Err(error);
     }
     *state
@@ -751,7 +770,10 @@ fn update_app_settings(
         .lock()
         .map_err(|_| "settings lock poisoned")? = settings.clone();
     #[cfg(target_os = "macos")]
-    tray::update_shortcut_label(&app, &settings.start_listening_shortcut);
+    tray::update_shortcut_label(app, &settings.start_listening_shortcut);
+    if let Err(error) = app.emit("savvy://settings-changed", &settings) {
+        log::warn!("could not notify windows of saved settings: {error}");
+    }
     Ok(settings)
 }
 
@@ -771,6 +793,9 @@ fn apply_runtime_settings(
             .map_err(|_| "microphone lock poisoned")?
             .configure(next.selected_microphone.clone(), next.selected_channel)
             .map_err(|error| error.to_string())?;
+    }
+    if next.theme != current.theme {
+        apply_native_theme(app, &next.theme);
     }
     if next.start_listening_shortcut != current.start_listening_shortcut {
         replace_start_shortcut(
@@ -793,6 +818,14 @@ fn apply_runtime_settings(
         tray::set_visible(app, next.show_tray_icon)?;
     }
     Ok(())
+}
+
+fn apply_native_theme(app: &AppHandle, theme: &str) {
+    app.set_theme(match theme {
+        "light" => Some(tauri::Theme::Light),
+        "dark" => Some(tauri::Theme::Dark),
+        _ => None,
+    });
 }
 
 /// Manual check from the footer button. Returns whether an update was offered, so the
@@ -2276,11 +2309,41 @@ fn refresh_brief_from_document(
 }
 
 #[tauri::command]
-fn start_meeting(
+async fn start_meeting(
     client_id: Option<String>,
     brief_id: Option<String>,
     app: AppHandle,
-    state: State<'_, AppState>,
+) -> Result<MeetingSession, String> {
+    run_app_command(app, move |app, state| {
+        start_meeting_inner(client_id, brief_id, app, state)
+    })
+    .await
+}
+
+async fn run_app_command<T: Send + 'static>(
+    app: AppHandle,
+    operation: impl FnOnce(&AppHandle, &AppState) -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let operation_guard = state
+            .app_operation
+            .try_lock()
+            .map_err(|_| "an application operation is already in progress")?;
+        if *operation_guard {
+            return Err("Savvy is reopening; try again after it opens".into());
+        }
+        operation(&app, &state)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+fn start_meeting_inner(
+    client_id: Option<String>,
+    brief_id: Option<String>,
+    app: &AppHandle,
+    state: &AppState,
 ) -> Result<MeetingSession, String> {
     log::info!("meeting start requested");
     let client_id = client_id
@@ -2337,7 +2400,7 @@ fn start_meeting(
         general_guidelines_brief(&settings)
     };
     brief.response_language = recommendation_language(&meeting_language);
-    let context_pack = build_context_pack(&state, client_id, brief_id, &brief, &meeting_language)?;
+    let context_pack = build_context_pack(state, client_id, brief_id, &brief, &meeting_language)?;
     let session = MeetingSession {
         id: Uuid::new_v4(),
         client_id,
@@ -2351,7 +2414,7 @@ fn start_meeting(
     };
     #[cfg(target_os = "macos")]
     let session = {
-        let path = recordings_directory(&state)?.join(format!("{}.wav", session.id));
+        let path = recordings_directory(state)?.join(format!("{}.wav", session.id));
         let mut microphone = state
             .microphone
             .lock()
@@ -2370,7 +2433,7 @@ fn start_meeting(
     #[cfg(target_os = "macos")]
     log::info!("microphone capture started");
     #[cfg(target_os = "macos")]
-    play_configured_feedback(&state, true);
+    play_configured_feedback(state, true);
     {
         let storage = state.storage.lock().map_err(|_| "storage lock poisoned")?;
         if let Err(error) = storage.save_session(&session) {
@@ -2408,9 +2471,9 @@ fn start_meeting(
         .lock()
         .map_err(|_| "meeting lock poisoned")? = Some(live);
     #[cfg(target_os = "macos")]
-    prepare_providers(&app, &state, session.id);
+    prepare_providers(app, state, session.id);
     #[cfg(target_os = "macos")]
-    if let Err(error) = start_transcription_worker(&app, &state, session.id) {
+    if let Err(error) = start_transcription_worker(app, state, session.id) {
         log::error!("live transcription unavailable: {error}");
         let _ = app.emit(
             "meeting://provider-error",
@@ -2424,7 +2487,7 @@ fn start_meeting(
             .lock()
             .map_err(|_| "settings lock poisoned")?
             .clone();
-        overlay::show(&app, &settings);
+        overlay::show(app, &settings);
     }
     app.emit("meeting://session", &session)
         .map_err(|error| error.to_string())?;
@@ -3549,8 +3612,8 @@ fn emit_interim_transcript(app: &AppHandle, session_id: Uuid, transcript: LiveTr
 fn set_meeting_listening(
     session_id: String,
     listening: bool,
-    app: AppHandle,
-    state: State<'_, AppState>,
+    app: &AppHandle,
+    state: &AppState,
 ) -> Result<MeetingSession, String> {
     let session_id = Uuid::parse_str(&session_id).map_err(|error| error.to_string())?;
     let target = if listening {
@@ -3575,9 +3638,9 @@ fn set_meeting_listening(
         return Err("meeting is already in the requested state".into());
     }
     if !listening {
-        cancel_active_generation(&app, live);
+        cancel_active_generation(app, live);
         #[cfg(target_os = "macos")]
-        cancel_reasoning(&state);
+        cancel_reasoning(state);
     }
     #[cfg(target_os = "macos")]
     {
@@ -3619,38 +3682,46 @@ fn set_meeting_listening(
 }
 
 #[tauri::command]
-fn pause_meeting(
-    session_id: String,
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<MeetingSession, String> {
-    set_meeting_listening(session_id, false, app, state)
+async fn pause_meeting(session_id: String, app: AppHandle) -> Result<MeetingSession, String> {
+    run_app_command(app, move |app, state| {
+        set_meeting_listening(session_id, false, app, state)
+    })
+    .await
 }
 
 #[tauri::command]
-fn resume_meeting(
-    session_id: String,
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<MeetingSession, String> {
-    set_meeting_listening(session_id, true, app, state)
+async fn resume_meeting(session_id: String, app: AppHandle) -> Result<MeetingSession, String> {
+    run_app_command(app, move |app, state| {
+        set_meeting_listening(session_id, true, app, state)
+    })
+    .await
 }
 
 #[tauri::command]
-fn stop_meeting(
-    session_id: String,
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<MeetingSession, String> {
-    log::info!("meeting stop requested");
+async fn stop_meeting(session_id: String, app: AppHandle) -> Result<MeetingSession, String> {
     let session_id = Uuid::parse_str(&session_id).map_err(|error| error.to_string())?;
-    stop_live_meeting(&app, &state, session_id)
+    run_app_command(app, move |app, state| {
+        stop_live_meeting(app, state, session_id)
+    })
+    .await
 }
 
-/// Stops whatever meeting is live before the process exits, so quitting never
-/// leaves a session recorded as still running.
-pub(crate) fn stop_active_meeting(app: &AppHandle) {
+/// Keep the event loop free while capture or settings work finishes before exit.
+pub(crate) fn quit(app: &AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        stop_active_meeting(&app);
+        app.exit(0);
+    });
+}
+
+fn stop_active_meeting(app: &AppHandle) {
     let state = app.state::<AppState>();
+    let mut operation = state
+        .app_operation
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    *operation = true;
     let session_id = state
         .live_meeting
         .lock()
@@ -3761,11 +3832,11 @@ fn cancel_reasoning(state: &AppState) {
 fn get_audio_level(state: State<'_, AppState>) -> Result<f32, String> {
     #[cfg(target_os = "macos")]
     {
-        state
-            .microphone
-            .lock()
-            .map(|microphone| microphone.level())
-            .map_err(|_| "microphone lock poisoned".to_owned())
+        match state.microphone.try_lock() {
+            Ok(microphone) => microphone.level().map_err(|error| error.to_string()),
+            Err(std::sync::TryLockError::WouldBlock) => Ok(0.0),
+            Err(std::sync::TryLockError::Poisoned(_)) => Err("microphone lock poisoned".into()),
+        }
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -4897,6 +4968,54 @@ fn update_check_outcome(
     }
 }
 
+fn prepare_to_relaunch(app: &AppHandle) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    let mut operation = state
+        .app_operation
+        .try_lock()
+        .map_err(|_| "Wait for the current meeting operation to finish.")?;
+    if *operation {
+        return Err("Savvy is already updating or reopening.".into());
+    }
+    if state
+        .live_meeting
+        .lock()
+        .map_err(|_| "meeting lock poisoned")?
+        .is_some()
+    {
+        return Err("Stop the meeting before updating or reopening Savvy.".into());
+    }
+    *operation = true;
+    Ok(())
+}
+
+fn cancel_relaunch(app: &AppHandle) {
+    if let Ok(mut operation) = app.state::<AppState>().app_operation.lock() {
+        *operation = false;
+    }
+}
+
+fn finish_relaunch(app: &AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        relaunch::schedule(app)?;
+        app.exit(0);
+    }
+    #[cfg(not(target_os = "macos"))]
+    app.request_restart();
+    Ok(())
+}
+
+#[tauri::command]
+fn reopen_app(app: AppHandle) -> Result<(), String> {
+    prepare_to_relaunch(&app)?;
+    if let Err(error) = finish_relaunch(&app) {
+        cancel_relaunch(&app);
+        return Err(error);
+    }
+    Ok(())
+}
+
 fn offer_update(app: tauri::AppHandle, update: tauri_plugin_updater::Update) {
     let version = update.version.clone();
     let handle = app.clone();
@@ -4915,12 +5034,28 @@ fn offer_update(app: tauri::AppHandle, update: tauri_plugin_updater::Update) {
             if !accepted {
                 return;
             }
+            if let Err(error) = prepare_to_relaunch(&handle) {
+                handle
+                    .dialog()
+                    .message(error)
+                    .title("Update postponed")
+                    .show(|_| {});
+                return;
+            }
             tauri::async_runtime::spawn(async move {
-                if let Err(error) = update.download_and_install(|_, _| {}, || {}).await {
-                    log::error!("could not install update {version}: {error}");
-                    return;
+                let result = match update.download_and_install(|_, _| {}, || {}).await {
+                    Ok(()) => finish_relaunch(&handle),
+                    Err(error) => Err(format!("could not install update {version}: {error}")),
+                };
+                if let Err(error) = result {
+                    cancel_relaunch(&handle);
+                    log::error!("{error}");
+                    handle
+                        .dialog()
+                        .message(error)
+                        .title("Update failed")
+                        .show(|_| {});
                 }
-                handle.restart();
             });
         });
 }
@@ -4954,11 +5089,11 @@ pub fn run() {
         .setup(|app| {
             let app_data = app.path().app_data_dir()?;
             create_private_directory(&app_data)?;
-            spawn_update_check(app.handle().clone());
             let recordings = app_data.join("recordings");
             create_private_directory(&recordings)?;
             let settings_path = app_data.join("settings.json");
             let mut settings = settings::load(&settings_path);
+            apply_native_theme(app.handle(), &settings.theme);
             let provider_health = recommendation_provider_status();
             #[cfg(target_os = "macos")]
             if let Ok(provider) =
@@ -5004,6 +5139,7 @@ pub fn run() {
                 storage: Mutex::new(storage),
                 live_meeting: Mutex::new(None),
                 settings: Mutex::new(settings.clone()),
+                app_operation: Mutex::new(false),
                 settings_path,
                 provider_health: Mutex::new(provider_health),
                 #[cfg(target_os = "macos")]
@@ -5038,6 +5174,7 @@ pub fn run() {
                     }
                 }
             }
+            spawn_update_check(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -5050,8 +5187,10 @@ pub fn run() {
             set_transcription_api_key,
             delete_transcription_api_key,
             get_input_devices,
+            probe_system_audio_permission,
             get_output_devices,
             check_for_updates,
+            reopen_app,
             set_shortcut_recording,
             set_overlay_expanded,
             get_dashboard,
@@ -5082,7 +5221,13 @@ pub fn run() {
     app.run(|app, event| match event {
         #[cfg(target_os = "macos")]
         tauri::RunEvent::Reopen { .. } => tray::show_main_window(app),
-        tauri::RunEvent::ExitRequested { .. } => stop_active_meeting(app),
+        // Programmatic exits have already stopped capture or rejected an active meeting.
+        tauri::RunEvent::ExitRequested {
+            code: None, api, ..
+        } => {
+            api.prevent_exit();
+            quit(app);
+        }
         _ => {}
     });
 }

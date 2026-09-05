@@ -71,10 +71,7 @@ pub fn setup(app: &mut App, visible: bool) -> tauri::Result<()> {
                 show_main_window(app);
                 let _ = app.emit("savvy://check-updates", ());
             }
-            "quit" => {
-                crate::stop_active_meeting(app);
-                app.exit(0);
-            }
+            "quit" => crate::quit(app),
             _ => {}
         })
         .build(app)?;

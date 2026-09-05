@@ -28,8 +28,8 @@ elif [[ $# -gt 0 ]]; then
 fi
 
 ensure_no_active_meeting
-# Local installs never auto-update, and building updater artifacts would require the
-# updater signing key on every dev machine. Only the release workflow produces them.
+# Skip updater artifacts so local builds do not need the updater signing key.
+# The installed app can still check for published updates.
 (cd "$repo_root" && pnpm tauri build --config '{"bundle":{"createUpdaterArtifacts":false}}')
 signing_identity="${SAVVY_SIGNING_IDENTITY:-$(security find-identity -v -p codesigning | awk -F'"' '/"Apple Development:/ { print $2; exit }')}"
 [[ -n "$signing_identity" ]] || { echo "No Apple Development signing identity found." >&2; exit 1; }
