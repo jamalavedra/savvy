@@ -27,14 +27,9 @@ CLOUDFLARE_ACCOUNT_ID=<intended-account-id> pnpm deploy
 
 Sign into the Cloudflare account that owns `savvycopilot.com`. Verify the account
 before deploying, especially if Wrangler was previously used with another account.
-Never commit credentials. The configuration deliberately has no account ID or route
-until the owning account and active DNS zone have been verified.
-
-After verification, add a custom-domain route to `wrangler.jsonc`:
-
-```json
-"routes": [{ "pattern": "savvycopilot.com", "custom_domain": true }]
-```
+Never commit credentials. The custom-domain route is configured for
+`savvycopilot.com`. Pass the verified account ID when deploying; no account ID is
+stored in the repository.
 
 `SITE_URL` in `src/lib/constants.ts` controls canonical URLs, social metadata,
 robots.txt and the sitemap. It is set to `https://savvycopilot.com`.

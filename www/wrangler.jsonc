@@ -4,5 +4,11 @@
   "assets": {
     "directory": "./out",
     "not_found_handling": "404-page"
-  }
+  },
+  "routes": [
+    {
+      "pattern": "savvycopilot.com",
+      "custom_domain": true
+    }
+  ]
 }
