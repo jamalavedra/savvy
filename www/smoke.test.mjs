@@ -46,6 +46,6 @@ test("privacy notice is linked and analytics is absent from initial HTML", async
   assert.doesNotMatch(home, /<script[^>]+src="https:\/\/analytics\.jamalavedra\.com/);
   assert.match(privacy, /rel="canonical" href="https:\/\/savvycopilot\.com\/privacy\/"/);
   assert.match(privacy, /Alamas Labs, Inc\./);
-  assert.match(privacy, /mailto:hello@bonofici\.com/);
+  assert.match(privacy, /mailto:hello@savvycopilot\.com/);
   assert.doesNotMatch(privacy, /Draft for review|\[Confirm|\[public privacy/);
 });

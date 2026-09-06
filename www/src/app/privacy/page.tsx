@@ -24,7 +24,7 @@ export default function PrivacyPolicy() {
       <p>
         Alamas Labs, Inc., a Delaware corporation in the United States, operates savvycopilot.com
         and is responsible for the website processing described here. Contact{" "}
-        <a href="mailto:hello@bonofici.com">hello@bonofici.com</a> with privacy questions or
+        <a href="mailto:hello@savvycopilot.com">hello@savvycopilot.com</a> with privacy questions or
         requests.
       </p>
       <p>
@@ -135,9 +135,10 @@ export default function PrivacyPolicy() {
         without affecting earlier lawful processing.
       </p>
       <p>
-        Contact <a href="mailto:hello@bonofici.com">hello@bonofici.com</a> to make a request. We may
-        need enough information to verify and locate the relevant records. We cannot access or erase
-        files that remain only on your Mac or data held in your own provider accounts.
+        Contact <a href="mailto:hello@savvycopilot.com">hello@savvycopilot.com</a> to make a
+        request. We may need enough information to verify and locate the relevant records. We cannot
+        access or erase files that remain only on your Mac or data held in your own provider
+        accounts.
       </p>
       <p>
         You can complain to your local data protection authority. In Spain, this is the
