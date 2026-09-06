@@ -22,7 +22,7 @@ The CLI version is pinned in the scripts and downloaded by pnpm when needed.
 ```sh
 pnpm dlx wrangler@4.127.1 login
 pnpm dlx wrangler@4.127.1 whoami
-CLOUDFLARE_ACCOUNT_ID=<intended-account-id> pnpm deploy
+CLOUDFLARE_ACCOUNT_ID=<intended-account-id> pnpm run deploy
 ```
 
 Sign into the Cloudflare account that owns `savvycopilot.com`. Verify the account
