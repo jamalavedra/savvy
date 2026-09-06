@@ -38,6 +38,14 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
+      <head>
+        <script
+          defer
+          src="https://analytics.jamalavedra.com/script.js"
+          data-website-id="8a7ddcdb-2cee-4719-a8f2-9c18aa8239e7"
+          data-domains="savvycopilot.com"
+        />
+      </head>
       <body className={`${inter.variable} ${jetbrainsMono.variable}`}>{children}</body>
     </html>
   );
