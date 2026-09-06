@@ -1,0 +1,46 @@
+/* Hero-only motion. The blinking record dot on the call frame, and the
+   annotation arrow drawing itself in once the section is on screen. */
+
+@keyframes hr-rec {
+  0%,
+  45% {
+    opacity: 1;
+  }
+  55%,
+  100% {
+    opacity: 0.25;
+  }
+}
+
+.hr-rec {
+  animation: hr-rec 1.6s ease-in-out infinite;
+}
+
+@keyframes hr-arrow-draw {
+  from {
+    stroke-dashoffset: 200;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.hr-arrow path {
+  stroke-dasharray: 200;
+  animation: hr-arrow-draw 1.1s ease-out 0.5s both;
+}
+
+.hr-arrow path:last-child {
+  animation-delay: 1.3s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hr-rec {
+    animation: none;
+  }
+
+  .hr-arrow path {
+    stroke-dasharray: none;
+    animation: none;
+  }
+}
