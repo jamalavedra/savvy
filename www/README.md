@@ -39,3 +39,10 @@ CI validates the site but does not deploy it.
 
 Mascot images come from `src/assets/mascot-states` in the desktop app and the icon
 from `src-tauri/icons`. Video attribution is in `public/videos/SOURCE.md`.
+
+## Privacy and analytics
+
+The privacy notice is at `/privacy/`. Optional Umami analytics loads only after an
+explicit choice in Privacy preferences. A choice lasts up to one year in this
+browser; withdrawing it reloads the page to stop the tracker. Run
+`node --test smoke.test.mjs` after building to check the export and consent records.

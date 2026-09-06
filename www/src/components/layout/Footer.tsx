@@ -21,6 +21,7 @@ const COLUMNS: { heading: string; links: FooterLink[] }[] = [
   {
     heading: "Support",
     links: [
+      { label: "Privacy policy", href: "/privacy/" },
       { label: "Report an issue", href: LINKS.issues, external: true },
       { label: "README", href: LINKS.readme, external: true },
     ],
