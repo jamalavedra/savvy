@@ -20,7 +20,15 @@ function Clip({
   poster?: string;
 }) {
   return (
-    <video className={`hero-video ${className}`} autoPlay muted loop playsInline poster={poster}>
+    <video
+      className={`hero-video ${className}`}
+      controls
+      muted
+      playsInline
+      preload="metadata"
+      aria-label="Example call footage without audio"
+      poster={poster}
+    >
       <source src={src.webm} type="video/webm" />
       <source src={src.mp4} type="video/mp4" />
     </video>
@@ -52,10 +60,10 @@ function CallWindow({ children }: { children: React.ReactNode }) {
             poster={POSTER}
             className="absolute inset-0 h-full w-full object-cover"
           />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent" />
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent" />
           <div className="absolute left-3 top-3 hidden w-[22%] overflow-hidden rounded-lg shadow-lg ring-1 ring-white/25 sm:block">
             <Clip src={SELF} className="aspect-video w-full object-cover" />
-            <span className="absolute bottom-1.5 left-2 rounded bg-black/45 px-1.5 py-0.5 font-mono text-[9px] text-white/90">
+            <span className="pointer-events-none absolute bottom-1.5 left-2 rounded bg-black/45 px-1.5 py-0.5 font-mono text-[9px] text-white/90">
               You
             </span>
           </div>
@@ -74,9 +82,9 @@ export function Hero() {
       <div className="page-column">
         <FadeInUp>
           <h1 className="mx-auto max-w-3xl text-[42px] font-medium leading-[1.04] tracking-tighter sm:text-6xl lg:text-[76px]">
-            Hard question?
+            Your notes,
             <br />
-            You already know.
+            when you need them.
           </h1>
         </FadeInUp>
 
@@ -85,14 +93,16 @@ export function Hero() {
             <CallWindow>
               <ScriptedOverlay script={HERO_SCRIPT} startElapsed={1483} />
             </CallWindow>
+            <p className="mt-3 text-xs text-muted">
+              Illustrative demo with example documents and guidance.
+            </p>
           </div>
         </FadeInUp>
 
         <FadeInUp delay={0.2}>
           <p className="mx-auto mt-8 max-w-xl text-sm leading-relaxed text-muted">
-            Savvy reads your documents before the meeting, then listens alongside you and whispers
-            what to say, what to avoid, and which file says so. A small card on your Mac. Nothing
-            joins the call.
+            Prepare from your documents, then get suggestions during a conversation. Savvy shows
+            what to say, what to avoid, and the supporting source in a small panel on your Mac.
           </p>
           <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
             <DownloadCTA />

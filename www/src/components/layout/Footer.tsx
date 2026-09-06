@@ -63,7 +63,6 @@ export function Footer() {
         </p>
       </div>
 
-      {/* Outlined wordmark bleeding to the viewport edges, money.x.com style. */}
       <div aria-hidden className="select-none overflow-hidden">
         <p
           className="whitespace-nowrap text-center font-bold uppercase leading-[0.78] tracking-tight text-transparent"

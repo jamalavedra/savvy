@@ -11,8 +11,6 @@ import {
 } from "@/components/sections/primitives";
 import { REASONS_SCRIPT } from "@/content/scripts";
 
-// Three-column beat (heading | product | body): the behaviour that separates
-// Savvy from copilots that narrate — it is quiet until one of three triggers.
 export function Reasons() {
   return (
     <section id="how" className="scroll-mt-8 py-20 lg:py-28">
@@ -34,21 +32,19 @@ export function Reasons() {
 
         <FadeInUp delay={0.15}>
           <p className="text-sm leading-relaxed text-muted">
-            Most meeting copilots narrate. Savvy waits. The mascot switches to thinking for exactly
-            three reasons: the other side asked a question, someone touched a red line from your
-            brief, or you pressed Advice.
+            Savvy checks questions against your documents, flags constraints from your brief, and
+            offers advice when you ask for it.
           </p>
           <p className="mt-4 text-sm leading-relaxed text-muted">
-            Between those it re-reads your brief and notes against the last minute of conversation
-            and only interrupts with a card labelled Savvy noticed when it has something concrete.
-            No generic coaching, no play-by-play.
+            It also reviews recent conversation for relevant changes. A "Savvy noticed" card appears
+            when it finds something worth raising.
           </p>
           <StatList
             items={[
               { icon: QuestionIcon, label: "Answers their question" },
               { icon: FlagIcon, label: "Flags a red line before you cross it" },
               { icon: SparkIcon, label: "Advice when you ask for it" },
-              { icon: MuteIcon, label: "Silent the rest of the time" },
+              { icon: MuteIcon, label: "Additional insights when relevant" },
             ]}
           />
         </FadeInUp>

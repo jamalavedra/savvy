@@ -119,7 +119,7 @@ export function StatusLine({
 }) {
   const thinking = status !== "listening" && status !== "muted";
   return (
-    <div className="overlay-status" role="status">
+    <div className="overlay-status">
       <span className="overlay-status-copy">
         <Mascot state={mascotFor(status)} />
         <span className="overlay-status-label">{children ?? STATUS_LABEL[status]}</span>

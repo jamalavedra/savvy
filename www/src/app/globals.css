@@ -40,11 +40,7 @@
   }
 }
 
-/* ── Content column ──
-   The money.x.com geometry: below xl the column is centred on the viewport;
-   at xl+ the fixed 208px rail claims the left lane and the column centres in
-   what is left, capped at 1232px. Must be applied to a direct child of a
-   full-width element — the margin maths resolves `100%` against its parent. */
+/* Leave room for the fixed navigation rail on wide screens. */
 @utility page-column {
   margin-inline: auto;
   max-width: 64rem;
@@ -84,7 +80,7 @@ body {
   transform: rotate(-1deg);
 }
 
-/* ── Slow circular drift for band pods (money.x.com style) ──
+/* Slow circular drift for decorative cards.
    rotate/counter-rotate keeps the card upright while it circles its anchor. */
 @keyframes pod-orbit {
   from {
@@ -391,35 +387,19 @@ body {
   }
 }
 
-/* ── Accordion animations (Radix) ── */
-@keyframes slideDown {
+@keyframes fade-in-up {
   from {
-    height: 0;
-    opacity: 0;
+    transform: translateY(16px);
   }
   to {
-    height: var(--radix-accordion-content-height);
-    opacity: 1;
+    transform: translateY(0);
   }
 }
 
-@keyframes slideUp {
-  from {
-    height: var(--radix-accordion-content-height);
-    opacity: 1;
+@media (prefers-reduced-motion: no-preference) {
+  .fade-in-up {
+    animation: fade-in-up 0.6s var(--ease-smooth) backwards;
   }
-  to {
-    height: 0;
-    opacity: 0;
-  }
-}
-
-.accordion-content[data-state="open"] {
-  animation: slideDown 0.3s var(--ease-out-quart);
-}
-
-.accordion-content[data-state="closed"] {
-  animation: slideUp 0.3s var(--ease-out-quart);
 }
 
 .focus-ring:focus-visible {
@@ -442,9 +422,7 @@ body {
   .press,
   .playhead,
   .row-expire,
-  .ring-sweep,
-  .accordion-content[data-state="open"],
-  .accordion-content[data-state="closed"] {
+  .ring-sweep {
     animation: none;
   }
   .file-drop,
