@@ -1,0 +1,696 @@
+/* ── Savvy overlay replica ──
+   The live meeting card, rebuilt from the app's own stylesheet
+   (savvy/src/App.css: .ov-stage, .scard, .recommendation-card …) so the
+   landing shows the real component, not an illustration of it. Class names
+   are kept so diffs against the app stay readable. Scoped under `.sv`. */
+
+.sv {
+  --background: #fbfbfb;
+  --background-ui: #f1f0ee;
+  --surface: #ffffff;
+  --text: #0f0f0f;
+  --muted: #77736e;
+  --border: rgba(99, 94, 88, 0.2);
+  --border-soft: rgba(99, 94, 88, 0.12);
+  --accent: #e8697a;
+  --accent-soft: rgba(249, 163, 171, 0.8);
+  --accent-pale: rgba(249, 163, 171, 0.2);
+  --tile: rgba(249, 163, 171, 0.2);
+  --success: #368c66;
+  --warning: #cd8331;
+  --danger: #d85664;
+
+  --s-surface: color-mix(in srgb, var(--background) 98%, transparent);
+  --s-accent: var(--accent);
+  --s-accent-soft: var(--accent-pale);
+  --s-muted: var(--muted);
+  --s-faint: color-mix(in srgb, var(--muted), transparent 28%);
+  --s-border: var(--border);
+  --s-hair: var(--border-soft);
+
+  color: var(--text);
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  text-align: left;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Root of the live card: fills its column and centres the card so the
+   392px open width can shrink on narrow screens. */
+.sv-overlay {
+  display: flex;
+  width: 100%;
+  justify-content: center;
+}
+
+.sv.sv-dark {
+  --background: #2c2b29;
+  --background-ui: #383735;
+  --surface: #302f2d;
+  --text: #fbfbfb;
+  --muted: #aaa6a0;
+  --border: rgba(251, 251, 251, 0.13);
+  --border-soft: rgba(251, 251, 251, 0.08);
+  --accent: #f9a3ab;
+  --accent-soft: rgba(249, 163, 171, 0.8);
+  --accent-pale: rgba(249, 163, 171, 0.16);
+  --tile: rgba(251, 251, 251, 0.07);
+  --success: #73c69d;
+  --warning: #fbbb73;
+  --danger: #f08b96;
+}
+
+.sv button {
+  color: inherit;
+  font: inherit;
+  cursor: default;
+}
+
+/* ── The card ── */
+.scard {
+  display: flex;
+  width: 216px;
+  max-width: 100%;
+  /* The app caps this at 320px and scrolls; the landing shows the whole card. */
+  max-height: 400px;
+  flex: none;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--s-border);
+  border-radius: 24px;
+  background: var(--s-surface);
+  box-shadow:
+    0 1px 2px rgba(31, 26, 16, 0.06),
+    0 12px 32px rgba(31, 26, 16, 0.12);
+  transform-origin: bottom center;
+  transition:
+    width 460ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-radius 460ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: width;
+}
+
+.scard.open {
+  width: 392px;
+  border-radius: 16px;
+}
+
+.stext,
+.ai-extension {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows 440ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 260ms ease;
+}
+
+.scard.has-text .stext,
+.scard.ai-open .ai-extension {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.scard.ai-open .ai-extension {
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.stext-clip,
+.ai-extension-clip {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.stext-cap {
+  display: flex;
+  max-height: 80px;
+  flex-direction: column;
+  overflow-y: auto;
+  padding: 12px 16px 10px;
+  color: color-mix(in srgb, var(--text) 72%, transparent);
+  font-size: 15px;
+  font-style: italic;
+  line-height: 1.35;
+  letter-spacing: -0.003em;
+  mask-image: linear-gradient(to bottom, transparent 0, #000 28px, #000 100%);
+  scrollbar-width: none;
+}
+
+.stext-cap::-webkit-scrollbar {
+  display: none;
+}
+
+.stext-cap p {
+  margin: auto 0 0;
+}
+
+.speaker-label {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--s-accent);
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.interim {
+  color: color-mix(in srgb, currentColor 82%, transparent);
+}
+
+.scaret {
+  display: inline-block;
+  width: 2px;
+  height: 1.02em;
+  margin-left: 1px;
+  border-radius: 2px;
+  background: var(--s-accent);
+  translate: 0 3px;
+  animation: scaret-blink 1.05s steps(1) infinite;
+}
+
+@keyframes scaret-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* ── Base bar: mute · waveform · timer · stop ── */
+.sbase {
+  display: grid;
+  grid-template-columns: 28px minmax(60px, 1fr) auto;
+  column-gap: 8px;
+  align-items: center;
+  height: 40px;
+  padding: 0 10px;
+  user-select: none;
+}
+
+.sbase-l {
+  display: flex;
+  align-items: center;
+  justify-self: start;
+}
+
+.sbase-r {
+  display: flex;
+  align-items: center;
+  justify-self: end;
+  gap: 8px;
+}
+
+.stimer {
+  color: var(--s-faint);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.swave {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 0;
+  height: 18px;
+}
+
+.swave i {
+  width: 4px;
+  height: 3px;
+  min-height: 3px;
+  max-height: 18px;
+  border-radius: 2px;
+  background: var(--s-accent);
+  animation: swave-bar 1.15s ease-in-out infinite alternate;
+  animation-delay: var(--d, 0s);
+}
+
+@keyframes swave-bar {
+  from {
+    height: 3px;
+  }
+  to {
+    height: var(--h, 12px);
+  }
+}
+
+.paused .swave i {
+  height: 3px;
+  background: var(--s-muted);
+  animation: none;
+}
+
+.sx {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: var(--s-muted);
+  background: var(--s-hair);
+  appearance: none;
+}
+
+.sx svg {
+  display: block;
+  width: 11px;
+  height: 11px;
+}
+
+.spause {
+  color: var(--s-accent);
+}
+
+.srecommend {
+  width: auto;
+  gap: 4px;
+  padding: 0 9px;
+  border-radius: 14px;
+  color: var(--s-accent);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.sstop {
+  color: var(--text);
+  background: color-mix(in srgb, var(--s-muted) 22%, transparent);
+}
+
+/* ── Status line: mascot + label ── */
+.overlay-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 34px;
+  padding: 3px 9px 2px 7px;
+  border-bottom: 1px solid var(--s-hair);
+  color: var(--s-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.overlay-status-copy {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+}
+
+.overlay-status-label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.mascot-state {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  object-fit: contain;
+  transform-origin: 50% 72%;
+  user-select: none;
+}
+
+.mascot-state.listening {
+  animation: mascot-listening 1.5s ease-in-out infinite;
+}
+
+.mascot-state.muted {
+  animation: mascot-muted 2.4s ease-in-out infinite;
+}
+
+.mascot-state.thinking {
+  animation: mascot-thinking 650ms ease-in-out infinite alternate;
+}
+
+@keyframes mascot-listening {
+  45% {
+    transform: translateY(-1px) rotate(-2deg);
+  }
+  55% {
+    transform: translateY(-1px) rotate(2deg);
+  }
+}
+
+@keyframes mascot-muted {
+  50% {
+    opacity: 0.82;
+    transform: translateY(1px) scale(0.98);
+  }
+}
+
+@keyframes mascot-thinking {
+  from {
+    transform: translateY(1px) scale(0.96) rotate(-3deg);
+  }
+  to {
+    transform: translateY(-3px) scale(1.08) rotate(4deg);
+  }
+}
+
+/* ── Recommendation card (Say / Avoid / source) ── */
+.ai-extension-clip {
+  overflow-y: auto;
+  border-bottom: 1px solid var(--s-hair);
+  scrollbar-width: none;
+}
+
+.ai-extension-clip::-webkit-scrollbar {
+  display: none;
+}
+
+.recommendation-card {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 15px;
+  background: var(--surface);
+}
+
+.ai-extension .recommendation-card {
+  overflow: visible;
+  border-right: 0;
+  border-left: 0;
+  border-top: 0;
+  border-radius: 0;
+}
+
+.recommendation-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 38px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-soft);
+  font-size: 11px;
+}
+
+.recommendation-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 700;
+}
+
+/* biome-ignore lint/style/noDescendingSpecificity: mirrors the app stylesheet */
+.recommendation-top i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-pale);
+}
+
+.recommendation-dismiss {
+  position: relative;
+  display: flex;
+  height: 22px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 3px 0 6px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 10px;
+  background: transparent;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+.recommendation-dismiss.auto-dismiss::before {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  background: color-mix(in srgb, var(--muted) 28%, transparent);
+  content: "";
+  transform: scaleX(0);
+  transform-origin: left;
+  animation: recommendation-expiry var(--recommendation-lifetime, 12s) linear forwards;
+}
+
+.recommendation-dismiss > * {
+  position: relative;
+  z-index: 1;
+}
+
+.recommendation-dismiss svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* Bento loop: the card re-pops each time its expiry bar completes. */
+.sv-loop .recommendation-dismiss.auto-dismiss::before {
+  animation-iteration-count: infinite;
+  animation-fill-mode: none;
+}
+
+.sv-loop .recommendation-card {
+  animation: card-repop var(--recommendation-lifetime, 6s) ease infinite;
+}
+
+@keyframes card-repop {
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+  }
+  7%,
+  92% {
+    opacity: 1;
+    transform: none;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+}
+
+@keyframes recommendation-expiry {
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.say-block,
+.avoid-block {
+  display: grid;
+  grid-template-columns: 42px 1fr;
+  gap: 8px;
+  padding: 10px 12px;
+}
+
+.say-block > span,
+.avoid-block > span {
+  padding-top: 1px;
+  color: var(--success);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.say-block p,
+.avoid-block p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.recommendation-copy {
+  min-width: 0;
+}
+
+.grounded-score {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.avoid-block {
+  border-top: 1px solid var(--border-soft);
+  background: color-mix(in srgb, var(--danger) 5%, transparent);
+}
+
+.avoid-block > span {
+  color: var(--danger);
+}
+
+.ai-extension .say-block,
+.ai-extension .avoid-block {
+  padding-block: 8px;
+}
+
+.source-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  border: 0;
+  border-top: 1px solid var(--border-soft);
+  color: var(--muted);
+  font-size: 11px;
+  text-align: left;
+  background: transparent;
+}
+
+.source-path {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.source-button > span:last-child {
+  flex: none;
+}
+
+/* ── Prepare-tab cards (folder, brief, history) ── */
+.prepare-card {
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--background);
+}
+
+.prepare-card-header {
+  display: flex;
+  width: 100%;
+  min-height: 56px;
+  align-items: center;
+  gap: 11px;
+  padding: 9px 13px;
+  text-align: left;
+}
+
+.prepare-card-title {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.prepare-card-title strong {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.prepare-card-title small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prepare-tag {
+  flex: none;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.tile-icon {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  place-items: center;
+  border-radius: 8px;
+  color: var(--accent);
+  background: var(--tile);
+}
+
+.tile-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.in-use-badge {
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: var(--accent-pale);
+}
+
+.sv .button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  background: var(--background);
+}
+
+.sv .button.primary {
+  border-color: color-mix(in srgb, var(--accent) 75%, transparent);
+  color: #1f1f1f;
+  background: var(--accent-soft);
+}
+
+.sv .button kbd {
+  padding: 2px 5px;
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  border-radius: 5px;
+  font:
+    500 10px / 1 -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+}
+
+.sv .button svg {
+  width: 14px;
+  height: 14px;
+}
+
+.provider-status-dot {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 8px;
+  height: 8px;
+  border: 2px solid var(--background);
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.provider-status-dot.ready {
+  background: var(--success);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scard,
+  .stext,
+  .ai-extension {
+    transition: none;
+  }
+  .swave i,
+  .scaret,
+  .mascot-state,
+  .sv-loop .recommendation-card,
+  .recommendation-dismiss.auto-dismiss::before {
+    animation: none;
+  }
+}

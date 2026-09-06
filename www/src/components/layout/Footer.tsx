@@ -1,0 +1,77 @@
+import { COMPANY_NAME, LINKS, NAV, REPO_URL } from "@/lib/constants";
+
+type FooterLink = { label: string; href: string; external?: boolean };
+
+const COLUMNS: { heading: string; links: FooterLink[] }[] = [
+  {
+    heading: "Savvy",
+    links: NAV.map((item) => ({ label: item.label, href: item.href })),
+  },
+  {
+    heading: "Project",
+    links: [
+      { label: "GitHub", href: REPO_URL, external: true },
+      { label: "Latest release", href: LINKS.download, external: true },
+      { label: "All releases", href: LINKS.releases, external: true },
+      { label: "Contributing", href: LINKS.contributing, external: true },
+      { label: "Security policy", href: LINKS.security, external: true },
+      { label: "MIT license", href: LINKS.license, external: true },
+    ],
+  },
+  {
+    heading: "Support",
+    links: [
+      { label: "Report an issue", href: LINKS.issues, external: true },
+      { label: "README", href: LINKS.readme, external: true },
+    ],
+  },
+];
+
+export function Footer() {
+  const year = new Date().getFullYear();
+
+  return (
+    <footer>
+      <div className="page-column">
+        <div className="border-t border-border" />
+      </div>
+
+      <div className="page-column pt-16 pb-12">
+        <div className="grid gap-x-10 gap-y-12 sm:grid-cols-2 lg:grid-cols-3">
+          {COLUMNS.map((column) => (
+            <div key={column.heading}>
+              <h2 className="text-sm font-medium">{column.heading}</h2>
+              <ul className="mt-4 space-y-3">
+                {column.links.map((link) => (
+                  <li key={link.label}>
+                    <a
+                      href={link.href}
+                      {...(link.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+                      className="text-sm text-muted transition-colors hover:text-foreground"
+                    >
+                      {link.label}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+
+        <p className="mt-14 text-xs text-muted">
+          © {year} {COMPANY_NAME}
+        </p>
+      </div>
+
+      {/* Outlined wordmark bleeding to the viewport edges, money.x.com style. */}
+      <div aria-hidden className="select-none overflow-hidden">
+        <p
+          className="whitespace-nowrap text-center font-bold uppercase leading-[0.78] tracking-tight text-transparent"
+          style={{ fontSize: "22.5vw", WebkitTextStroke: "1.5px var(--color-border)" }}
+        >
+          Savvy
+        </p>
+      </div>
+    </footer>
+  );
+}

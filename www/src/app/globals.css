@@ -1,0 +1,460 @@
+@import "tailwindcss";
+
+@theme {
+  /* Light palette — lifted from the app (savvy/src/App.css :root) */
+  --color-background: #fbfbfb;
+  --color-background-alt: #f1f0ee;
+  --color-surface: #ffffff;
+  --color-foreground: #0f0f0f;
+  --color-muted: #77736e;
+  --color-border: rgba(99, 94, 88, 0.2);
+  --color-border-soft: rgba(99, 94, 88, 0.12);
+
+  /* Brand — the app's accent, the wordmark pink and the mascot's fur */
+  --color-accent: #e8697a;
+  --color-accent-soft: rgba(249, 163, 171, 0.8);
+  --color-accent-pale: rgba(249, 163, 171, 0.2);
+  --color-brand-pink: #f9a3ab;
+  --color-brand-pink-light: #fde1e4;
+  --color-brand-pink-deep: #c9636f;
+  --color-mascot: #f4b860;
+
+  /* Semantic — Say / Avoid */
+  --color-success: #368c66;
+  --color-warning: #cd8331;
+  --color-danger: #d85664;
+
+  /* Fonts */
+  --font-sans: var(--font-inter);
+  --font-mono: var(--font-jetbrains-mono);
+
+  /* Easing */
+  --ease-out-quart: cubic-bezier(0.76, 0, 0.24, 1);
+  --ease-smooth: cubic-bezier(0.25, 0.1, 0.35, 1);
+  --ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+/* ── Content column ──
+   The money.x.com geometry: below xl the column is centred on the viewport;
+   at xl+ the fixed 208px rail claims the left lane and the column centres in
+   what is left, capped at 1232px. Must be applied to a direct child of a
+   full-width element — the margin maths resolves `100%` against its parent. */
+@utility page-column {
+  margin-inline: auto;
+  max-width: 64rem;
+  padding-inline: 1.5rem;
+
+  @media (width >= 80rem) {
+    margin-left: calc(208px + max(0px, (100% - 208px - 1232px) / 2));
+    margin-right: auto;
+    max-width: 1232px;
+    padding-inline: 1rem;
+  }
+
+  @media (width >= 90rem) {
+    padding-inline: 3.5rem;
+  }
+}
+
+body {
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-inter), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Wordmark ── the app's sidebar lockup, verbatim (.savvy-wordmark). */
+.savvy-wordmark {
+  display: inline-block;
+  color: var(--color-brand-pink);
+  font-family: "Arial Rounded MT Bold", "Arial Black", var(--font-inter), sans-serif;
+  font-weight: 900;
+  letter-spacing: -0.07em;
+  line-height: 1;
+  -webkit-text-stroke: 1px var(--color-brand-pink-light);
+  filter: drop-shadow(0 2px 0 var(--color-brand-pink-deep));
+  paint-order: stroke fill;
+  transform: rotate(-1deg);
+}
+
+/* ── Slow circular drift for band pods (money.x.com style) ──
+   rotate/counter-rotate keeps the card upright while it circles its anchor. */
+@keyframes pod-orbit {
+  from {
+    transform: rotate(0turn) translateX(calc(var(--pod-r, 26px) * var(--pod-scale, 1)))
+      rotate(0turn);
+  }
+  to {
+    transform: rotate(1turn) translateX(calc(var(--pod-r, 26px) * var(--pod-scale, 1)))
+      rotate(-1turn);
+  }
+}
+
+.pod-orbit {
+  animation: pod-orbit var(--pod-dur, 32s) linear infinite;
+  will-change: transform;
+}
+
+@media (max-width: 767px) {
+  .pod-orbit {
+    --pod-scale: 0.38;
+  }
+}
+
+.pod-orbit-reverse {
+  animation-direction: reverse;
+}
+
+/* ── Vignette loops ──
+   Every bento visual is a self-contained CSS loop: files drop into a folder,
+   brief rows fill in and get approved, two channels take turns talking, a card
+   expires and re-pops, the mascot thinks, a recording ages out. `--i-delay`
+   staggers siblings. All of it stops under prefers-reduced-motion. */
+@keyframes file-drop {
+  0%,
+  4% {
+    opacity: 0;
+    transform: translateY(-30px) scale(0.9);
+  }
+  14%,
+  46% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  60%,
+  100% {
+    opacity: 0;
+    transform: translateY(52px) scale(0.5);
+  }
+}
+
+.file-drop {
+  display: inline-block;
+  opacity: 0;
+  animation: file-drop 6s var(--ease-spring) infinite;
+  animation-delay: var(--i-delay, 0s);
+}
+
+@keyframes folder-bump {
+  0%,
+  70%,
+  84%,
+  100% {
+    transform: scale(1);
+  }
+  76% {
+    transform: scale(1.07);
+  }
+}
+
+.folder-bump {
+  animation: folder-bump 6s ease-in-out infinite;
+}
+
+@keyframes badge-pop {
+  0%,
+  72% {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+  80%,
+  96% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.badge-pop {
+  animation: badge-pop 6s var(--ease-spring) infinite;
+}
+
+@keyframes row-in {
+  0% {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+  8%,
+  86% {
+    opacity: 1;
+    transform: none;
+  }
+  94%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.row-in {
+  opacity: 0;
+  animation: row-in 7s ease infinite;
+  animation-delay: var(--i-delay, 0s);
+}
+
+@keyframes check-pop {
+  0%,
+  46% {
+    opacity: 0;
+    transform: scale(0.6) rotate(-8deg);
+  }
+  53%,
+  88% {
+    opacity: 1;
+    transform: none;
+  }
+  94%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.check-pop {
+  animation: check-pop 7s var(--ease-spring) infinite;
+}
+
+@keyframes talk-a {
+  0%,
+  44% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+  50%,
+  94% {
+    transform: scaleY(0.2);
+    opacity: 0.45;
+  }
+  100% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+@keyframes talk-b {
+  0%,
+  44% {
+    transform: scaleY(0.2);
+    opacity: 0.45;
+  }
+  50%,
+  94% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scaleY(0.2);
+    opacity: 0.45;
+  }
+}
+
+.talk-a {
+  animation: talk-a 6s ease-in-out infinite;
+}
+
+.talk-b {
+  animation: talk-b 6s ease-in-out infinite;
+}
+
+@keyframes pill-active {
+  0%,
+  24% {
+    background: var(--color-foreground);
+    color: var(--color-background);
+  }
+  25%,
+  100% {
+    background: var(--color-background-alt);
+    color: var(--color-muted);
+  }
+}
+
+.pill-active {
+  background: var(--color-background-alt);
+  color: var(--color-muted);
+  animation: pill-active 6s steps(1) infinite;
+  animation-delay: var(--i-delay, 0s);
+}
+
+@keyframes cycle-a {
+  0%,
+  42% {
+    opacity: 1;
+  }
+  50%,
+  92% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes cycle-b {
+  0%,
+  42% {
+    opacity: 0;
+  }
+  50%,
+  92% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.cycle-a {
+  animation: cycle-a 5s ease infinite;
+}
+
+.cycle-b {
+  opacity: 0;
+  animation: cycle-b 5s ease infinite;
+}
+
+@keyframes press {
+  0%,
+  40%,
+  52%,
+  100% {
+    transform: none;
+  }
+  46% {
+    transform: scale(0.9);
+  }
+}
+
+.press {
+  animation: press 5s ease infinite;
+}
+
+@keyframes playhead {
+  from {
+    width: 6%;
+  }
+  to {
+    width: 94%;
+  }
+}
+
+.playhead {
+  animation: playhead 8s linear infinite;
+}
+
+@keyframes row-expire {
+  0%,
+  66% {
+    opacity: 1;
+    transform: none;
+  }
+  76%,
+  92% {
+    opacity: 0;
+    transform: translateX(14px);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.row-expire {
+  animation: row-expire 8s ease infinite;
+}
+
+@keyframes ring-sweep {
+  0% {
+    stroke-dashoffset: 0;
+  }
+  66%,
+  100% {
+    stroke-dashoffset: var(--circ);
+  }
+}
+
+.ring-sweep {
+  animation: ring-sweep 8s linear infinite;
+}
+
+/* Hero: the call footage is decorative; still users get the poster. */
+@media (prefers-reduced-motion: reduce) {
+  .hero-video {
+    display: none;
+  }
+}
+
+/* ── Accordion animations (Radix) ── */
+@keyframes slideDown {
+  from {
+    height: 0;
+    opacity: 0;
+  }
+  to {
+    height: var(--radix-accordion-content-height);
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    height: var(--radix-accordion-content-height);
+    opacity: 1;
+  }
+  to {
+    height: 0;
+    opacity: 0;
+  }
+}
+
+.accordion-content[data-state="open"] {
+  animation: slideDown 0.3s var(--ease-out-quart);
+}
+
+.accordion-content[data-state="closed"] {
+  animation: slideUp 0.3s var(--ease-out-quart);
+}
+
+.focus-ring:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pod-orbit,
+  .file-drop,
+  .folder-bump,
+  .badge-pop,
+  .row-in,
+  .check-pop,
+  .talk-a,
+  .talk-b,
+  .pill-active,
+  .cycle-a,
+  .cycle-b,
+  .press,
+  .playhead,
+  .row-expire,
+  .ring-sweep,
+  .accordion-content[data-state="open"],
+  .accordion-content[data-state="closed"] {
+    animation: none;
+  }
+  .file-drop,
+  .row-in,
+  .badge-pop,
+  .check-pop {
+    opacity: 1;
+    transform: none;
+  }
+  .cycle-b {
+    opacity: 0;
+  }
+}
