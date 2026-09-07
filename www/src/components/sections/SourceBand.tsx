@@ -1,9 +1,5 @@
 import { type BandPod, PodBand } from "@/components/sections/PodBand";
 
-// The money.x.com stat band, repurposed: recommendation cards drift around one
-// claim, each carrying the file it was grounded in. Same nine anchor
-// positions as the sibling site so the choreography is known-good.
-
 type Pod = {
   key: string;
   title: "Answer" | "Red line" | "Advice" | "Savvy noticed";
@@ -177,11 +173,11 @@ export function SourceBand() {
   return (
     <PodBand
       eyebrow="Grounded"
-      line1="Every card cites a file"
-      line2="Say, avoid, and the page"
+      line1="See the supporting source"
+      line2="Documents, brief, and conversation"
       pods={BAND_PODS}
-      stat="Grounded, not guessed."
-      caption="Every recommendation is built from your own documents and the brief you approved, and shows the file it leaned on."
+      stat="Check the source."
+      caption="Suggestions include supporting context from your documents, brief, or conversation. Review it before acting."
     />
   );
 }

@@ -9,10 +9,6 @@ import {
 } from "@/components/sections/primitives";
 import { ProviderChip } from "@/components/sections/vignettes";
 
-// Savvy has no model of its own — it shells out to the CLI already signed in
-// on the Mac. This is the pricing objection answered before it is asked, so it
-// gets the full three-column treatment with the provider-check chip on top.
-
 function ClaudeMark() {
   return (
     <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
@@ -77,14 +73,14 @@ const ProvidersVignette = (
         <ProviderRow
           mark={<ClaudeMark />}
           name="Claude Code"
-          detail="claude-fable-5 · 1M context"
+          detail="Your signed-in account"
           ready
           active
         />
         <ProviderRow
           mark={<OpenAIMark />}
           name="Codex CLI"
-          detail="gpt-5.6-sol · priority tier"
+          detail="Your signed-in account"
           ready={false}
         />
         <div className="px-3.5 pb-1 pt-3 font-mono text-[10px] uppercase tracking-wider text-[var(--muted)]">
@@ -93,7 +89,7 @@ const ProvidersVignette = (
         <ProviderRow
           mark={<span className="font-mono text-[11px] font-bold">DG</span>}
           name="Deepgram"
-          detail="nova-3 · key in Keychain · mip_opt_out=true"
+          detail="API key stored in Keychain"
           ready
           active
         />
@@ -110,8 +106,8 @@ export function YourModel() {
           <Eyebrow>Bring your own</Eyebrow>
           <TwoLineHeading
             className="mt-4"
-            line1="The CLI you already have"
-            line2="No subscription, no markup"
+            line1="Use your own accounts"
+            line2="Choose your providers"
           />
         </FadeInUp>
 
@@ -123,14 +119,13 @@ export function YourModel() {
 
         <FadeInUp delay={0.15}>
           <p className="text-sm leading-relaxed text-muted">
-            Savvy doesn't run a model of its own. It shells out to Claude Code or the Codex CLI
-            already signed in on your Mac, so recommendations bill to the plan you have and follow
-            the terms you agreed to. Excerpts and recent turns go to that provider under your
-            account, nowhere else.
+            The open-source app uses Claude Code or Codex CLI for guidance. Sign in on your Mac and
+            use your existing provider account. Selected excerpts, your brief, and recent transcript
+            turns are sent to that provider.
           </p>
           <p className="mt-4 text-sm leading-relaxed text-muted">
-            Speech goes through your own Deepgram or AssemblyAI key, stored in the macOS Keychain,
-            with model-training opt-out set where the provider offers it.
+            Transcription uses your Deepgram or AssemblyAI API key, stored in the macOS Keychain.
+            Provider usage is billed separately.
           </p>
           <StatList
             items={[

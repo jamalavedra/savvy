@@ -4,9 +4,6 @@ import { Wordmark } from "@/components/layout/Wordmark";
 import { DownloadCTA } from "@/components/ui/DownloadCTA";
 import { NAV, REPO_URL } from "@/lib/constants";
 
-// money.x.com-style fixed left rail. Only shown on xl+, where the page-column
-// utility reserves a 208px lane on the left for it; below that the regular
-// top Header takes over.
 export function Rail({ active = "/" }: { active?: string }) {
   return (
     <>

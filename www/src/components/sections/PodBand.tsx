@@ -2,10 +2,6 @@ import type { CSSProperties, ReactNode } from "react";
 import { FadeInUp } from "@/components/animations/FadeInUp";
 import { Eyebrow, TwoLineHeading } from "@/components/sections/primitives";
 
-// The money.x.com stat band: one giant claim with rectangular cards orbiting
-// around it. Cards on the "back" layer slide behind the claim and are blurred;
-// the claim carries a backdrop blur so anything drifting behind it softens.
-
 export type BandPod = {
   key: string;
   /** Position utilities. Author a mobile position first, then md: overrides. */

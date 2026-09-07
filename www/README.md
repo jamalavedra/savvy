@@ -1,36 +1,48 @@
-# Savvy landing site
+# Savvy website
 
-The marketing site for [Savvy](https://github.com/jamalavedra/savvy), a local-first macOS
-meeting assistant. The app itself lives in the repository root; this folder only contains
-the public website.
+Static Next.js site for Savvy. The desktop app lives in the repository root.
+The FAQ uses native HTML; entrance animations use CSS.
 
-## Stack
+## Development
 
-- Next.js 16 (App Router)
-- Tailwind CSS 4
-- framer-motion for motion, Radix UI accordion for the FAQ
-- Biome for linting and formatting
-
-## Commands
-
-```bash
-pnpm install
-pnpm dev        # http://localhost:3012
-pnpm build      # static export into out/
-pnpm lint       # biome check
-pnpm typecheck  # tsc --noEmit
+```sh
+pnpm install --frozen-lockfile
+pnpm dev        # localhost:3012
+pnpm lint
+pnpm build      # static files in out/; includes TypeScript checking
+pnpm start      # serve the export locally with Wrangler
+pnpm deploy:check
 ```
 
-## Deploying
+## Cloudflare deployment
 
-`pnpm build` writes a static export to `out/`, which any static host can serve — GitHub
-Pages, Cloudflare Pages, S3, Netlify. There is no server runtime and no API routes.
+Wrangler serves `out/` as Worker static assets, with no application server.
+The CLI version is pinned in the scripts and downloaded by pnpm when needed.
 
-Set `SITE_URL` in `src/lib/constants.ts` to the real domain before deploying. It is used
-for canonical URLs, Open Graph tags, `robots.txt` and the sitemap.
+```sh
+pnpm dlx wrangler@4.127.1 login
+pnpm dlx wrangler@4.127.1 whoami
+CLOUDFLARE_ACCOUNT_ID=<intended-account-id> pnpm run deploy
+```
+
+Sign into the Cloudflare account that owns `savvycopilot.com`. Verify the account
+before deploying, especially if Wrangler was previously used with another account.
+Never commit credentials. The custom-domain route is configured for
+`savvycopilot.com`. Pass the verified account ID when deploying; no account ID is
+stored in the repository.
+
+`SITE_URL` in `src/lib/constants.ts` controls canonical URLs, social metadata,
+robots.txt and the sitemap. It is set to `https://savvycopilot.com`.
+CI validates the site but does not deploy it.
 
 ## Assets
 
-Images in `public/images` are copied from the app: the mascot states come from
-`src/assets/mascot-states` and the icon from `src-tauri/icons`. Update them there first,
-then copy the new files across.
+Mascot images come from `src/assets/mascot-states` in the desktop app and the icon
+from `src-tauri/icons`. Video attribution is in `public/videos/SOURCE.md`.
+
+## Privacy and analytics
+
+The privacy notice is at `/privacy/`. Optional Umami analytics loads only after an
+explicit choice in Privacy preferences. A choice lasts up to one year in this
+browser; withdrawing it reloads the page to stop the tracker. Run
+`node --test smoke.test.mjs` after building to check the export and consent records.

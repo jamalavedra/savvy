@@ -1,9 +1,5 @@
 import type { ReactNode } from "react";
 
-// Shared bits for the money.x.com-style sections: tiny square-bullet eyebrow,
-// two-line heading (ink line + muted line), section hairline, and the
-// icon+label stat rows that sit in section side columns.
-
 /** Section hairline, clipped to the content column so it never runs under
  *  the fixed left rail. */
 export function Divider() {

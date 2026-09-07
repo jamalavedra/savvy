@@ -1,8 +1,6 @@
 export const SITE_NAME = "Savvy";
 export const COMPANY_NAME = "Alamas Labs";
-// TODO: swap for the real domain before the first deploy. Used for canonical
-// URLs, Open Graph and the sitemap.
-export const SITE_URL = "https://jamalavedra.github.io/savvy";
+export const SITE_URL = "https://savvycopilot.com";
 
 export const REPO_URL = "https://github.com/jamalavedra/savvy";
 

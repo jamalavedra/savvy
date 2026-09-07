@@ -9,9 +9,6 @@ import {
   WaveIcon,
 } from "@/components/sections/primitives";
 
-// The README's data table, rendered verbatim in spirit: what stays, what
-// leaves. The meeting-audio row is the one people miss, so it is the one row
-// that carries the danger colour.
 const P = {
   doc: "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7ZM14 2v4a2 2 0 0 0 2 2h4M10 9H8M16 13H8M16 17H8",
   db: "M12 2C7.6 2 4 3.3 4 5s3.6 3 8 3 8-1.3 8-3-3.6-3-8-3ZM4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3",
@@ -45,28 +42,28 @@ const ROWS = [
   {
     icon: P.doc,
     data: "Documents",
-    local: "Read-only, never copied",
-    sent: "Excerpts, when asked",
+    local: "Source files unchanged",
+    sent: "Selected excerpts for AI tasks",
   },
   { icon: P.db, data: "Indexes", local: "Local SQLite", sent: "Excerpts only" },
   {
     icon: P.mic,
     data: "Meeting audio",
-    local: "Local, 30-day retention",
+    local: "Local; cleaned up at startup after 30 days",
     sent: "Streamed to your transcription provider",
     alert: true,
   },
   {
     icon: P.chat,
     data: "Transcript",
-    local: "Local, 30-day retention",
-    sent: "Recent turns, when asked",
+    local: "Local; cleaned up at startup after 30 days",
+    sent: "Recent turns during guidance",
   },
   {
     icon: P.clipboard,
     data: "Brief",
     local: "Private, versioned",
-    sent: "Whole brief, when asked",
+    sent: "Brief during guidance",
   },
   { icon: P.key, data: "Credentials", local: "macOS Keychain", sent: "Authorization header only" },
 ];
@@ -79,20 +76,20 @@ export function Privacy() {
           <Eyebrow>Local-first</Eyebrow>
           <TwoLineHeading
             className="mt-4"
-            line1="Stays on your Mac"
-            line2="Honest about what doesn't"
+            line1="Know where your data goes"
+            line2="Local storage, external AI providers"
           />
           <p className="mt-6 max-w-md text-sm leading-relaxed text-muted">
-            Documents are read where they live and never copied. Indexes sit in a private local
-            SQLite database that only your account can open. Audio and transcripts are deleted after
-            30 days. The honest part: audio streams to your transcription provider as it is
-            captured, and excerpts plus recent turns go to the model your CLI is signed in to.
+            Source files stay in their folders. Savvy stores extracted text and indexes in a local
+            database. Audio streams to your transcription provider. AI tasks send selected excerpts
+            and relevant context to your model provider. At startup, Savvy removes local recordings
+            and transcripts older than 30 days.
           </p>
           <StatList
             items={[
-              { icon: FolderIcon, label: "Documents referenced read-only, never copied" },
+              { icon: FolderIcon, label: "Source files remain unchanged" },
               { icon: KeyIcon, label: "Provider keys in the macOS Keychain" },
-              { icon: ClockIcon, label: "Audio and transcripts deleted after 30 days" },
+              { icon: ClockIcon, label: "30-day local retention, cleaned up at startup" },
               { icon: WaveIcon, label: "Audio streams only to your transcription provider" },
             ]}
           />

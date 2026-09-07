@@ -21,6 +21,7 @@ const COLUMNS: { heading: string; links: FooterLink[] }[] = [
   {
     heading: "Support",
     links: [
+      { label: "Privacy policy", href: "/privacy/" },
       { label: "Report an issue", href: LINKS.issues, external: true },
       { label: "README", href: LINKS.readme, external: true },
     ],
@@ -63,7 +64,6 @@ export function Footer() {
         </p>
       </div>
 
-      {/* Outlined wordmark bleeding to the viewport edges, money.x.com style. */}
       <div aria-hidden className="select-none overflow-hidden">
         <p
           className="whitespace-nowrap text-center font-bold uppercase leading-[0.78] tracking-tight text-transparent"

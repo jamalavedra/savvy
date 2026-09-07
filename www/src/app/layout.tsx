@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
+import { Analytics } from "@/components/Analytics";
 import { SITE_URL } from "@/lib/constants";
 import { inter, jetbrainsMono } from "@/lib/fonts";
 import "./globals.css";
 
-const TITLE = "Savvy — Source-grounded live guidance for meetings, on your Mac";
+const TITLE = "Savvy | AI guidance from your documents, on your Mac";
 const DESCRIPTION =
-  "Savvy reads your documents before the meeting, then listens alongside you and whispers what to say, what to avoid, and which file says so. Local-first macOS meeting assistant, open source.";
+  "Prepare from your documents and get suggestions during conversations. Savvy is an open-source Mac app that shows guidance with supporting sources.";
 
 export const metadata: Metadata = {
   title: TITLE,
@@ -38,7 +39,10 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body className={`${inter.variable} ${jetbrainsMono.variable}`}>{children}</body>
+      <body className={`${inter.variable} ${jetbrainsMono.variable}`}>
+        {children}
+        <Analytics />
+      </body>
     </html>
   );
 }

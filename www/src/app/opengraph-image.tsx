@@ -3,7 +3,7 @@ import path from "node:path";
 import { ImageResponse } from "next/og";
 
 export const dynamic = "force-static";
-export const alt = "Savvy — source-grounded live guidance for meetings, on your Mac.";
+export const alt = "Savvy: AI guidance from your documents, on your Mac.";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -38,7 +38,7 @@ export default function OpenGraphImage() {
         <div style={{ display: "flex", flexDirection: "column" }}>
           <div style={{ display: "flex", flexDirection: "column", color: "#0f0f0f" }}>
             <div style={{ fontSize: 70, fontWeight: 700, letterSpacing: "-0.035em" }}>
-              Hard question?
+              Your notes,
             </div>
             <div
               style={{
@@ -48,11 +48,11 @@ export default function OpenGraphImage() {
                 color: "#77736e",
               }}
             >
-              You already know.
+              when you need them.
             </div>
           </div>
           <div style={{ display: "flex", marginTop: 28, fontSize: 30, color: "#77736e" }}>
-            Source-grounded live guidance for meetings, on your Mac.
+            AI guidance from your documents, on your Mac.
           </div>
         </div>
         <div style={{ display: "flex", fontSize: 44, fontWeight: 700, color: "#f9a3ab" }}>

@@ -11,8 +11,6 @@ import {
 } from "@/components/sections/vignettes";
 
 // Numbered bento — the "One app / Everything money can do" section from
-// money.x.com: square media card with the text column BESIDE it (number top,
-// title+body bottom). Vignettes are icon-and-motion loops, not prose.
 
 type Item = { n: number; title: string; body: string; vignette: ReactNode };
 
@@ -41,7 +39,7 @@ const ITEMS: Item[] = [
   {
     n: 1,
     title: "Point it at a folder",
-    body: "PDF, DOCX, PPTX, XLSX, CSV, Markdown, EPUB. Indexed read-only, never copied.",
+    body: "PDF, DOCX, PPTX, XLSX, CSV, Markdown, EPUB. Source files stay in place; extracted text is indexed locally.",
     vignette: <FolderVignette />,
   },
   {
@@ -53,7 +51,7 @@ const ITEMS: Item[] = [
   {
     n: 3,
     title: "Hears both sides",
-    body: "Microphone and system audio, labelled separately, in whatever language the meeting is in. No bot joins the call.",
+    body: "Microphone and system audio, labelled separately, with selectable transcription languages. No bot joins the call.",
     vignette: <ChannelsVignette />,
   },
   {
@@ -65,13 +63,13 @@ const ITEMS: Item[] = [
   {
     n: 5,
     title: "Advice on demand",
-    body: "Press Advice, or the shortcut, for a read on the room from the brief and the last minute of talk.",
+    body: "Press Advice, or the shortcut, for guidance based on your brief and recent conversation.",
     vignette: <AdviceVignette />,
   },
   {
     n: 6,
-    title: "Meetings stay on this Mac",
-    body: "Recordings and transcripts are saved locally and deleted after 30 days.",
+    title: "Local meeting history",
+    body: "Recordings and transcripts are saved locally. Startup cleanup removes those older than 30 days.",
     vignette: <HistoryVignette />,
   },
 ];
