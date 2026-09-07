@@ -58,7 +58,7 @@ export function Analytics() {
   return (
     <aside
       aria-label="Privacy preferences"
-      className="fixed bottom-4 left-4 right-4 z-50 sm:right-auto sm:max-w-md"
+      className="fixed bottom-4 left-4 right-4 z-50 sm:left-auto sm:max-w-md"
     >
       {open ? (
         <div className="rounded-xl border border-border bg-surface p-5 shadow-lg">
@@ -103,7 +103,7 @@ export function Analytics() {
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="focus-ring rounded-full border border-border bg-surface px-4 py-2 text-xs shadow-sm"
+          className="focus-ring ml-auto block rounded-full border border-border bg-surface px-4 py-2 text-xs shadow-sm"
         >
           Privacy preferences
         </button>
