@@ -355,23 +355,4 @@ export function HistoryVignette() {
   );
 }
 
-// ── Bring your own · provider check chip ───────────────────────────────────
-
-export function ProviderChip() {
-  return (
-    <div className="pointer-events-none absolute left-1/2 top-6 z-10 -translate-x-1/2 rounded-xl border border-border bg-surface px-3 py-2 shadow-md">
-      <span className="grid whitespace-nowrap text-[13px] font-semibold *:col-start-1 *:row-start-1">
-        <span className="cycle-a flex items-center gap-2">
-          <span className="h-2 w-2 animate-pulse rounded-full bg-warning" />
-          Checking claude on PATH…
-        </span>
-        <span className="cycle-b flex items-center gap-2 text-success">
-          <Icon d={D.check} size={12} />
-          Signed in · Claude Code
-        </span>
-      </span>
-    </div>
-  );
-}
-
 export const SparkGlyph = <Icon d={D.sparkles} size={14} />;

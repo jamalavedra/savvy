@@ -1,0 +1,102 @@
+/* ── Footer flourish ──
+   The closing moment: the app's own pink wordmark at full bleed with the
+   mascot peeking up from behind the two v's. Hover the cat and it switches to
+   `thinking`, the state the overlay shows while it drafts a suggestion. */
+
+.ft-flourish {
+  /* One knob: the cat and its overlap are both fractions of the type, so the
+     composition is identical at 320px and at 1920px. */
+  --ft-mark-size: min(30vw, 320px);
+  --ft-cat-size: calc(var(--ft-mark-size) * 0.5);
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-bottom: 2rem;
+  /* The word is wider than the column and tilted; clipping keeps it from
+     widening the page at any viewport. */
+  overflow: hidden;
+  user-select: none;
+}
+
+.ft-cat {
+  position: relative;
+  z-index: 0;
+  width: var(--ft-cat-size);
+  height: var(--ft-cat-size);
+  /* Tucks the chest behind the letters — measured off the type, not the cat,
+     so the overlap stays the same fraction of the word at every width. The
+     listening frame leaves ~17% of its canvas empty below the art, which this
+     has to swallow before it reaches the letters. */
+  margin-bottom: calc(var(--ft-mark-size) * -0.45);
+}
+
+.ft-cat img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform-origin: 50% 85%;
+  /* Both frames are cut off flat at the bottom of their canvas; fading them
+     out where the letters take over hides the seam in the letter gaps. */
+  mask-image: linear-gradient(to bottom, #000 62%, transparent 88%);
+  animation: ft-peek 5.2s ease-in-out infinite;
+  transition: opacity 180ms ease;
+}
+
+.ft-cat-thinking {
+  opacity: 0;
+}
+
+.ft-cat:hover .ft-cat-listening {
+  opacity: 0;
+}
+
+.ft-cat:hover .ft-cat-thinking {
+  opacity: 1;
+}
+
+.ft-mark {
+  position: relative;
+  z-index: 1;
+  /* The word sits over the cat's lower half; letting it swallow the pointer
+     would leave only the ears hoverable. */
+  pointer-events: none;
+  font-size: var(--ft-mark-size);
+  line-height: 1;
+  animation: ft-wobble 9s ease-in-out infinite;
+}
+
+/* The lockup's hairline stroke and shadow are tuned for a 28px sidebar mark;
+   restate them in em so the treatment still reads at footer size. */
+.ft-mark .savvy-wordmark {
+  -webkit-text-stroke-width: 0.012em;
+  filter: drop-shadow(0 0.022em 0 var(--color-brand-pink-deep));
+}
+
+@keyframes ft-peek {
+  0%,
+  100% {
+    transform: translateY(2%) rotate(-1.6deg);
+  }
+  50% {
+    transform: translateY(-5%) rotate(1.6deg);
+  }
+}
+
+@keyframes ft-wobble {
+  0%,
+  100% {
+    transform: rotate(-0.5deg);
+  }
+  50% {
+    transform: rotate(0.5deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ft-cat img,
+  .ft-mark {
+    animation: none;
+  }
+}

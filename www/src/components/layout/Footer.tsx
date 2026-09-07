@@ -1,4 +1,6 @@
+import Image from "next/image";
 import { COMPANY_NAME, LINKS, NAV, REPO_URL } from "@/lib/constants";
+import "./footer.css";
 
 type FooterLink = { label: string; href: string; external?: boolean };
 
@@ -64,12 +66,26 @@ export function Footer() {
         </p>
       </div>
 
-      <div aria-hidden className="select-none overflow-hidden">
-        <p
-          className="whitespace-nowrap text-center font-bold uppercase leading-[0.78] tracking-tight text-transparent"
-          style={{ fontSize: "22.5vw", WebkitTextStroke: "1.5px var(--color-border)" }}
-        >
-          Savvy
+      {/* The sidebar lockup blown up to the viewport, with the cat behind it. */}
+      <div aria-hidden className="ft-flourish">
+        <div className="ft-cat">
+          <Image
+            className="ft-cat-listening"
+            src="/images/mascot/savvy-listening.png"
+            alt=""
+            width={192}
+            height={192}
+          />
+          <Image
+            className="ft-cat-thinking"
+            src="/images/mascot/savvy-thinking.png"
+            alt=""
+            width={192}
+            height={192}
+          />
+        </div>
+        <p className="ft-mark">
+          <span className="savvy-wordmark">savvy</span>
         </p>
       </div>
     </footer>

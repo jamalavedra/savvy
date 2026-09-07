@@ -563,44 +563,6 @@
   background: var(--background);
 }
 
-.prepare-card-header {
-  display: flex;
-  width: 100%;
-  min-height: 56px;
-  align-items: center;
-  gap: 11px;
-  padding: 9px 13px;
-  text-align: left;
-}
-
-.prepare-card-title {
-  display: flex;
-  flex: 1;
-  min-width: 0;
-  flex-direction: column;
-}
-
-.prepare-card-title strong {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-}
-
-.prepare-card-title small {
-  overflow: hidden;
-  color: var(--muted);
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.prepare-tag {
-  flex: none;
-  color: var(--muted);
-  font-size: 11px;
-}
-
 .tile-icon {
   display: grid;
   width: 32px;
@@ -615,17 +577,6 @@
 .tile-icon svg {
   width: 16px;
   height: 16px;
-}
-
-.in-use-badge {
-  padding: 2px 6px;
-  border-radius: 4px;
-  color: var(--accent);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  background: var(--accent-pale);
 }
 
 .sv .button {
@@ -663,21 +614,6 @@
 .sv .button svg {
   width: 14px;
   height: 14px;
-}
-
-.provider-status-dot {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 8px;
-  height: 8px;
-  border: 2px solid var(--background);
-  border-radius: 50%;
-  background: var(--muted);
-}
-
-.provider-status-dot.ready {
-  background: var(--success);
 }
 
 @media (prefers-reduced-motion: reduce) {
