@@ -7,14 +7,13 @@ import type { Rec } from "@/components/overlay/RecommendationCard";
 // (tests/fixtures/recommendations): budget phasing, red lines, priorities.
 // Lines are short on purpose: the card is read at a glance, mid-meeting.
 
-const t = (id: string, channel: Turn["channel"], text: string, interim = false): Turn => ({
+const t = (id: string, channel: Turn["channel"], text: string): Turn => ({
   id,
   channel,
   text,
-  interim,
 });
 
-export const HERO_ANSWER: Rec = {
+const HERO_ANSWER: Rec = {
   title: "Answer",
   say: "Net-60 is within policy if the annual commitment stays.",
   avoid: "Don't quote net-90. Terms are capped at 60 days.",
@@ -39,7 +38,7 @@ export const HERO_SCRIPT: ScriptStep[] = [
   { at: 15300, state: { turns: [] } },
 ];
 
-export const RED_LINE: Rec = {
+const RED_LINE: Rec = {
   title: "Red line",
   say: "May is what delivery signed off. Offer a March pilot.",
   avoid: "Don't agree to a Q1 launch.",
@@ -50,7 +49,6 @@ export const RED_LINE: Rec = {
 const R1 = t("r1", "other", "We need this live by end of Q1. That's firm.");
 const R2 = t("r2", "selfSpeaker", "Understood. Here's what a March pilot covers.");
 
-/** Three reasons to speak up: a question, a red line, the Advice button. */
 export const REASONS_SCRIPT: ScriptStep[] = [
   { at: 0, state: { turns: [], status: "listening", rec: null } },
   { at: 900, state: { turns: [R1] } },

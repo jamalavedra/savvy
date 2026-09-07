@@ -10,8 +10,6 @@ import {
   SayAvoidVignette,
 } from "@/components/sections/vignettes";
 
-// Numbered bento — the "One app / Everything money can do" section from
-
 type Item = { n: number; title: string; body: string; vignette: ReactNode };
 
 function BentoItem({ item, tall }: { item: Item; tall?: boolean }) {
@@ -35,17 +33,17 @@ function BentoItem({ item, tall }: { item: Item; tall?: boolean }) {
   );
 }
 
-const ITEMS: Item[] = [
+const ITEMS = [
   {
     n: 1,
     title: "Point it at a folder",
-    body: "PDF, DOCX, PPTX, XLSX, CSV, Markdown, EPUB. Source files stay in place; extracted text is indexed locally.",
+    body: "PDF, DOCX, PPTX, XLSX, CSV, Markdown, EPUB. Source files stay in place. Savvy indexes extracted text on your Mac.",
     vignette: <FolderVignette />,
   },
   {
     n: 2,
     title: "A brief you approve",
-    body: "Objective, both positions, red lines, questions to ask. Generated from the folder or imported, then approved by you.",
+    body: "Objective, both positions, red lines, questions. Generate from your folder or import a brief, then approve it.",
     vignette: <BriefVignette />,
   },
   {
@@ -69,16 +67,10 @@ const ITEMS: Item[] = [
   {
     n: 6,
     title: "Local meeting history",
-    body: "Recordings and transcripts are saved locally. Startup cleanup removes those older than 30 days.",
+    body: "Savvy saves recordings and transcripts on your Mac and deletes those older than 30 days at startup.",
     vignette: <HistoryVignette />,
   },
-];
-
-function pick(n: number): Item {
-  const item = ITEMS[n];
-  if (!item) throw new Error(`Bento item ${n} is missing`);
-  return item;
-}
+] as const satisfies readonly Item[];
 
 export function Everything() {
   return (
@@ -91,25 +83,25 @@ export function Everything() {
         <div className="mt-12 flex flex-col gap-14">
           <div className="grid gap-14 md:grid-cols-2 md:gap-10">
             <FadeInUp>
-              <BentoItem item={pick(0)} />
+              <BentoItem item={ITEMS[0]} />
             </FadeInUp>
             <FadeInUp delay={0.05}>
-              <BentoItem item={pick(1)} />
+              <BentoItem item={ITEMS[1]} />
             </FadeInUp>
           </div>
           <FadeInUp>
-            <BentoItem item={pick(2)} tall />
+            <BentoItem item={ITEMS[2]} tall />
           </FadeInUp>
           <div className="grid gap-14 md:grid-cols-2 md:gap-10">
             <FadeInUp>
-              <BentoItem item={pick(3)} />
+              <BentoItem item={ITEMS[3]} />
             </FadeInUp>
             <FadeInUp delay={0.05}>
-              <BentoItem item={pick(4)} />
+              <BentoItem item={ITEMS[4]} />
             </FadeInUp>
           </div>
           <FadeInUp>
-            <BentoItem item={pick(5)} tall />
+            <BentoItem item={ITEMS[5]} tall />
           </FadeInUp>
         </div>
       </div>

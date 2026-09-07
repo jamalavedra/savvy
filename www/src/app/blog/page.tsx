@@ -7,7 +7,7 @@ import { TwoLineHeading } from "@/components/sections/primitives";
 import { formatDate, getAllPosts } from "@/lib/blog";
 import { COMPANY_NAME, SITE_URL } from "@/lib/constants";
 
-const TITLE = "Blog — Savvy";
+const TITLE = "Blog | Savvy";
 const DESCRIPTION =
   "Notes on preparing for calls, meeting-recording consent, local-first meeting assistants, and how Savvy decides when to speak.";
 

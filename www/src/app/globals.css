@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 @theme {
-  /* Light palette — lifted from the app (savvy/src/App.css :root) */
+  /* Light palette, lifted from the app (savvy/src/App.css :root) */
   --color-background: #fbfbfb;
   --color-background-alt: #f1f0ee;
   --color-surface: #ffffff;
@@ -10,16 +10,14 @@
   --color-border: rgba(99, 94, 88, 0.2);
   --color-border-soft: rgba(99, 94, 88, 0.12);
 
-  /* Brand — the app's accent, the wordmark pink and the mascot's fur */
+  /* Brand: the app's accent, the wordmark pink and the mascot's fur */
   --color-accent: #e8697a;
   --color-accent-soft: rgba(249, 163, 171, 0.8);
-  --color-accent-pale: rgba(249, 163, 171, 0.2);
   --color-brand-pink: #f9a3ab;
   --color-brand-pink-light: #fde1e4;
   --color-brand-pink-deep: #c9636f;
-  --color-mascot: #f4b860;
 
-  /* Semantic — Say / Avoid */
+  /* Semantic: Say / Avoid */
   --color-success: #368c66;
   --color-warning: #cd8331;
   --color-danger: #d85664;
@@ -29,7 +27,6 @@
   --font-mono: var(--font-jetbrains-mono);
 
   /* Easing */
-  --ease-out-quart: cubic-bezier(0.76, 0, 0.24, 1);
   --ease-smooth: cubic-bezier(0.25, 0.1, 0.35, 1);
   --ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
 }
@@ -66,7 +63,6 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* ── Wordmark ── the app's sidebar lockup, verbatim (.savvy-wordmark). */
 .savvy-wordmark {
   display: inline-block;
   color: var(--color-brand-pink);
@@ -108,11 +104,6 @@ body {
   animation-direction: reverse;
 }
 
-/* ── Vignette loops ──
-   Every bento visual is a self-contained CSS loop: files drop into a folder,
-   brief rows fill in and get approved, two channels take turns talking, a card
-   expires and re-pops, the mascot thinks, a recording ages out. `--i-delay`
-   staggers siblings. All of it stops under prefers-reduced-motion. */
 @keyframes file-drop {
   0%,
   4% {

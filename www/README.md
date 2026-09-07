@@ -8,6 +8,7 @@ The FAQ uses native HTML; entrance animations use CSS.
 ```sh
 pnpm install --frozen-lockfile
 pnpm dev        # localhost:3012
+pnpm typecheck
 pnpm lint
 pnpm build      # static files in out/; includes TypeScript checking
 pnpm start      # serve the export locally with Wrangler
@@ -32,7 +33,7 @@ Never commit credentials. The custom-domain route is configured for
 stored in the repository.
 
 `SITE_URL` in `src/lib/constants.ts` controls canonical URLs, social metadata,
-robots.txt and the sitemap. It is set to `https://savvycopilot.com`.
+robots.txt, the sitemap and llms.txt. It is set to `https://savvycopilot.com`.
 CI validates the site but does not deploy it.
 
 ## Assets
@@ -42,7 +43,7 @@ from `src-tauri/icons`. Video attribution is in `public/videos/SOURCE.md`.
 
 ## Privacy and analytics
 
-The privacy notice is at `/privacy/`. Optional Umami analytics loads only after an
-explicit choice in Privacy preferences. A choice lasts up to one year in this
+The privacy notice is at `/privacy/`. The site loads optional Umami analytics only after an
+explicit choice in the privacy preferences. A choice lasts up to one year in this
 browser; withdrawing it reloads the page to stop the tracker. Run
 `node --test smoke.test.mjs` after building to check the export and consent records.

@@ -1,4 +1,3 @@
-export const SITE_NAME = "Savvy";
 export const COMPANY_NAME = "Alamas Labs";
 export const SITE_URL = "https://savvycopilot.com";
 

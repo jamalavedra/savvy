@@ -11,11 +11,6 @@ import {
 } from "@/components/sections/primitives";
 import "./privacy.css";
 
-// The README's data table as a picture: an enclosure holding what never
-// leaves, and two lanes out of it — audio streaming continuously to the
-// transcription provider, excerpts going in bursts only at recommendation
-// time. Motion lives in privacy.css.
-
 const D = {
   laptop: "M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v10H4ZM2 19h20",
   doc: "M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8ZM14 3v5h5M9 13h6M9 17h6",

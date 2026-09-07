@@ -1,26 +1,13 @@
 import type { CSSProperties, ReactNode } from "react";
-import { StatusLine } from "@/components/overlay/pieces";
+import { iconProps, MicIcon, StatusLine, WAVE } from "@/components/overlay/pieces";
 import { RecommendationCard } from "@/components/overlay/RecommendationCard";
-
-// Bento vignettes: icons and looping motion instead of prose. Each one is
-// pure CSS (keyframes in globals.css "Vignette loops") so it runs without JS
-// and pauses cleanly under prefers-reduced-motion. Product chrome comes from
-// overlay.css (.sv, .tile-icon, .prepare-card, .scard, .swave).
+import { CHECK_PATH } from "@/components/sections/primitives";
 
 const delay = (seconds: number) => ({ "--i-delay": `${seconds}s` }) as CSSProperties;
 
-const stroke = {
-  viewBox: "0 0 24 24",
-  fill: "none",
-  stroke: "currentColor",
-  strokeWidth: 2,
-  strokeLinecap: "round",
-  strokeLinejoin: "round",
-} as const;
-
 function Icon({ d, size = 16 }: { d: string; size?: number }) {
   return (
-    <svg {...stroke} width={size} height={size} aria-hidden="true">
+    <svg {...iconProps} width={size} height={size} aria-hidden="true">
       <path d={d} />
     </svg>
   );
@@ -35,17 +22,12 @@ const D = {
     "M12 2a10 10 0 1 0 0 20 10 10 0 1 0 0-20ZM12 6a6 6 0 1 0 0 12 6 6 0 1 0 0-12ZM12 10a2 2 0 1 0 0 4 2 2 0 1 0 0-4Z",
   flag: "M4 22V4M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1",
   question: "M12 2a10 10 0 1 0 0 20 10 10 0 1 0 0-20ZM9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01",
-  check: "M20 6 9 17l-5-5",
-  mic: "M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3ZM19 10v2a7 7 0 0 1-14 0v-2M12 19v3",
   speaker: "M11 5 6 9H2v6h4l5 4V5ZM15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14",
   play: "M8 5v14l11-7z",
   trash:
     "M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6",
-  sparkles:
-    "M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0zM20 3v4M22 5h-4",
 };
 
-/** Grey text placeholder: a line of the document without the words. */
 function Bar({ w, strong = false }: { w: string; strong?: boolean }) {
   return (
     <span
@@ -63,8 +45,6 @@ function Caption({ children }: { children: ReactNode }) {
     </span>
   );
 }
-
-// ── 01 · Point it at a folder ──────────────────────────────────────────────
 
 const FILES: [string, string][] = [
   ["PDF", "#d85664"],
@@ -111,8 +91,6 @@ export function FolderVignette() {
   );
 }
 
-// ── 02 · A brief you approve ───────────────────────────────────────────────
-
 const BRIEF_ROWS = [
   { icon: D.target, label: "Objective", tone: "text-[var(--accent)]", bars: ["w-32"] },
   {
@@ -129,7 +107,7 @@ export function BriefVignette() {
     <div className="sv w-full max-w-[260px]">
       <div className="prepare-card relative p-3.5 shadow-sm">
         <span className="check-pop absolute right-3 top-3 inline-flex items-center gap-1 rounded-full bg-[var(--success)] px-2 py-0.5 text-[10px] font-bold text-white">
-          <Icon d={D.check} size={11} />
+          <Icon d={CHECK_PATH} size={11} />
           Approved
         </span>
         <div className="flex items-center gap-2.5">
@@ -165,10 +143,6 @@ export function BriefVignette() {
   );
 }
 
-// ── 03 · Hears both sides ──────────────────────────────────────────────────
-
-const WAVE = [0.35, 0.55, 0.8, 1, 0.7, 0.9, 0.6, 0.45, 0.3];
-
 function Wave({ cls }: { cls: string }) {
   return (
     <span className={`swave flex-1 origin-center ${cls}`} aria-hidden="true">
@@ -183,12 +157,10 @@ function Wave({ cls }: { cls: string }) {
   );
 }
 
-function Channel({ icon, label, cls }: { icon: string; label: string; cls: string }) {
+function Channel({ icon, label, cls }: { icon: ReactNode; label: string; cls: string }) {
   return (
     <div className="flex items-center gap-3 py-2">
-      <span className="tile-icon">
-        <Icon d={icon} />
-      </span>
+      <span className="tile-icon">{icon}</span>
       <span className="w-20 shrink-0">
         <Caption>{label}</Caption>
       </span>
@@ -202,8 +174,8 @@ const LANGS = ["EN", "ES", "CA", "DE"];
 export function ChannelsVignette() {
   return (
     <div className="sv w-full max-w-[290px] rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 shadow-sm">
-      <Channel icon={D.speaker} label="System audio" cls="talk-a" />
-      <Channel icon={D.mic} label="Microphone" cls="talk-b" />
+      <Channel icon={<Icon d={D.speaker} />} label="System audio" cls="talk-a" />
+      <Channel icon={<MicIcon size={16} />} label="Microphone" cls="talk-b" />
       <div className="mt-2 flex items-center gap-1.5 border-t border-[var(--border-soft)] pt-3">
         {LANGS.map((lang, i) => (
           <span
@@ -222,8 +194,6 @@ export function ChannelsVignette() {
   );
 }
 
-// ── 04 · Say and avoid ─────────────────────────────────────────────────────
-
 export function SayAvoidVignette() {
   return (
     <div className="sv sv-loop w-full max-w-[280px]">
@@ -235,15 +205,12 @@ export function SayAvoidVignette() {
           grounded: 94,
           source: "payment-terms.pdf · p.2",
         }}
-        autoDismiss
         lifetime="6s"
         className="shadow-sm"
       />
     </div>
   );
 }
-
-// ── 05 · Advice on demand ──────────────────────────────────────────────────
 
 export function AdviceVignette() {
   return (
@@ -260,7 +227,7 @@ export function AdviceVignette() {
         <div className="sbase">
           <div className="sbase-l">
             <span className="sx spause" aria-hidden="true">
-              <Icon d={D.mic} size={11} />
+              <MicIcon />
             </span>
           </div>
           <Wave cls="" />
@@ -274,8 +241,6 @@ export function AdviceVignette() {
     </div>
   );
 }
-
-// ── 06 · Meetings stay on this Mac ─────────────────────────────────────────
 
 function CountdownRing() {
   const r = 8;
@@ -354,5 +319,3 @@ export function HistoryVignette() {
     </div>
   );
 }
-
-export const SparkGlyph = <Icon d={D.sparkles} size={14} />;

@@ -1,8 +1,3 @@
-/* ── Footer flourish ──
-   The closing moment: the app's own pink wordmark at full bleed with the
-   mascot peeking up from behind the two v's. Hover the cat and it switches to
-   `thinking`, the state the overlay shows while it drafts a suggestion. */
-
 .ft-flourish {
   /* One knob: the cat and its overlap are both fractions of the type, so the
      composition is identical at 320px and at 1920px. */
@@ -24,7 +19,7 @@
   z-index: 0;
   width: var(--ft-cat-size);
   height: var(--ft-cat-size);
-  /* Tucks the chest behind the letters — measured off the type, not the cat,
+  /* Tucks the chest behind the letters, measured off the type, not the cat,
      so the overlap stays the same fraction of the word at every width. The
      listening frame leaves ~17% of its canvas empty below the art, which this
      has to swallow before it reaches the letters. */

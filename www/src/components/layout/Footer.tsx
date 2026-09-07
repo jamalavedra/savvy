@@ -1,4 +1,5 @@
 import Image from "next/image";
+import { Divider } from "@/components/sections/primitives";
 import { COMPANY_NAME, LINKS, NAV, REPO_URL } from "@/lib/constants";
 import "./footer.css";
 
@@ -35,9 +36,7 @@ export function Footer() {
 
   return (
     <footer>
-      <div className="page-column">
-        <div className="border-t border-border" />
-      </div>
+      <Divider />
 
       <div className="page-column pt-16 pb-12">
         <div className="grid gap-x-10 gap-y-12 sm:grid-cols-2 lg:grid-cols-3">
@@ -65,8 +64,6 @@ export function Footer() {
           © {year} {COMPANY_NAME}
         </p>
       </div>
-
-      {/* The sidebar lockup blown up to the viewport, with the cat behind it. */}
       <div aria-hidden className="ft-flourish">
         <div className="ft-cat">
           <Image

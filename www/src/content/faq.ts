@@ -12,7 +12,7 @@ export const faqItems = [
   {
     question: "Where does my data go?",
     answer:
-      "Source files stay in their folders. Extracted text, indexes, briefs, recordings, and transcripts are stored locally. Audio streams to your transcription provider. AI tasks send selected excerpts and relevant context to the provider your CLI uses. Transcription keys are stored in the macOS Keychain. Local recordings and transcripts older than 30 days are removed when Savvy starts.",
+      "Source files stay in their folders. Savvy stores extracted text, indexes, briefs, recordings, and transcripts on your Mac. Audio streams to your transcription provider. Savvy sends selected excerpts, the whole brief and recent transcript turns to your CLI's model provider. Savvy stores transcription keys in macOS Keychain. At startup, Savvy deletes local recordings and transcripts older than 30 days.",
   },
   {
     question: "Does it work with Zoom, Meet, Teams or phone calls?",
@@ -36,7 +36,6 @@ export const faqItems = [
   },
   {
     question: "Does it run on Intel Macs?",
-    answer:
-      "Release downloads support Apple Silicon. Intel builds from source are unsupported and untested.",
+    answer: "Release downloads support Apple Silicon. Intel builds from source are unsupported.",
   },
 ] as const;

@@ -1,6 +1,7 @@
 import type { CSSProperties, ReactNode } from "react";
 import { FadeInUp } from "@/components/animations/FadeInUp";
 import {
+  CHECK_PATH,
   Eyebrow,
   StatList,
   TerminalIcon,
@@ -9,10 +10,6 @@ import {
   WaveIcon,
 } from "@/components/sections/primitives";
 import "./providers.css";
-
-// Savvy has no model of its own — it shells out to the CLI already signed in
-// on the Mac and to your own speech key. The graphic says that without a
-// settings panel: three things you already own drop into the Savvy socket.
 
 function ClaudeMark() {
   return (
@@ -30,7 +27,6 @@ function OpenAIMark() {
   );
 }
 
-/** Deepgram and AssemblyAI have no mark worth borrowing — speech gets a glyph. */
 function SpeechMark() {
   return (
     <svg
@@ -61,7 +57,7 @@ const CheckBadge = (
       strokeLinejoin="round"
       aria-hidden="true"
     >
-      <path d="M20 6 9 17l-5-5" />
+      <path d={CHECK_PATH} />
     </svg>
   </span>
 );
@@ -75,7 +71,6 @@ const MARKS: { key: string; mark: ReactNode }[] = [
 
 const ProvidersVignette = (
   <div className="relative flex flex-col items-center pt-[104px] pb-2">
-    {/* The socket: what you already own plugs into Savvy, nothing is resold. */}
     <div className="pr-seat relative grid h-[64px] w-[184px] place-items-center rounded-2xl border border-accent-soft bg-surface shadow-sm">
       <span
         aria-hidden="true"
@@ -125,17 +120,17 @@ export function YourModel() {
         <FadeInUp delay={0.15}>
           <p className="text-sm leading-relaxed text-muted">
             The open-source app uses Claude Code or Codex CLI for guidance. Sign in on your Mac and
-            use your existing provider account. Selected excerpts, your brief, and recent transcript
-            turns are sent to that provider.
+            use your existing provider account. Savvy sends selected excerpts, the whole brief, and
+            recent transcript turns to that provider.
           </p>
           <p className="mt-4 text-sm leading-relaxed text-muted">
             Transcription uses your Deepgram or AssemblyAI API key, stored in the macOS Keychain.
-            Provider usage is billed separately.
+            Your providers bill for usage.
           </p>
           <StatList
             items={[
               { icon: TerminalIcon, label: "Claude Code or Codex CLI" },
-              { icon: UserIcon, label: "Your account, your limits, your terms" },
+              { icon: UserIcon, label: "Your account and its terms" },
               { icon: WaveIcon, label: "Deepgram or AssemblyAI, your key" },
             ]}
           />

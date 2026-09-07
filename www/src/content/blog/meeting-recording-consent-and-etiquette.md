@@ -1,15 +1,15 @@
 ---
 title: Recording a meeting: consent, etiquette, and why Savvy has no hidden mode
-description: One-party and all-party consent for recording calls, what to tell the other side before you transcribe, and why Savvy is a visible panel, not a disguise.
+description: One-party and all-party consent for recording calls, what to tell the other side before you transcribe, and why Savvy has no hidden mode.
 date: 2026-09-02
 tags: consent, privacy, etiquette
 ---
 
 If a tool transcribes your call, you are recording it, whether or not an audio file is kept. That is the starting point for everything below. This post is general orientation on what the law commonly expects, what to say to the other side, and why we chose not to build a hidden mode. It is not legal advice, and consent rules vary by country, by state, and by the meeting platform's own terms. When it matters, ask a lawyer who knows your jurisdiction.
 
-## What Savvy actually records
+## What Savvy records
 
-Savvy captures your microphone and the system audio of the call, streams it to your transcription provider as it is captured, and keeps the audio and the transcript on your Mac for 30 days before deleting them. Nothing joins the call. No bot appears in the participant list, and the other side receives no automatic notice. The full data table is on the [privacy section](/#privacy) of the homepage.
+Savvy captures your microphone and the system audio of the call, streams it to your transcription provider as it is captured, and keeps local audio and transcripts for 30 days. Savvy deletes expired files at startup. Nothing joins the call. No bot appears in the participant list, and the other side receives no automatic notice. The homepage's [privacy section](/#privacy) shows where data goes.
 
 That last point is the one that matters for consent. With a hosted meeting bot, the bot's presence is itself a form of notice. With Savvy, telling people is your job.
 
@@ -17,9 +17,9 @@ That last point is the one that matters for consent. With a hosted meeting bot, 
 
 Most consent rules for recording a conversation fall into two families.
 
-**One-party consent** means it is enough that one participant, which can be you, knows the conversation is being recorded. United States federal law works this way, and so do many US states.
+One-party consent means it is enough that one participant, which can be you, knows the conversation is being recorded. United States federal law works this way, and so do many US states.
 
-**All-party consent** means everyone on the call must agree. A number of US states require it, California, Florida, Illinois and Washington among them. When participants are in different places, the safe assumption is that the stricter rule applies.
+All-party consent means everyone on the call must agree. A number of US states require it, California, Florida, Illinois and Washington among them. When participants are in different places, the safe assumption is that the stricter rule applies.
 
 In the European Union and the United Kingdom the frame is different. A recording that identifies a person is personal data, so the question is not only consent but whether you have a lawful basis to process it and whether you were transparent about it. In practice most organisations handle this with a spoken notice at the start of the call and a written policy behind it.
 
@@ -49,7 +49,7 @@ Do not bury the disclosure in a calendar invite footer and count that as consent
 
 - Do not paste the transcript into a shared document or send it to the other side without asking. Transcripts read differently from how a conversation felt.
 - Do not quote the transcript back at people in a later meeting. "You said at 14:32" is a way to lose a relationship.
-- Delete what you do not need. Savvy does this automatically after 30 days; you can stop a meeting and remove it sooner.
+- Delete what you do not need. Savvy deletes expired local recordings and transcripts at startup after 30 days; you can stop a meeting and remove it sooner.
 - If you used the assistant to answer a question in the call, the answer is still yours. Own it.
 
 ## Why there is no hidden mode
@@ -58,8 +58,8 @@ Some products in this category sell the ability to be invisible on a screen shar
 
 Savvy is a small always-on-top panel. If you share your screen, it shows up like any other window. It is your own notes in the room, not a disguise.
 
-The reason is not only legal. A tool built to be undetectable trains you to hide it, and a person who is hiding something on a call is a worse negotiator than one who is not. We would rather you be able to say "yes, I use a notes assistant" out loud, in the first minute, and then get on with the meeting. Everything about how Savvy behaves, from the visible panel to the fact that it stays silent unless there is a concrete reason to speak, follows from that.
+The reason is not only legal. A tool built to be undetectable trains you to hide it, and a person who is hiding something on a call is a worse negotiator than one who is not. We would rather you say "yes, I use a notes assistant" out loud, in the first minute, and then get on with the meeting. The visible panel and the silence-by-default both follow from that.
 
 Use it where AI assistance is allowed. Check the rules of your meeting first. Then tell people.
 
-If you are choosing between this kind of assistant and a bot that joins the call, [Local-first meeting assistants vs bots that join the call](/blog/local-first-meeting-assistant-vs-meeting-bots/) goes through the tradeoffs, including the one this post is about.
+For the tradeoffs, read [Local-first meeting assistants vs bots that join the call](/blog/local-first-meeting-assistant-vs-meeting-bots/).

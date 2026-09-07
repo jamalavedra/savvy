@@ -1,10 +1,3 @@
-/* ── Privacy diagram loops ──
-   The data-flow picture in Privacy.tsx: packets leaving the "your Mac"
-   enclosure down two lanes — audio streams continuously, excerpts go in
-   bursts only when Savvy answers — plus the local ring and the live
-   waveform on the audio card. Transform/opacity only; everything stops
-   under prefers-reduced-motion with the diagram left intact. */
-
 /* Vertical rails the packets ride: solid for the continuous stream,
    dashed for the intermittent one. Both survive with motion off. */
 .pv-line,

@@ -37,14 +37,14 @@ export function Reasons() {
           </p>
           <p className="mt-4 text-sm leading-relaxed text-muted">
             It also reviews recent conversation for relevant changes. A "Savvy noticed" card appears
-            when it finds something worth raising.
+            when it finds something concrete.
           </p>
           <StatList
             items={[
               { icon: QuestionIcon, label: "Answers their question" },
               { icon: FlagIcon, label: "Flags a red line before you cross it" },
               { icon: SparkIcon, label: "Advice when you ask for it" },
-              { icon: MuteIcon, label: "Additional insights when relevant" },
+              { icon: MuteIcon, label: "Cards from the last minute of conversation" },
             ]}
           />
         </FadeInUp>

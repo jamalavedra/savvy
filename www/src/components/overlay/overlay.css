@@ -1,8 +1,4 @@
-/* ── Savvy overlay replica ──
-   The live meeting card, rebuilt from the app's own stylesheet
-   (savvy/src/App.css: .ov-stage, .scard, .recommendation-card …) so the
-   landing shows the real component, not an illustration of it. Class names
-   are kept so diffs against the app stay readable. Scoped under `.sv`. */
+/* Keep app class names so the panel demo can be compared with the desktop stylesheet. */
 
 .sv {
   --background: #fbfbfb;
@@ -13,16 +9,13 @@
   --border: rgba(99, 94, 88, 0.2);
   --border-soft: rgba(99, 94, 88, 0.12);
   --accent: #e8697a;
-  --accent-soft: rgba(249, 163, 171, 0.8);
   --accent-pale: rgba(249, 163, 171, 0.2);
   --tile: rgba(249, 163, 171, 0.2);
   --success: #368c66;
-  --warning: #cd8331;
   --danger: #d85664;
 
   --s-surface: color-mix(in srgb, var(--background) 98%, transparent);
   --s-accent: var(--accent);
-  --s-accent-soft: var(--accent-pale);
   --s-muted: var(--muted);
   --s-faint: color-mix(in srgb, var(--muted), transparent 28%);
   --s-border: var(--border);
@@ -44,30 +37,6 @@
   justify-content: center;
 }
 
-.sv.sv-dark {
-  --background: #2c2b29;
-  --background-ui: #383735;
-  --surface: #302f2d;
-  --text: #fbfbfb;
-  --muted: #aaa6a0;
-  --border: rgba(251, 251, 251, 0.13);
-  --border-soft: rgba(251, 251, 251, 0.08);
-  --accent: #f9a3ab;
-  --accent-soft: rgba(249, 163, 171, 0.8);
-  --accent-pale: rgba(249, 163, 171, 0.16);
-  --tile: rgba(251, 251, 251, 0.07);
-  --success: #73c69d;
-  --warning: #fbbb73;
-  --danger: #f08b96;
-}
-
-.sv button {
-  color: inherit;
-  font: inherit;
-  cursor: default;
-}
-
-/* ── The card ── */
 .scard {
   display: flex;
   width: 216px;
@@ -178,7 +147,6 @@
   }
 }
 
-/* ── Base bar: mute · waveform · timer · stop ── */
 .sbase {
   display: grid;
   grid-template-columns: 28px minmax(60px, 1fr) auto;
@@ -238,12 +206,6 @@
   }
 }
 
-.paused .swave i {
-  height: 3px;
-  background: var(--s-muted);
-  animation: none;
-}
-
 .sx {
   display: flex;
   align-items: center;
@@ -284,7 +246,6 @@
   background: color-mix(in srgb, var(--s-muted) 22%, transparent);
 }
 
-/* ── Status line: mascot + label ── */
 .overlay-status {
   display: flex;
   align-items: center;
@@ -324,10 +285,6 @@
   animation: mascot-listening 1.5s ease-in-out infinite;
 }
 
-.mascot-state.muted {
-  animation: mascot-muted 2.4s ease-in-out infinite;
-}
-
 .mascot-state.thinking {
   animation: mascot-thinking 650ms ease-in-out infinite alternate;
 }
@@ -341,13 +298,6 @@
   }
 }
 
-@keyframes mascot-muted {
-  50% {
-    opacity: 0.82;
-    transform: translateY(1px) scale(0.98);
-  }
-}
-
 @keyframes mascot-thinking {
   from {
     transform: translateY(1px) scale(0.96) rotate(-3deg);
@@ -357,7 +307,6 @@
   }
 }
 
-/* ── Recommendation card (Say / Avoid / source) ── */
 .ai-extension-clip {
   overflow-y: auto;
   border-bottom: 1px solid var(--s-hair);
@@ -400,7 +349,6 @@
   font-weight: 700;
 }
 
-/* biome-ignore lint/style/noDescendingSpecificity: mirrors the app stylesheet */
 .recommendation-top i {
   width: 7px;
   height: 7px;
@@ -556,7 +504,6 @@
   flex: none;
 }
 
-/* ── Prepare-tab cards (folder, brief, history) ── */
 .prepare-card {
   border: 1px solid var(--border);
   border-radius: 9px;
@@ -577,43 +524,6 @@
 .tile-icon svg {
   width: 16px;
   height: 16px;
-}
-
-.sv .button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-height: 32px;
-  padding: 6px 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  font-size: 13px;
-  font-weight: 600;
-  white-space: nowrap;
-  background: var(--background);
-}
-
-.sv .button.primary {
-  border-color: color-mix(in srgb, var(--accent) 75%, transparent);
-  color: #1f1f1f;
-  background: var(--accent-soft);
-}
-
-.sv .button kbd {
-  padding: 2px 5px;
-  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
-  border-radius: 5px;
-  font:
-    500 10px / 1 -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    sans-serif;
-}
-
-.sv .button svg {
-  width: 14px;
-  height: 14px;
 }
 
 @media (prefers-reduced-motion: reduce) {
