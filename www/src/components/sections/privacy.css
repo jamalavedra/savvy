@@ -1,0 +1,131 @@
+/* ── Privacy diagram loops ──
+   The data-flow picture in Privacy.tsx: packets leaving the "your Mac"
+   enclosure down two lanes — audio streams continuously, excerpts go in
+   bursts only when Savvy answers — plus the local ring and the live
+   waveform on the audio card. Transform/opacity only; everything stops
+   under prefers-reduced-motion with the diagram left intact. */
+
+/* Vertical rails the packets ride: solid for the continuous stream,
+   dashed for the intermittent one. Both survive with motion off. */
+.pv-line,
+.pv-line-dashed {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  margin-left: -0.5px;
+}
+
+.pv-line {
+  background: color-mix(in srgb, var(--color-danger) 45%, transparent);
+}
+
+.pv-line-dashed {
+  background-image: linear-gradient(var(--color-border) 50%, transparent 0);
+  background-size: 1px 8px;
+  background-repeat: repeat-y;
+}
+
+.pv-packet {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  margin-left: -3px;
+  border-radius: 9999px;
+  opacity: 0;
+  animation: pv-flow 1.6s linear infinite;
+  animation-delay: var(--pv-d, 0s);
+}
+
+/* Continuous: three evenly spaced dots, always one in flight. */
+@keyframes pv-flow {
+  0% {
+    opacity: 0;
+    transform: translateY(0);
+  }
+  14%,
+  86% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(var(--pv-len, 48px));
+  }
+}
+
+/* Intermittent: a burst of three, then a long wait. */
+.pv-burst {
+  animation-name: pv-burst;
+  animation-duration: 5s;
+}
+
+@keyframes pv-burst {
+  0% {
+    opacity: 0;
+    transform: translateY(0);
+  }
+  3%,
+  20% {
+    opacity: 1;
+  }
+  24%,
+  100% {
+    opacity: 0;
+    transform: translateY(var(--pv-len, 48px));
+  }
+}
+
+/* Soft "this is local" pulse around the enclosure. */
+.pv-ring {
+  animation: pv-ring 3.6s ease-out infinite;
+}
+
+@keyframes pv-ring {
+  0% {
+    opacity: 0.5;
+    transform: scale(0.995);
+  }
+  70%,
+  100% {
+    opacity: 0;
+    transform: scale(1.025);
+  }
+}
+
+/* Live capture bars on the audio card. */
+.pv-bar {
+  transform-origin: center;
+  animation: pv-bar 1.05s ease-in-out infinite alternate;
+  animation-delay: var(--pv-d, 0s);
+}
+
+@keyframes pv-bar {
+  from {
+    transform: scaleY(0.25);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pv-packet,
+  .pv-ring,
+  .pv-bar {
+    animation: none;
+  }
+  /* Park the packets along their rails so both flows stay readable. */
+  .pv-packet {
+    opacity: 0.85;
+    transform: translateY(var(--pv-park, 0px));
+  }
+  .pv-ring {
+    opacity: 0.4;
+  }
+  .pv-bar {
+    transform: scaleY(0.7);
+  }
+}

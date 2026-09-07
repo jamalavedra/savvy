@@ -1,0 +1,112 @@
+/* ── Bring your own · the socket loop ──
+   Three things you already own — Claude Code, the Codex CLI, your speech key —
+   drop one at a time into the Savvy socket and lock with a check. One 9s
+   cycle, three 3s slices; the socket clicks once per slice. Transform and
+   opacity only, so it runs on the compositor and stops cleanly for still
+   users, who keep the first mark seated and checked. */
+
+@keyframes pr-drop {
+  0% {
+    opacity: 0;
+    transform: translateY(-30px) scale(0.92);
+  }
+  4%,
+  30% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  34%,
+  100% {
+    opacity: 0;
+    transform: translateY(-30px) scale(0.92);
+  }
+}
+
+.pr-drop {
+  opacity: 0;
+  animation: pr-drop 9s var(--ease-spring) infinite;
+  animation-delay: var(--pr-delay, 0s);
+}
+
+@keyframes pr-check {
+  0%,
+  10% {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  15%,
+  29% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  32%,
+  100% {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+}
+
+.pr-check {
+  opacity: 0;
+  animation: pr-check 9s var(--ease-spring) infinite;
+  animation-delay: var(--pr-delay, 0s);
+}
+
+/* The socket takes the seat: one nudge per slice, as each mark lands. */
+@keyframes pr-seat {
+  0%,
+  6%,
+  24%,
+  100% {
+    transform: none;
+  }
+  13% {
+    transform: scale(1.035);
+  }
+}
+
+.pr-seat {
+  animation: pr-seat 3s ease-in-out infinite;
+}
+
+/* Contact ring — the click you would feel if this were hardware. */
+@keyframes pr-ring {
+  0%,
+  8% {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  14% {
+    opacity: 0.55;
+    transform: scale(1);
+  }
+  34%,
+  100% {
+    opacity: 0;
+    transform: scale(1.14);
+  }
+}
+
+.pr-ring {
+  opacity: 0;
+  animation: pr-ring 3s ease-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pr-drop,
+  .pr-check,
+  .pr-seat,
+  .pr-ring {
+    animation: none;
+  }
+  /* Resting state: the first mark seated and signed in, nothing else stacked. */
+  .pr-drop {
+    opacity: 0;
+    transform: none;
+  }
+  .pr-drop:first-child,
+  .pr-drop:first-child .pr-check {
+    opacity: 1;
+    transform: none;
+  }
+}
