@@ -40,7 +40,7 @@ export function TwoLineHeading({
   );
 }
 
-export type Stat = { icon: ReactNode; label: ReactNode };
+type Stat = { icon: ReactNode; label: ReactNode };
 
 export function StatList({ items }: { items: Stat[] }) {
   return (
@@ -116,12 +116,6 @@ export const ClockIcon = (
   </svg>
 );
 
-export const ShieldIcon = (
-  <svg {...iconProps} aria-hidden="true">
-    <path d="M8 2.5 13 4.5v3.6c0 3-2.1 4.9-5 5.9-2.9-1-5-2.9-5-5.9V4.5L8 2.5Z" />
-  </svg>
-);
-
 export const WaveIcon = (
   <svg {...iconProps} aria-hidden="true">
     <path d="M2.5 8h1M5 5.5v5M8 3v10M11 5.5v5M13.5 8h-1" />
@@ -141,16 +135,4 @@ export const UserIcon = (
   </svg>
 );
 
-export const LaptopIcon = (
-  <svg {...iconProps} aria-hidden="true">
-    <rect x="3" y="3.5" width="10" height="7" rx="1" />
-    <path d="M1.5 12.5h13" />
-  </svg>
-);
-
-export const DocIcon = (
-  <svg {...iconProps} aria-hidden="true">
-    <path d="M4 2.5h5l3 3v8H4v-11Z" />
-    <path d="M9 2.5v3h3M6 8.5h4M6 10.5h4" />
-  </svg>
-);
+export const CHECK_PATH = "M20 6 9 17l-5-5";

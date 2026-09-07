@@ -11,38 +11,27 @@ import {
 import { type Rec, RecommendationCard } from "@/components/overlay/RecommendationCard";
 import "./overlay.css";
 
-export type OverlayState = {
+type OverlayState = {
   turns: Turn[];
   status: Status;
   rec: Rec | null;
-  paused?: boolean;
 };
 
 /** One step of a scripted playback. States are cumulative: each step's
  *  fields are merged over the previous state. Step 0 must be complete. */
 export type ScriptStep = { at: number; state: Partial<OverlayState> };
 
-/** The card itself, driven entirely by `state`. Class toggles mirror the
- *  app: `.open` widens to 392px, `.has-text`/`.ai-open` grow the rows. */
-export function OverlayView({
-  state,
-  elapsed,
-  dark = false,
-}: {
-  state: OverlayState;
-  elapsed: number;
-  dark?: boolean;
-}) {
+function OverlayView({ state, elapsed }: { state: OverlayState; elapsed: number }) {
   const hasText = state.turns.length > 0;
   const aiOpen = state.rec !== null;
   const open = hasText || aiOpen;
   return (
-    <div className={`sv sv-overlay ${dark ? "sv-dark" : ""}`}>
+    <div className="sv sv-overlay">
       <section
         className={`scard ${open ? "open" : ""} ${hasText ? "has-text" : ""} ${
           aiOpen ? "ai-open" : ""
-        } ${state.paused ? "paused" : ""}`}
-        aria-label="Savvy meeting overlay"
+        }`}
+        aria-label="Savvy meeting panel"
       >
         <div className="stext">
           <div className="stext-clip">
@@ -51,11 +40,11 @@ export function OverlayView({
         </div>
         <div className="ai-extension">
           <div className="ai-extension-clip">
-            {state.rec && <RecommendationCard rec={state.rec} autoDismiss lifetime="9s" />}
+            {state.rec && <RecommendationCard rec={state.rec} lifetime="9s" />}
           </div>
         </div>
         <StatusLine status={state.status} advice={hasText} />
-        <BaseBar elapsed={elapsed} paused={state.paused} />
+        <BaseBar elapsed={elapsed} />
       </section>
     </div>
   );
@@ -67,31 +56,24 @@ function stateAt(script: ScriptStep[], index: number): OverlayState {
   return state;
 }
 
-/** Plays a script in a loop. Under reduced motion it shows `restIndex`
- *  (default: the last step that has a recommendation) and never animates. */
+/** Reduced motion shows the last recommendation without playing the script. */
 export function ScriptedOverlay({
   script,
-  restIndex,
   startElapsed = 0,
-  dark = false,
 }: {
   script: ScriptStep[];
-  restIndex?: number;
   /** Timer value at the start of each loop, in seconds. */
   startElapsed?: number;
-  dark?: boolean;
 }) {
   const [state, setState] = useState<OverlayState>(() => stateAt(script, 0));
   const [elapsed, setElapsed] = useState(startElapsed);
 
   useEffect(() => {
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      const rest =
-        restIndex ??
-        Math.max(
-          0,
-          script.findLastIndex((step) => step.state.rec),
-        );
+      const rest = Math.max(
+        0,
+        script.findLastIndex((step) => step.state.rec),
+      );
       setState(stateAt(script, rest));
       return;
     }
@@ -111,7 +93,7 @@ export function ScriptedOverlay({
       for (const timer of timers) window.clearTimeout(timer);
       window.clearInterval(tick);
     };
-  }, [script, restIndex, startElapsed]);
+  }, [script, startElapsed]);
 
-  return <OverlayView state={state} elapsed={elapsed} dark={dark} />;
+  return <OverlayView state={state} elapsed={elapsed} />;
 }

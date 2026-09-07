@@ -1,10 +1,3 @@
-/* ── Bring your own · the socket loop ──
-   Three things you already own — Claude Code, the Codex CLI, your speech key —
-   drop one at a time into the Savvy socket and lock with a check. One 9s
-   cycle, three 3s slices; the socket clicks once per slice. Transform and
-   opacity only, so it runs on the compositor and stops cleanly for still
-   users, who keep the first mark seated and checked. */
-
 @keyframes pr-drop {
   0% {
     opacity: 0;
@@ -69,7 +62,7 @@
   animation: pr-seat 3s ease-in-out infinite;
 }
 
-/* Contact ring — the click you would feel if this were hardware. */
+/* Contact ring: the click you would feel if this were hardware. */
 @keyframes pr-ring {
   0%,
   8% {

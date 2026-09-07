@@ -9,13 +9,13 @@ A meeting bot is a hosted service that joins your call as a participant, records
 
 ## What a meeting bot does
 
-The hosted-bot category covers most of the "AI notetaker" products you have seen appear in a Zoom or Meet call. The shape is the same across vendors:
+The hosted-bot category covers most of the "AI notetaker" products you have seen appear in a Zoom or Meet call. A typical workflow looks like this:
 
 - A bot account joins the meeting. Everyone on the call sees it in the participant list.
 - It records audio and often video for the whole call.
-- The recording is uploaded to the vendor, transcribed and summarised there, and stored under the vendor's retention policy.
+- The vendor uploads, transcribes and summarises the recording, then stores it under its retention policy.
 - The output is a shared record: transcript, summary, action items, sometimes a CRM update.
-- The vendor's model is bundled into the price. You do not choose it, and the data-handling terms are the vendor's.
+- The vendor bundles its model into the price. You do not choose it, and the data-handling terms are the vendor's.
 
 The strength of this model is the shared record. The whole team can search past calls. Admins can set retention. Nobody has to install anything on their laptop.
 
@@ -23,19 +23,19 @@ The strength of this model is the shared record. The whole team can search past 
 
 Savvy is a macOS application. Nothing joins the call. It captures your microphone and the system audio of whatever app is playing the other side, so it works with Zoom, Meet, Teams, or a phone call routed through your Mac. See the [FAQ](/#faq) for the permissions it needs.
 
-Before the call it reads the documents you point it at, read-only, and builds a brief. During the call it listens and shows a small always-on-top panel with a suggestion when there is a reason to: the other side asked a question, someone touched a red line from your brief, or you asked for advice. Each card says what to say, what to avoid, and which file says so. The details of that logic are in [How Savvy decides when to speak](/blog/when-savvy-speaks-up/).
+Before the call it reads the documents you point it at, read-only, and builds a brief. During the call its small always-on-top panel shows cards when the other side asks a question, someone touches a red line, or you press Advice. It also checks the last minute of conversation for something concrete to raise. Each card says what to say, what to avoid, and which file says so. The details of that logic are in [How Savvy decides when to speak](/blog/when-savvy-speaks-up/).
 
 The output is guidance for one person, live. It is not a team record.
 
 ## Where the audio goes
 
-This is the part where "local-first" needs qualifying, and we would rather do it here than in a footnote.
+"Local-first" does not mean offline.
 
-Savvy keeps your source documents, derived indexes, brief, audio files and transcripts on your Mac. But live transcription is not local. Meeting audio is streamed to Deepgram or AssemblyAI, using your own account, as it is captured. There is no offline transcription mode in the current build. Savvy sets Deepgram's `mip_opt_out=true` so your audio is not used to train their models; you should check AssemblyAI's terms for the equivalent.
+Savvy keeps your source documents, derived indexes, brief, audio files and transcripts on your Mac. But live transcription is not local. Savvy streams meeting audio to Deepgram or AssemblyAI under your account as it captures it. There is no offline transcription mode in the current build. Savvy sets Deepgram's `mip_opt_out=true` so your audio is not used to train their models; you should check AssemblyAI's terms for the equivalent.
 
-At recommendation time, selected excerpts from your documents, the brief, and recent transcript turns are sent to the model provider that your CLI is signed in to. Whole documents never leave the machine.
+For each recommendation, Savvy sends selected document excerpts, the whole brief, and recent transcript turns to your CLI's model provider. It does not send whole source files.
 
-Audio and transcripts are deleted after 30 days. Provider keys sit in the macOS Keychain. The full table is on the [privacy section](/#privacy) of the homepage.
+Savvy deletes local audio and transcripts after 30 days, with cleanup at startup. Provider keys sit in the macOS Keychain. The homepage's [privacy section](/#privacy) shows the data flow.
 
 So the honest comparison is not "cloud vs no cloud". It is "one vendor holds the recording, the transcript and the summary under their terms" versus "your transcription provider hears the audio, your model provider sees excerpts, and the files stay with you".
 
@@ -59,11 +59,11 @@ The tradeoffs are real, and they are the reason a team might still pick a bot:
 - **You carry the consent conversation.** No bot appears in the participant list, so nobody is told automatically that a transcript exists. That is on you. [Recording a meeting: consent and etiquette](/blog/meeting-recording-consent-and-etiquette/) has the wording we suggest.
 - **Two accounts to set up.** A transcription key and a signed-in CLI, before the first recommendation.
 - **Apple Silicon Macs on macOS 13 or newer.** Intel builds are possible from source but unsupported. No Windows, no Linux, no mobile.
-- **Audio still leaves the machine** for transcription, as described above.
+- **Audio leaves your Mac.** Your transcription provider receives it as Savvy captures it.
 
 ## What you give up with a bot
 
-- **Everyone sees it,** and some people change how they talk when a recorder is in the room.
+- **A bot appears in the call.** Some people change how they talk when a recorder joins.
 - **The vendor holds the data.** Retention, training use, and subprocessors are their decisions, and they can change.
 - **It works after the call, not during it.** Most bots produce a summary once the meeting ends. If the value you want is knowing what to say while the other side is still talking, a post-call summary does not give you that.
 - **It cannot read your files.** A bot knows what was said in the meeting. It does not know that your pricing sheet says the discount needs approval.

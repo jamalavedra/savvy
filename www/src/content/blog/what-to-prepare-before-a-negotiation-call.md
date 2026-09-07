@@ -9,7 +9,7 @@ The best preparation for a negotiation call is a one-page brief you can glance a
 
 ## Why one page
 
-During a call you have seconds, not minutes. If a fact lives in a 40-page proposal you will not find it in time. The brief is where the facts you might need are already pulled out, with a note on which document they came from, so that when the question arrives you have an answer and a source.
+During a call you have seconds, not minutes. If a fact lives in a 40-page proposal you will not find it in time. Pull the facts you might need into the brief. Note which document each came from so you can check it during the call.
 
 Write it the day before, when you have time to check the documents. Then read it once before the call starts.
 
@@ -21,7 +21,7 @@ One sentence. What does a good outcome look like when you hang up? "Renew at the
 
 ### Our position and their position
 
-Two short paragraphs. Yours: what you are proposing and why it is reasonable. Theirs: what they have said or signalled they want, and the pressure behind it. Writing their position down forces you to take it seriously before the call instead of discovering it during.
+Two short paragraphs. Write what you propose and why. Then write what they want and the pressure behind it. Writing their position down forces you to take it seriously before the call instead of discovering it during.
 
 ### Priorities, in order
 
@@ -29,7 +29,7 @@ Three to five items, ranked. When a trade-off comes up mid-call, this list is ho
 
 ### Agenda
 
-The sections you expect the conversation to move through, each with a one-line objective and two or three talking points. Savvy uses the keywords in each section to follow which part of the meeting you are in, so it can weigh the right part of the brief.
+The sections you expect the conversation to move through, each with a one-line objective and two or three talking points. Savvy uses each section's keywords to track the agenda and weigh that part of the brief.
 
 ### Desired outcomes
 
@@ -49,11 +49,11 @@ What you can give, on what condition, and whether it needs approval. "Extend pay
 
 ### Red lines
 
-Things that end the deal if crossed. Minimum price, latest start date, exclusivity you cannot grant. Keep these few and real. A red line you would actually cross is not a red line.
+Things that end the deal if crossed. Minimum price, latest start date, exclusivity you cannot grant. Keep these few and real. A red line you would cross is not a red line.
 
 ### Prohibited claims
 
-Statements you must not make, usually because they are untrue, unverified, or a legal exposure. "Do not claim SOC 2 certification is complete." "Do not quote a delivery date before Q3." These are easy to blurt under pressure, which is exactly why they are written down.
+Statements you must not make, usually because they are untrue, unverified, or a legal exposure. "Do not claim SOC 2 certification is complete." "Do not quote a delivery date before Q3." These are easy to blurt under pressure, so write them down.
 
 ### Unauthorised commitments
 
@@ -67,7 +67,7 @@ What could go wrong in the call, and what you plan to do if it does. They bring 
 
 If you keep the brief in Savvy instead of on paper, the same fields do more work.
 
-The brief is versioned, and the version you approve is the one used in the meeting. The whole document goes to your recommendation model with each request, alongside up to six excerpts from your source documents and the recent transcript, so a card can quote the brief and the file it came from. The [privacy section](/#privacy) shows exactly what leaves your Mac.
+Savvy versions the brief and uses the version you approve for the meeting. Savvy sends the whole brief, up to six source excerpts and recent transcript turns to your model provider with each request. A card can quote the brief and its sources. The [privacy section](/#privacy) shows exactly what leaves your Mac.
 
 Red lines, prohibited claims and unauthorised commitments become hard constraints. When any speaker's turn matches one, Savvy shows a red-line card immediately, before the model has even answered, with the constraint as the line to avoid. Hard constraints override the brief, and the brief overrides any general guidelines you have loaded.
 
@@ -87,4 +87,4 @@ Before you dial in:
 6. Red lines, prohibited claims and unauthorised commitments are few and specific.
 7. You have read the whole thing once, today.
 
-That is the preparation. The call itself is a different skill, but a call that starts from this page goes better than one that starts from memory. If you want to see how the brief is used live, the [features section](/#features) shows the panel with a real card, and [How Savvy decides when to speak](/blog/when-savvy-speaks-up/) explains the rules behind it.
+That is the preparation. The call itself is a different skill, but a call that starts from this page goes better than one that starts from memory. The [features section](/#features) shows the panel with a real card, and [How Savvy decides when to speak](/blog/when-savvy-speaks-up/) explains the rules behind it.

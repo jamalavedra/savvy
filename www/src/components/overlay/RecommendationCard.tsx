@@ -1,9 +1,5 @@
 import type { CSSProperties } from "react";
-import { PauseIcon, XIcon } from "@/components/overlay/pieces";
-
-// The Say / Avoid card, as rendered by RecommendationPreview in the app.
-// CARD_TITLES there: question → Answer, risk → Red line, manual → Advice,
-// opportunity → Savvy noticed.
+import { PauseIcon } from "@/components/overlay/pieces";
 
 export type Rec = {
   title: "Answer" | "Red line" | "Advice" | "Savvy noticed";
@@ -17,13 +13,10 @@ export type Rec = {
 
 export function RecommendationCard({
   rec,
-  autoDismiss = false,
   lifetime = "12s",
   className = "",
 }: {
   rec: Rec;
-  /** Shows the expiry progress behind "Keep", like a fresh card in the app. */
-  autoDismiss?: boolean;
   lifetime?: string;
   className?: string;
 }) {
@@ -34,12 +27,12 @@ export function RecommendationCard({
           <i /> {rec.title}
         </span>
         <span
-          className={`recommendation-dismiss ${autoDismiss ? "auto-dismiss" : ""}`}
+          className="recommendation-dismiss auto-dismiss"
           style={{ "--recommendation-lifetime": lifetime } as CSSProperties}
           aria-hidden="true"
         >
-          <span>{autoDismiss ? "Keep" : "Dismiss"}</span>
-          {autoDismiss ? <PauseIcon /> : <XIcon />}
+          <span>Keep</span>
+          <PauseIcon />
         </span>
       </div>
       <div className="say-block">

@@ -18,7 +18,7 @@ export default function PrivacyPolicy() {
         Back to Savvy
       </a>
       <h1 className="mt-8 text-4xl font-medium tracking-tight">Privacy policy</h1>
-      <p className="text-muted">Last updated: 6 September 2026</p>
+      <p className="text-muted">Last updated 6 September 2026</p>
 
       <h2>Who is responsible</h2>
       <p>
@@ -58,8 +58,8 @@ export default function PrivacyPolicy() {
       </p>
       <p>
         Umami's tracking script does not use cookies. Umami processes IP addresses and browser
-        information to derive location and generate session identifiers. Raw IP addresses are not
-        stored in Umami's analytics records, but generating session identifiers still involves
+        information to derive location and generate session identifiers. Umami does not store raw IP
+        addresses in its analytics records, but generating session identifiers still involves
         processing connection information. Hosting infrastructure can process connection data
         separately.
       </p>
@@ -71,9 +71,9 @@ export default function PrivacyPolicy() {
       <p>
         We rely on consent for optional analytics. It stays off until you choose Allow analytics.
         Use the Privacy preferences control on any page to reject analytics or withdraw your
-        consent. Your choice applies to this browser and is stored locally for up to one year.
-        Clearing browser storage removes it. Withdrawing consent stops future collection; it does
-        not undo earlier lawful processing or automatically delete existing records.
+        consent. This browser stores your choice locally for up to one year. Clearing browser
+        storage removes it. Withdrawing consent stops future collection; it does not undo earlier
+        lawful processing or automatically delete existing records.
       </p>
       <p>
         We do not run advertising trackers or sell your personal information. Our self-hosted
@@ -83,30 +83,30 @@ export default function PrivacyPolicy() {
         including standard contractual clauses. Contact us for information about those safeguards.
       </p>
 
-      <h2>How long information is kept</h2>
+      <h2>How long we keep information</h2>
       <p>
         We retain analytics while it remains useful for website reporting and improvement. Analytics
-        records have no fixed automatic expiry and remain until manually deleted. Our hosting
-        providers handle connection and security records according to their applicable service terms
-        and policies. The desktop app has a separate local retention rule, explained below.
+        records have no fixed expiry. We delete them manually. Our hosting providers handle
+        connection and security records according to their applicable service terms and policies.
+        The desktop app has a separate local retention rule, explained below.
       </p>
 
       <h2>Desktop app and your providers</h2>
       <p>
         The current desktop app reads source files from folders you choose and stores extracted
         text, indexes, briefs, recordings, and transcripts on your Mac. It leaves the source files
-        unchanged. Local recordings and transcripts older than 30 days are removed when the app
-        starts. This startup cleanup does not delete copies held by providers or backups.
+        unchanged. At startup, Savvy deletes local recordings and transcripts older than 30 days.
+        This startup cleanup does not delete copies held by providers or backups.
       </p>
       <p>
-        During transcription, audio is sent to the Deepgram or AssemblyAI account you configure. AI
-        tasks send selected document excerpts, briefs, and relevant conversation context to the
-        provider used by your signed-in Codex or Claude Code CLI. These services process information
-        under your account and their own terms. Review those terms and settings before using
-        confidential material or recording other people.
+        Savvy streams audio to your Deepgram or AssemblyAI account for transcription. There is no
+        offline transcription mode. For recommendations, Savvy sends selected document excerpts, the
+        whole brief, and recent transcript turns to your signed-in Codex or Claude Code CLI's
+        provider. These services process information under your account and their own terms. Review
+        those terms and settings before using confidential material or recording other people.
       </p>
       <p>
-        Transcription API keys are stored in macOS Keychain. The website's analytics service does
+        Savvy stores transcription API keys in macOS Keychain. The website's analytics service does
         not receive these keys. Removing a client in the app removes its derived local data without
         deleting the original source folder.
       </p>
@@ -115,15 +115,15 @@ export default function PrivacyPolicy() {
       <p>
         If you contact us, we process the information you send to respond to your request. Our legal
         basis is our legitimate interest in responding to enquiries, or compliance with a legal
-        obligation when handling data-protection requests. Correspondence is held in our business
+        obligation when handling data-protection requests. We keep correspondence in our business
         mailbox. If an enquiry does not lead to an engagement, we retain it for up to 24 months
         after the last contact. We keep client correspondence for the engagement and afterward as
         needed to meet legal and accounting obligations.
       </p>
       <p>
-        Downloads, source code, and issue reports are hosted on GitHub. If you follow those links,
-        GitHub processes your visit under its own privacy notice. Issues in the public repository
-        are public, so do not include personal information, recordings, API keys, or confidential
+        GitHub hosts downloads, source code, and issue reports. If you follow those links, GitHub
+        processes your visit under its own privacy notice. Issues in the public repository are
+        public, so do not include personal information, recordings, API keys, or confidential
         documents in an issue.
       </p>
 
@@ -147,8 +147,8 @@ export default function PrivacyPolicy() {
 
       <h2>Changes to this notice</h2>
       <p>
-        We will update this page when our processing changes and show the effective date here.
-        Material changes will be explained before the new processing begins.
+        We will update this page when our processing changes and show the effective date here. We
+        will explain material changes before the new processing begins.
       </p>
     </main>
   );

@@ -63,7 +63,7 @@ export default function OpenGraphImage() {
         style={{
           display: "flex",
           // The mascot art is a bust cropped at the frame edge, so it is bottom-aligned
-          // and clipped by the circle — otherwise the flat cut shows against the pink.
+          // and clipped by the circle. Otherwise the flat cut shows against the pink.
           alignItems: "flex-end",
           justifyContent: "center",
           flexShrink: 0,

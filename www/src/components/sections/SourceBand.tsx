@@ -1,4 +1,6 @@
-import { type BandPod, PodBand } from "@/components/sections/PodBand";
+import type { CSSProperties } from "react";
+import { FadeInUp } from "@/components/animations/FadeInUp";
+import { Eyebrow, TwoLineHeading } from "@/components/sections/primitives";
 
 type Pod = {
   key: string;
@@ -7,9 +9,9 @@ type Pod = {
   source: string;
   grounded: number;
   className: string;
-  orbit: BandPod["orbit"];
+  orbit: { r: number; dur: number; delay: number; reverse?: boolean };
   tilt: number;
-  layer: BandPod["layer"];
+  layer: "front" | "back";
 };
 
 const PODS: Pod[] = [
@@ -137,7 +139,6 @@ const TONE: Record<Pod["title"], string> = {
   "Savvy noticed": "bg-warning",
 };
 
-/** Compact recommendation: title, one short Say line, the cited file. */
 function PodCard({ title, say, source, grounded }: Pod) {
   return (
     <div className="w-48 px-3.5 py-3 md:w-56">
@@ -160,24 +161,67 @@ function PodCard({ title, say, source, grounded }: Pod) {
   );
 }
 
-const BAND_PODS: BandPod[] = PODS.map((pod) => ({
-  key: pod.key,
-  className: pod.className,
-  orbit: pod.orbit,
-  tilt: pod.tilt,
-  layer: pod.layer,
-  card: <PodCard {...pod} />,
-}));
-
 export function SourceBand() {
   return (
-    <PodBand
-      eyebrow="Grounded"
-      line1="See the supporting source"
-      line2="Documents, brief, and conversation"
-      pods={BAND_PODS}
-      stat="Check the source."
-      caption="Suggestions include supporting context from your documents, brief, or conversation. Review it before acting."
-    />
+    <section className="pt-20 lg:pt-28">
+      <div className="page-column">
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+          <FadeInUp>
+            <Eyebrow>Grounded</Eyebrow>
+          </FadeInUp>
+          <FadeInUp delay={0.05}>
+            <TwoLineHeading
+              className="lg:max-w-xl lg:text-right"
+              line1="See the supporting source"
+              line2="Documents, brief, and conversation"
+            />
+          </FadeInUp>
+        </div>
+      </div>
+
+      <FadeInUp delay={0.1}>
+        <div className="page-column">
+          <div className="relative mt-14 overflow-hidden bg-background-alt text-foreground">
+            {PODS.map((pod) => (
+              <div
+                key={pod.key}
+                className={`absolute ${
+                  pod.layer === "front" ? "z-20" : "z-0 blur-[2px] md:blur-[3px]"
+                } ${pod.className}`}
+              >
+                <div
+                  className={`pod-orbit ${pod.orbit.reverse ? "pod-orbit-reverse" : ""}`}
+                  style={
+                    {
+                      "--pod-r": `${pod.orbit.r}px`,
+                      "--pod-dur": `${pod.orbit.dur}s`,
+                      animationDelay: `${pod.orbit.delay}s`,
+                    } as CSSProperties
+                  }
+                >
+                  <div
+                    className={`bg-surface/80 shadow-sm backdrop-blur-sm ${
+                      pod.layer === "back" ? "opacity-80" : ""
+                    }`}
+                    style={{ transform: `rotate(${pod.tilt}deg)` }}
+                  >
+                    <PodCard {...pod} />
+                  </div>
+                </div>
+              </div>
+            ))}
+
+            <div className="relative z-10 px-6 py-32 text-center backdrop-blur-[3px] lg:py-44">
+              <p className="text-5xl font-medium tracking-tighter sm:text-6xl lg:text-7xl">
+                Check the source.
+              </p>
+              <p className="mx-auto mt-4 max-w-md text-sm text-balance text-muted">
+                Cards cite your documents, brief, or conversation. Review the source before acting.
+              </p>
+            </div>
+          </div>
+        </div>
+      </FadeInUp>
+    </section>
   );
 }

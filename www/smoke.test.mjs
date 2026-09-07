@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { access, readFile } from "node:fs/promises";
 import { test } from "node:test";
+import { getAllPosts } from "./src/lib/blog.ts";
 import { CONSENT_YEAR, readConsent } from "./src/lib/consent.ts";
+import { SITE_URL } from "./src/lib/constants.ts";
 
 test("static export has metadata, FAQ answers and referenced assets", async () => {
   const html = await readFile("out/index.html", "utf8");
@@ -48,4 +50,31 @@ test("privacy notice is linked and analytics is absent from initial HTML", async
   assert.match(privacy, /Alamas Labs, Inc\./);
   assert.match(privacy, /mailto:hello@savvycopilot\.com/);
   assert.doesNotMatch(privacy, /Draft for review|\[Confirm|\[public privacy/);
+});
+
+test("static export includes the blog and generated llms.txt", async () => {
+  const posts = getAllPosts();
+  assert.equal(posts.length, 5);
+  const llms = await readFile("out/llms.txt", "utf8");
+  const sitemap = await readFile("out/sitemap.xml", "utf8");
+  await access("out/blog/index.html");
+  for (const post of posts) {
+    await access(`out/blog/${post.slug}/index.html`);
+    const url = `${SITE_URL}/blog/${post.slug}/`;
+    assert.ok(llms.includes(`[${post.title}](${url})`));
+    assert.ok(sitemap.includes(url));
+  }
+  for (const caveat of [
+    "macOS 13+",
+    "Apple Silicon",
+    "no hidden mode",
+    "no offline transcription",
+    "30 days",
+    "startup",
+    "whole brief",
+    "recent relevant transcript turns",
+    "mip_opt_out=true",
+  ]) {
+    assert.ok(llms.includes(caveat), `Missing caveat: ${caveat}`);
+  }
 });

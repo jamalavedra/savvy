@@ -1,11 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-// Posts are Markdown files in src/content/blog with a small frontmatter block.
-// Read at build time only: the site is a static export, so nothing here runs
-// in the browser.
-
-export type Post = {
+type Post = {
   slug: string;
   title: string;
   description: string;
@@ -48,7 +44,6 @@ function parsePost(file: string): Post {
   };
 }
 
-/** Every post, newest first. */
 export function getAllPosts(): Post[] {
   return fs
     .readdirSync(POSTS_DIR)
