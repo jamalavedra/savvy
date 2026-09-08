@@ -5799,8 +5799,12 @@ mod tests {
             guidance_folder: Some(root.to_string_lossy().into_owned()),
             ..AppSettings::default()
         });
-        assert!(brief.document_content.contains("raw/client.md"));
-        assert!(brief.document_content.contains("locator"));
+        let content: serde_json::Value = serde_json::from_str(&brief.document_content).unwrap();
+        assert_eq!(
+            serde_json::from_value::<PathBuf>(content[0]["relativePath"].clone()).unwrap(),
+            Path::new("raw/client.md")
+        );
+        assert!(content[0]["locator"].is_object());
         fs::remove_dir_all(root).expect("remove test folder");
     }
 
