@@ -88,7 +88,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Import Apple Developer certificate
-        if: inputs.sign-binaries
+        if: inputs.sign-binaries && runner.os == 'macOS'
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -107,7 +107,7 @@ jobs:
       # is valid. Fail loudly here rather than let tauri-action sign with whatever
       # else happens to be in the keychain.
       - name: Verify certificate
-        if: inputs.sign-binaries
+        if: inputs.sign-binaries && runner.os == 'macOS'
         run: |
           set -euo pipefail
           CERT_ID=$(security find-identity -v -p codesigning build.keychain \
@@ -127,12 +127,12 @@ jobs:
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # action-v1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APPLE_ID: ${{ inputs.sign-binaries && secrets.APPLE_ID || '' }}
-          APPLE_PASSWORD: ${{ inputs.sign-binaries && secrets.APPLE_PASSWORD || '' }}
-          APPLE_TEAM_ID: ${{ inputs.sign-binaries && secrets.APPLE_TEAM_ID || '' }}
-          APPLE_CERTIFICATE: ${{ inputs.sign-binaries && secrets.APPLE_CERTIFICATE || '' }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ inputs.sign-binaries && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
-          APPLE_SIGNING_IDENTITY: ${{ inputs.sign-binaries && env.CERT_ID || '' }}
+          APPLE_ID: ${{ inputs.sign-binaries && runner.os == 'macOS' && secrets.APPLE_ID || '' }}
+          APPLE_PASSWORD: ${{ inputs.sign-binaries && runner.os == 'macOS' && secrets.APPLE_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ inputs.sign-binaries && runner.os == 'macOS' && secrets.APPLE_TEAM_ID || '' }}
+          APPLE_CERTIFICATE: ${{ inputs.sign-binaries && runner.os == 'macOS' && secrets.APPLE_CERTIFICATE || '' }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ inputs.sign-binaries && runner.os == 'macOS' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+          APPLE_SIGNING_IDENTITY: ${{ inputs.sign-binaries && runner.os == 'macOS' && env.CERT_ID || '' }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ inputs.sign-binaries && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ inputs.sign-binaries && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
         with:
@@ -145,7 +145,7 @@ jobs:
       # stapled app opens offline. tauri-action staples during the build; this
       # asserts it rather than trusting it.
       - name: Verify signature and notarization
-        if: inputs.sign-binaries
+        if: inputs.sign-binaries && runner.os == 'macOS'
         env:
           TARGET: ${{ inputs.target }}
         run: |
@@ -162,4 +162,5 @@ jobs:
           path: |
             target/${{ inputs.target }}/release/bundle/dmg/*.dmg
             target/${{ inputs.target }}/release/bundle/macos/*.app.tar.gz*
+            target/${{ inputs.target }}/release/bundle/nsis/*.exe*
           if-no-files-found: error

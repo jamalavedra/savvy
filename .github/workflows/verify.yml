@@ -15,11 +15,11 @@ permissions:
 
 jobs:
   verify:
-    # macOS runner, not ubuntu. The workspace does compile elsewhere — the
-    # cross-platform-check job below proves it — but everything worth testing
-    # (capture, Keychain, overlay, tray) is behind cfg(target_os = "macos") and
-    # would be compiled out.
-    runs-on: macos-26
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [macos-26, windows-2025]
+    runs-on: ${{ matrix.platform }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -56,9 +56,20 @@ jobs:
       - name: Check dependencies
         run: cargo deny check
 
-  # Savvy only ships for macOS, but the non-macOS code paths are all `cfg`-gated
-  # stubs that nothing compiles locally — they rot silently. These jobs only run
-  # `cargo check`; they do not assert the app is usable on these platforms.
+      - name: Build Windows preview installer
+        if: runner.os == 'Windows'
+        shell: bash
+        run: pnpm tauri build --target x86_64-pc-windows-msvc --bundles nsis --config '{"bundle":{"createUpdaterArtifacts":false}}'
+
+      - name: Upload Windows preview installer
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: savvy-windows-x64-preview
+          path: target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+          if-no-files-found: error
+
+  # Linux remains compile-only; its native meeting integrations are not enabled.
   cross-platform-check:
     strategy:
       fail-fast: false
@@ -66,8 +77,6 @@ jobs:
         include:
           - platform: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
-          - platform: windows-latest
-            target: x86_64-pc-windows-msvc
     runs-on: ${{ matrix.platform }}
     steps:
       - name: Checkout repository

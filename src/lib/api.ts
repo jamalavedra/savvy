@@ -186,6 +186,7 @@ const browserSettings: AppSettings = {
   selectedChannel: null,
   audioFeedback: false,
   selectedOutputDevice: null,
+  selectedSystemOutputDevice: null,
   audioFeedbackVolume: 0.5,
   recommendationProvider: "codex",
   codexModel: "gpt-5.6-sol",

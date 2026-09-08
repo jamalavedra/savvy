@@ -51,15 +51,16 @@ jobs:
     needs: create-release
     strategy:
       fail-fast: false
+      # Serialize uploads so both platforms remain in the shared latest.json.
+      max-parallel: 1
       matrix:
         include:
-          # Apple Silicon only. Linux and Windows compile, but every capture path
-          # is cfg-gated to macOS, so a build for them would launch an app that
-          # records nothing. Add an x86_64-apple-darwin entry on macos-latest when
-          # an Intel user asks.
           - platform: "macos-26"
             args: "--target aarch64-apple-darwin"
             target: "aarch64-apple-darwin"
+          - platform: "windows-2025"
+            args: "--target x86_64-pc-windows-msvc --bundles nsis"
+            target: "x86_64-pc-windows-msvc"
 
     uses: ./.github/workflows/build.yml
     with:

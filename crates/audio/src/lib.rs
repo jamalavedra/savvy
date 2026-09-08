@@ -17,6 +17,11 @@ use std::{
 };
 use thiserror::Error;
 
+#[cfg(target_os = "windows")]
+mod windows;
+#[cfg(target_os = "windows")]
+pub use windows::SystemAudioCapture;
+
 #[cfg(target_os = "macos")]
 use screencapturekit::prelude::*;
 
@@ -896,6 +901,7 @@ mod tests {
         assert_eq!(reader.spec().sample_rate, 16_000);
         assert_eq!(reader.len(), 3);
         assert!(!path.with_extension("wav.part").exists());
+        drop(reader);
         fs::remove_file(path).expect("remove recording");
     }
 }
