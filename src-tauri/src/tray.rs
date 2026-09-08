@@ -18,12 +18,12 @@ pub fn setup(app: &mut App, visible: bool) -> tauri::Result<()> {
     let start = MenuItem::with_id(
         app,
         "start-listening",
-        "Start listening · ⌘⇧M",
+        "Start listening",
         true,
         None::<&str>,
     )?;
     let open = MenuItem::with_id(app, "open", "Open Savvy", true, None::<&str>)?;
-    let settings = MenuItem::with_id(app, "settings", "Settings…", true, Some("Cmd+,"))?;
+    let settings = MenuItem::with_id(app, "settings", "Settings…", true, Some("CmdOrCtrl+,"))?;
     let check_updates = MenuItem::with_id(
         app,
         "check-updates",
@@ -31,7 +31,7 @@ pub fn setup(app: &mut App, visible: bool) -> tauri::Result<()> {
         true,
         None::<&str>,
     )?;
-    let quit = MenuItem::with_id(app, "quit", "Quit Savvy", true, Some("Cmd+Q"))?;
+    let quit = MenuItem::with_id(app, "quit", "Quit Savvy", true, Some("CmdOrCtrl+Q"))?;
     let separator_1 = PredefinedMenuItem::separator(app)?;
     let separator_2 = PredefinedMenuItem::separator(app)?;
     let separator_3 = PredefinedMenuItem::separator(app)?;
@@ -53,7 +53,7 @@ pub fn setup(app: &mut App, visible: bool) -> tauri::Result<()> {
 
     let tray = TrayIconBuilder::with_id("savvy")
         .icon(icon)
-        .icon_as_template(true)
+        .icon_as_template(cfg!(target_os = "macos"))
         .tooltip("Savvy — ready to listen")
         .menu(&menu)
         .show_menu_on_left_click(true)
@@ -82,6 +82,19 @@ pub fn setup(app: &mut App, visible: bool) -> tauri::Result<()> {
         let window_to_hide = window.clone();
         window.on_window_event(move |event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
+                #[cfg(target_os = "windows")]
+                if !window_to_hide
+                    .app_handle()
+                    .state::<crate::AppState>()
+                    .settings
+                    .lock()
+                    .map(|settings| settings.show_tray_icon)
+                    .unwrap_or(true)
+                {
+                    api.prevent_close();
+                    crate::quit(window_to_hide.app_handle());
+                    return;
+                }
                 api.prevent_close();
                 let _ = window_to_hide.hide();
             }
@@ -92,7 +105,7 @@ pub fn setup(app: &mut App, visible: bool) -> tauri::Result<()> {
 
 pub(crate) fn set_visible(app: &AppHandle, visible: bool) -> Result<(), String> {
     app.tray_by_id("savvy")
-        .ok_or_else(|| "Savvy menu bar icon is unavailable".to_owned())?
+        .ok_or_else(|| "Savvy tray icon is unavailable".to_owned())?
         .set_visible(visible)
         .map_err(|error| error.to_string())
 }
@@ -105,12 +118,19 @@ pub(crate) fn show_main_window(app: &AppHandle) {
 }
 
 pub(crate) fn update_shortcut_label(app: &AppHandle, shortcut: &str) {
-    let label = shortcut
-        .replace("Command", "⌘")
-        .replace("Control", "⌃")
-        .replace("Option", "⌥")
-        .replace("Shift", "⇧")
-        .replace('+', "");
+    let label = if cfg!(target_os = "windows") {
+        shortcut
+            .replace("Command", "Win")
+            .replace("Control", "Ctrl")
+            .replace("Option", "Alt")
+    } else {
+        shortcut
+            .replace("Command", "⌘")
+            .replace("Control", "⌃")
+            .replace("Option", "⌥")
+            .replace("Shift", "⇧")
+            .replace('+', "")
+    };
     let _ = app
         .state::<StartMenuItem>()
         .0
