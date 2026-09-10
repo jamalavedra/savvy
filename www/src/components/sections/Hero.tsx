@@ -86,61 +86,41 @@ function CallStage({ children }: { children: React.ReactNode }) {
   );
 }
 
-/**
- * The margin note: two handwritten lines and an arrow back to the call. It
- * hangs in the gutter beside the frame from xl, where the content column
- * leaves room for it, and sits under the frame below that — so each direction
- * gets its own path rather than a rotated one (rotation clips inside the
- * viewBox).
- */
-const NOTE = ["Reads your files first.", "Then whispers, mid-call."];
-
-const sketch = {
-  fill: "none",
-  stroke: "currentColor",
-  strokeWidth: 1.5,
-  strokeLinecap: "round",
-  strokeLinejoin: "round",
-} as const;
-
-function MarginNote({ side }: { side: "right" | "below" }) {
-  const lines = (
-    <p className="font-hand text-[20px] leading-[1.25] text-muted">
-      {NOTE[0]}
-      <br />
-      {NOTE[1]}
-    </p>
-  );
-
-  if (side === "below") {
-    return (
-      <div className="mx-auto mt-8 max-w-xs text-center xl:hidden">
-        <svg
-          className="hr-arrow mx-auto h-12 w-14 text-muted"
-          viewBox="0 0 56 48"
-          aria-hidden="true"
-          {...sketch}
-        >
-          <path d="M17 45c11-3 17-13 17-27 0-4-.5-8-1-12" />
-          <path d="M26 9 33 2l7 8" />
-        </svg>
-        {lines}
-      </div>
-    );
-  }
-
+// Keep the note below the frame until the right gutter can fit it.
+function MarginNote() {
   return (
-    <div className="pointer-events-none absolute left-full top-8 hidden w-[210px] pl-4 xl:block">
+    <div className="mx-auto mt-8 max-w-xs text-center min-[1360px]:absolute min-[1360px]:left-full min-[1360px]:top-8 min-[1360px]:mt-0 min-[1360px]:w-[210px] min-[1360px]:pl-4 min-[1360px]:text-left">
       <svg
-        className="hr-arrow h-14 w-24 text-muted"
+        className="hr-arrow mx-auto h-12 w-14 text-muted min-[1360px]:hidden"
+        viewBox="0 0 56 48"
+        aria-hidden="true"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M17 45c11-3 17-13 17-27 0-4-.5-8-1-12" />
+        <path d="M26 9 33 2l7 8" />
+      </svg>
+      <svg
+        className="hr-arrow hidden h-14 w-24 text-muted min-[1360px]:block"
         viewBox="0 0 96 56"
         aria-hidden="true"
-        {...sketch}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
       >
         <path d="M92 4c-2 20-14 33-34 38-9 2-19 3-30 2" />
         <path d="M37 36 27 44l11 7" />
       </svg>
-      <div className="mt-1">{lines}</div>
+      <p className="mt-1 font-hand text-[20px] leading-[1.25] text-muted">
+        Reads your files first.
+        <br />
+        Then suggests what to say.
+      </p>
     </div>
   );
 }
@@ -157,17 +137,13 @@ export function Hero() {
           </h1>
         </FadeInUp>
 
-        {/* The call frame is the hero: centred on the page, with the note
-            hanging in the gutter beside it rather than claiming a column of
-            its own, so the composition stays symmetrical. */}
         <FadeInUp delay={0.1}>
           <div className="relative mx-auto mt-10 w-full max-w-[680px]">
-            <MarginNote side="right" />
             <CallStage>
               <ScriptedOverlay script={HERO_SCRIPT} startElapsed={1483} />
             </CallStage>
+            <MarginNote />
           </div>
-          <MarginNote side="below" />
         </FadeInUp>
 
         <FadeInUp delay={0.2}>

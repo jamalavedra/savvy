@@ -14,7 +14,6 @@ export const jetbrainsMono = JetBrains_Mono({
   display: "swap",
 });
 
-// The one hand-annotation voice: the margin note beside the hero, nothing else.
 export const caveat = Caveat({
   subsets: ["latin"],
   variable: "--font-caveat",

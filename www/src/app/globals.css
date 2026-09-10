@@ -25,7 +25,6 @@
   /* Fonts */
   --font-sans: var(--font-inter);
   --font-mono: var(--font-jetbrains-mono);
-  /* Marketing only: the handwritten margin note beside the hero. */
   --font-hand: var(--font-caveat), ui-rounded, cursive;
 
   /* Easing */

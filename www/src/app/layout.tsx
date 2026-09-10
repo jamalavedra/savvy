@@ -38,12 +38,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    // The font variables live on <html>, not <body>: Tailwind's `@theme`
-    // declares tokens like `--font-hand: var(--font-caveat), …` on :root, and
-    // a var() nested inside a custom property is resolved where that property
-    // is DECLARED. With the faces only on <body>, every such token resolved
-    // against an undefined variable and the utility silently fell back to the
-    // inherited family.
+    // Tailwind resolves font tokens on :root, so the font variables belong on <html>.
     <html lang="en" className={`${inter.variable} ${jetbrainsMono.variable} ${caveat.variable}`}>
       <body>
         {children}
