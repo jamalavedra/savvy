@@ -9,6 +9,8 @@ test("static export has metadata, FAQ answers and referenced assets", async () =
   const html = await readFile("out/index.html", "utf8");
   assert.match(html, /rel="canonical" href="https:\/\/savvycopilot\.com\/"/);
   assert.equal([...html.matchAll(/<details[ >]/g)].length, 8);
+  assert.match(html, /<button[^>]*disabled=""[^>]*>.*?Windows coming soon<\/button>/);
+  assert.equal([...html.matchAll(/Reads your files first\.<br\//g)].length, 1);
   assert.match(html, /<summary[^>]*>Where does my data go\?/);
   for (const [, asset] of html.matchAll(/(?:src|poster)="(\/[^"?]+)"/g)) {
     await access(`out${asset}`);

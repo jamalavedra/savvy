@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { Header } from "@/components/layout/Header";
 import { Wordmark } from "@/components/layout/Wordmark";
-import { DownloadCTA } from "@/components/ui/DownloadCTA";
-import { NAV, REPO_URL } from "@/lib/constants";
+import { DownloadCTA, GitHubCTA } from "@/components/ui/DownloadCTA";
+import { NAV } from "@/lib/constants";
 
 export function Rail({ active = "/" }: { active?: string }) {
   return (
@@ -28,17 +28,10 @@ export function Rail({ active = "/" }: { active?: string }) {
               {item.label}
             </Link>
           ))}
-          <a
-            href={REPO_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-muted transition-colors hover:text-foreground"
-          >
-            GitHub ↗
-          </a>
         </nav>
-        <div className="fixed bottom-8 left-8 z-40">
+        <div className="fixed bottom-8 left-8 z-40 flex flex-col items-start gap-2.5">
           <DownloadCTA size="sm" />
+          <GitHubCTA />
         </div>
       </div>
       <div className="xl:hidden">

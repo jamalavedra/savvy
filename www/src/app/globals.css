@@ -25,6 +25,7 @@
   /* Fonts */
   --font-sans: var(--font-inter);
   --font-mono: var(--font-jetbrains-mono);
+  --font-hand: var(--font-caveat), ui-rounded, cursive;
 
   /* Easing */
   --ease-smooth: cubic-bezier(0.25, 0.1, 0.35, 1);

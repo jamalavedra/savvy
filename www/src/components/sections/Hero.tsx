@@ -1,9 +1,9 @@
 import { FadeInUp } from "@/components/animations/FadeInUp";
 import { ScriptedOverlay } from "@/components/overlay/OverlayCard";
 import { iconProps, MicIcon } from "@/components/overlay/pieces";
-import { DownloadCTA } from "@/components/ui/DownloadCTA";
+import { DownloadCTA, WindowsSoon } from "@/components/ui/DownloadCTA";
 import { HERO_SCRIPT } from "@/content/scripts";
-import { REPO_URL, REQUIREMENTS } from "@/lib/constants";
+import { REQUIREMENTS } from "@/lib/constants";
 import "./hero.css";
 
 // Footage: Mixkit clip 10457, Mixkit License, re-encoded as a loop.
@@ -86,39 +86,42 @@ function CallStage({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** Hand-drawn arrows from the note to the panel: it sits beside the call on
- *  wide screens and under it on narrow ones, so each direction gets its own
- *  path rather than a rotated one (rotation clips inside the viewBox). */
-function Arrow() {
+// Keep the note below the frame until the right gutter can fit it.
+function MarginNote() {
   return (
-    <>
+    <div className="mx-auto mt-8 max-w-xs text-center min-[1360px]:absolute min-[1360px]:left-full min-[1360px]:top-8 min-[1360px]:mt-0 min-[1360px]:w-[210px] min-[1360px]:pl-4 min-[1360px]:text-left">
       <svg
-        className="hr-arrow mx-auto h-16 w-16 text-muted lg:hidden"
-        viewBox="0 0 64 64"
+        className="hr-arrow mx-auto h-12 w-14 text-muted min-[1360px]:hidden"
+        viewBox="0 0 56 48"
+        aria-hidden="true"
         fill="none"
         stroke="currentColor"
-        strokeWidth="1.6"
+        strokeWidth="1.5"
         strokeLinecap="round"
         strokeLinejoin="round"
-        aria-hidden="true"
       >
-        <path d="M20 58c14-4 21-14 22-30 0-6-1-12-2-18" />
-        <path d="M32 16 40 8l8 9" />
+        <path d="M17 45c11-3 17-13 17-27 0-4-.5-8-1-12" />
+        <path d="M26 9 33 2l7 8" />
       </svg>
       <svg
-        className="hr-arrow hidden text-muted lg:block lg:h-20 lg:w-24"
-        viewBox="0 0 96 80"
+        className="hr-arrow hidden h-14 w-24 text-muted min-[1360px]:block"
+        viewBox="0 0 96 56"
+        aria-hidden="true"
         fill="none"
         stroke="currentColor"
-        strokeWidth="1.6"
+        strokeWidth="1.5"
         strokeLinecap="round"
         strokeLinejoin="round"
-        aria-hidden="true"
       >
-        <path d="M86 6c4 26-6 44-30 52-10 3-21 4-33 3" />
-        <path d="M31 51 23 61l12 6" />
+        <path d="M92 4c-2 20-14 33-34 38-9 2-19 3-30 2" />
+        <path d="M37 36 27 44l11 7" />
       </svg>
-    </>
+      <p className="mt-1 font-hand text-[20px] leading-[1.25] text-muted">
+        Reads your files first.
+        <br />
+        Then suggests what to say.
+      </p>
+    </div>
   );
 }
 
@@ -135,50 +138,25 @@ export function Hero() {
         </FadeInUp>
 
         <FadeInUp delay={0.1}>
-          <div className="mt-10 flex flex-col items-center gap-6 lg:flex-row lg:items-center lg:gap-8">
-            <div className="w-full min-w-0 lg:flex-1">
-              <CallStage>
-                <ScriptedOverlay script={HERO_SCRIPT} startElapsed={1483} />
-              </CallStage>
-            </div>
-
-            <div className="max-w-sm shrink-0 text-center lg:w-60 lg:text-left xl:w-64">
-              <Arrow />
-              <p className="mt-1 text-sm leading-relaxed text-muted">
-                Prepare from your documents, then get suggestions during a conversation. Savvy shows
-                what to say, what to avoid, and the supporting source in a small panel on your Mac.
-              </p>
-              <p className="mt-3 text-xs text-muted">
-                Illustrative demo with example documents and guidance.
-              </p>
-            </div>
+          <div className="relative mx-auto mt-10 w-full max-w-[680px]">
+            <CallStage>
+              <ScriptedOverlay script={HERO_SCRIPT} startElapsed={1483} />
+            </CallStage>
+            <MarginNote />
           </div>
         </FadeInUp>
 
         <FadeInUp delay={0.2}>
           <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
             <DownloadCTA />
-            <a
-              href={REPO_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="focus-ring inline-flex items-center gap-2 rounded-full border border-border px-5 py-2.5 text-sm font-semibold transition-colors hover:bg-background-alt"
-            >
-              <GitHubIcon />
-              View on GitHub
-            </a>
+            <WindowsSoon />
           </div>
           <p className="mt-4 text-center font-mono text-[11px] text-muted">{REQUIREMENTS}</p>
+          <p className="mt-2 text-center text-xs text-muted">
+            Illustrative demo with example documents and guidance.
+          </p>
         </FadeInUp>
       </div>
     </section>
-  );
-}
-
-function GitHubIcon({ size = 14 }: { size?: number }) {
-  return (
-    <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
-      <path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.1.79-.25.79-.56v-2.17c-3.2.7-3.87-1.36-3.87-1.36-.52-1.33-1.28-1.68-1.28-1.68-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.19 1.76 1.19 1.03 1.76 2.7 1.25 3.36.96.1-.75.4-1.25.73-1.54-2.55-.29-5.24-1.28-5.24-5.68 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.78 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.24 2.76.12 3.05.74.81 1.19 1.83 1.19 3.09 0 4.41-2.69 5.38-5.25 5.67.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5Z" />
-    </svg>
   );
 }

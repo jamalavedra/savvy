@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Analytics } from "@/components/Analytics";
 import { SITE_URL } from "@/lib/constants";
-import { inter, jetbrainsMono } from "@/lib/fonts";
+import { caveat, inter, jetbrainsMono } from "@/lib/fonts";
 import "./globals.css";
 
 const TITLE = "Savvy | AI guidance from your documents, on your Mac";
@@ -38,8 +38,9 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en">
-      <body className={`${inter.variable} ${jetbrainsMono.variable}`}>
+    // Tailwind resolves font tokens on :root, so the font variables belong on <html>.
+    <html lang="en" className={`${inter.variable} ${jetbrainsMono.variable} ${caveat.variable}`}>
+      <body>
         {children}
         <Analytics />
       </body>
