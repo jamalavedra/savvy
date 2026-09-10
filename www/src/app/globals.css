@@ -17,6 +17,14 @@
   --color-brand-pink-light: #fde1e4;
   --color-brand-pink-deep: #c9636f;
 
+  /* Panel hues. Sticky notes on a desk: each illustrated panel takes one and
+     the vignette inside inherits it (see .panel). Figures never do. */
+  --color-hue-pink: #e8697a;
+  --color-hue-butter: #f5c96b;
+  --color-hue-sage: #8fbf9f;
+  --color-hue-sky: #8fb8e0;
+  --color-hue-lilac: #b9a3d9;
+
   /* Semantic: Say / Avoid */
   --color-success: #368c66;
   --color-warning: #cd8331;
@@ -75,6 +83,26 @@ body {
   filter: drop-shadow(0 2px 0 var(--color-brand-pink-deep));
   paint-order: stroke fill;
   transform: rotate(-1deg);
+}
+
+/* An illustrated panel. Its ground is one sticky-note hue washed over the page
+   paper, and the overlay-scoped vignette inside picks the same hue up through
+   --accent / --tile, so no vignette has to know which panel it sits in.
+   Set --hue on the panel or any ancestor; it falls back to the brand accent. */
+.panel {
+  background: color-mix(in srgb, var(--hue, var(--color-accent)) 20%, var(--color-background-alt));
+}
+
+.panel .sv {
+  --accent: var(--hue, var(--color-accent));
+  --accent-pale: color-mix(in srgb, var(--hue, var(--color-accent)) 22%, transparent);
+  --tile: color-mix(in srgb, var(--hue, var(--color-accent)) 26%, transparent);
+}
+
+/* A panel's numeral, tinted to match it but darkened enough to stay readable
+   against the page. Lives outside .panel, so it reads --hue from the ancestor. */
+.panel-numeral {
+  color: color-mix(in srgb, var(--hue, var(--color-accent)) 65%, var(--color-foreground));
 }
 
 /* Slow circular drift for decorative cards.
