@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 import { FadeInUp } from "@/components/animations/FadeInUp";
-import { Eyebrow, TwoLineHeading } from "@/components/sections/primitives";
+import { Eyebrow, MascotNote, TwoLineHeading } from "@/components/sections/primitives";
 
 type Pod = {
   key: string;
@@ -132,19 +132,22 @@ const DocGlyph = (
   </svg>
 );
 
+// Card type carried as a filled label rather than a 7px dot — at this size the
+// four kinds are told apart across the whole band, not just up close.
 const TONE: Record<Pod["title"], string> = {
-  Answer: "bg-success",
-  "Red line": "bg-danger",
-  Advice: "bg-accent",
-  "Savvy noticed": "bg-warning",
+  Answer: "bg-success/15 text-success",
+  "Red line": "bg-danger/15 text-danger",
+  Advice: "bg-accent/15 text-accent",
+  "Savvy noticed": "bg-warning/15 text-warning",
 };
 
 function PodCard({ title, say, source, grounded }: Pod) {
   return (
     <div className="w-48 px-3.5 py-3 md:w-56">
       <div className="flex items-center gap-2">
-        <span className={`h-[7px] w-[7px] rounded-full ${TONE[title]}`} />
-        <span className="text-[11px] font-bold">{title}</span>
+        <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${TONE[title]}`}>
+          {title}
+        </span>
         <span className="ml-auto shrink-0 font-mono text-[10px] text-muted">{grounded}%</span>
       </div>
       <p className="mt-2 text-[13px] leading-snug tracking-tight">
@@ -181,7 +184,10 @@ export function SourceBand() {
 
       <FadeInUp delay={0.1}>
         <div className="page-column">
-          <div className="relative mt-14 overflow-hidden bg-background-alt text-foreground">
+          <div
+            className="panel relative mt-14 overflow-hidden text-foreground"
+            style={{ "--hue": "var(--color-hue-butter)" } as CSSProperties}
+          >
             {PODS.map((pod) => (
               <div
                 key={pod.key}
@@ -218,6 +224,11 @@ export function SourceBand() {
               <p className="mx-auto mt-4 max-w-md text-sm text-balance text-muted">
                 Cards cite your documents, brief, or conversation. Review the source before acting.
               </p>
+              <MascotNote
+                className="mt-8 justify-center"
+                state="listening"
+                note="It reads before it speaks."
+              />
             </div>
           </div>
         </div>
