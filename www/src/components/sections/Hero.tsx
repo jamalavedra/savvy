@@ -139,6 +139,7 @@ export function Hero() {
 
         <FadeInUp delay={0.1}>
           <div className="relative mx-auto mt-10 w-full max-w-[680px]">
+            <div aria-hidden="true" className="hr-desk" />
             <CallStage>
               <ScriptedOverlay script={HERO_SCRIPT} startElapsed={1483} />
             </CallStage>

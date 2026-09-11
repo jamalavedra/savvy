@@ -5,6 +5,7 @@ import {
   Eyebrow,
   FolderIcon,
   KeyIcon,
+  MascotNote,
   StatList,
   TwoLineHeading,
   WaveIcon,
@@ -113,7 +114,7 @@ const LANES = [
 
 function Diagram() {
   return (
-    <div className="bg-background-alt p-5 sm:p-8">
+    <div className="panel p-5 sm:p-8" style={vars({ "--hue": "var(--color-hue-sky)" })}>
       <div className="relative">
         <div
           aria-hidden="true"
@@ -229,6 +230,7 @@ export function Privacy() {
               { icon: WaveIcon, label: "Audio streams only to your transcription provider" },
             ]}
           />
+          <MascotNote className="mt-8" state="muted" note="Your keys, your providers." />
         </FadeInUp>
 
         <FadeInUp delay={0.1}>

@@ -17,6 +17,12 @@
   --color-brand-pink-light: #fde1e4;
   --color-brand-pink-deep: #c9636f;
 
+  /* Illustration backgrounds */
+  --color-hue-butter: #f5c96b;
+  --color-hue-sage: #8fbf9f;
+  --color-hue-sky: #8fb8e0;
+  --color-hue-lilac: #b9a3d9;
+
   /* Semantic: Say / Avoid */
   --color-success: #368c66;
   --color-warning: #cd8331;
@@ -75,6 +81,17 @@ body {
   filter: drop-shadow(0 2px 0 var(--color-brand-pink-deep));
   paint-order: stroke fill;
   transform: rotate(-1deg);
+}
+
+/* Panels and their illustrations inherit --hue, defaulting to the brand accent. */
+.panel {
+  background: color-mix(in srgb, var(--hue, var(--color-accent)) 20%, var(--color-background-alt));
+}
+
+.panel .sv {
+  --accent: var(--hue, var(--color-accent));
+  --accent-pale: color-mix(in srgb, var(--hue, var(--color-accent)) 22%, transparent);
+  --tile: color-mix(in srgb, var(--hue, var(--color-accent)) 26%, transparent);
 }
 
 /* Slow circular drift for decorative cards.

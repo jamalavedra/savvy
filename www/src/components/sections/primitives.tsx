@@ -1,3 +1,4 @@
+import Image from "next/image";
 import type { ReactNode } from "react";
 
 /** Section hairline, clipped to the content column so it never runs under
@@ -56,6 +57,29 @@ export function StatList({ items }: { items: Stat[] }) {
         </li>
       ))}
     </ul>
+  );
+}
+
+export function MascotNote({
+  state,
+  note,
+  className = "",
+}: {
+  state: "thinking" | "listening" | "muted";
+  note: string;
+  className?: string;
+}) {
+  return (
+    <div className={`flex items-center gap-3 ${className}`}>
+      <Image
+        src={`/images/mascot/savvy-${state}.png`}
+        alt=""
+        width={112}
+        height={112}
+        className="h-14 w-14 shrink-0 select-none"
+      />
+      <p className="font-hand text-[19px] leading-[1.2] text-muted">{note}</p>
+    </div>
   );
 }
 

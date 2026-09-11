@@ -3,6 +3,7 @@ import { ScriptedOverlay } from "@/components/overlay/OverlayCard";
 import {
   Eyebrow,
   FlagIcon,
+  MascotNote,
   MuteIcon,
   QuestionIcon,
   SparkIcon,
@@ -22,10 +23,11 @@ export function Reasons() {
             line1="Quiet by default"
             line2="Speaks up for three reasons"
           />
+          <MascotNote className="mt-8" state="thinking" note="Otherwise, it just listens." />
         </FadeInUp>
 
         <FadeInUp delay={0.1}>
-          <div className="flex min-h-[380px] items-end justify-center bg-background-alt px-4 pb-4 pt-10">
+          <div className="panel flex min-h-[380px] items-end justify-center px-4 pb-4 pt-10">
             <ScriptedOverlay script={REASONS_SCRIPT} startElapsed={2205} />
           </div>
         </FadeInUp>

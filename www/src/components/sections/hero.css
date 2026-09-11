@@ -1,5 +1,21 @@
-/* Hero-only motion. The blinking record dot on the call frame, and the
-   annotation arrow drawing itself in once the section is on screen. */
+/* Keep the background before the frame and margin note in DOM order. */
+.hr-desk {
+  position: absolute;
+  inset: -12% -16% -8%;
+  background:
+    radial-gradient(
+      58% 60% at 18% 34%,
+      color-mix(in srgb, var(--color-accent) 58%, transparent),
+      transparent 72%
+    ),
+    radial-gradient(
+      58% 60% at 84% 66%,
+      color-mix(in srgb, var(--color-hue-butter) 55%, transparent),
+      transparent 72%
+    );
+  filter: blur(40px);
+  pointer-events: none;
+}
 
 @keyframes hr-rec {
   0%,
