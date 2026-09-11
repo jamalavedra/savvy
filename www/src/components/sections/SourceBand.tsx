@@ -132,20 +132,20 @@ const DocGlyph = (
   </svg>
 );
 
-// Card type carried as a filled label rather than a 7px dot — at this size the
-// four kinds are told apart across the whole band, not just up close.
 const TONE: Record<Pod["title"], string> = {
-  Answer: "bg-success/15 text-success",
-  "Red line": "bg-danger/15 text-danger",
-  Advice: "bg-accent/15 text-accent",
-  "Savvy noticed": "bg-warning/15 text-warning",
+  Answer: "bg-success/15",
+  "Red line": "bg-danger/15",
+  Advice: "bg-accent/15",
+  "Savvy noticed": "bg-warning/15",
 };
 
 function PodCard({ title, say, source, grounded }: Pod) {
   return (
     <div className="w-48 px-3.5 py-3 md:w-56">
       <div className="flex items-center gap-2">
-        <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${TONE[title]}`}>
+        <span
+          className={`rounded-full px-2 py-0.5 text-[10px] font-bold text-foreground ${TONE[title]}`}
+        >
           {title}
         </span>
         <span className="ml-auto shrink-0 font-mono text-[10px] text-muted">{grounded}%</span>
@@ -227,7 +227,7 @@ export function SourceBand() {
               <MascotNote
                 className="mt-8 justify-center"
                 state="listening"
-                note="It reads before it speaks."
+                note="Every card names its source."
               />
             </div>
           </div>

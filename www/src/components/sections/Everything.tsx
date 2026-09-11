@@ -26,7 +26,7 @@ function BentoItem({ item, tall }: { item: Item; tall?: boolean }) {
         {item.vignette}
       </div>
       <div className="shrink-0 md:flex md:w-40 md:flex-col md:justify-between lg:w-52">
-        <span className="panel-numeral font-mono text-xs">{String(item.n).padStart(2, "0")}</span>
+        <span className="font-mono text-xs text-foreground">{String(item.n).padStart(2, "0")}</span>
         <div className="mt-2 md:mt-0">
           <h3 className="text-sm font-semibold">{item.title}</h3>
           <p className="mt-1.5 text-sm leading-relaxed text-muted">{item.body}</p>
@@ -69,7 +69,7 @@ const ITEMS = [
     n: 5,
     title: "Advice on demand",
     body: "Press Advice, or the shortcut, for guidance based on your brief and recent conversation.",
-    hue: "var(--color-hue-pink)",
+    hue: "var(--color-accent)",
     vignette: <AdviceVignette />,
   },
   {

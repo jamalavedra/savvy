@@ -60,11 +60,6 @@ export function StatList({ items }: { items: Stat[] }) {
   );
 }
 
-/**
- * The mascot as a margin aside: the cat in one of its three app states, with a
- * handwritten line beside it. Both are decorative — the image carries an empty
- * alt and the note stays short enough to read as a scribble, not as copy.
- */
 export function MascotNote({
   state,
   note,

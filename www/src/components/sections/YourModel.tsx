@@ -11,8 +11,7 @@ import {
 } from "@/components/sections/primitives";
 import "./providers.css";
 
-// Full-precision path. Rounding these coordinates to 1dp collapses the burst
-// into a lopsided blob — the deltas are relative, so the error accumulates.
+// Keep the path precision. Rounding relative coordinates distorts the mark.
 function ClaudeMark() {
   return (
     <svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor" aria-hidden="true">
@@ -114,12 +113,7 @@ export function YourModel() {
         </FadeInUp>
 
         <FadeInUp delay={0.1}>
-          <div
-            className="panel relative overflow-hidden px-4 pb-6"
-            style={{ "--hue": "var(--color-hue-pink)" } as CSSProperties}
-          >
-            {ProvidersVignette}
-          </div>
+          <div className="panel relative overflow-hidden px-4 pb-6">{ProvidersVignette}</div>
         </FadeInUp>
 
         <FadeInUp delay={0.15}>

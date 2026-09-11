@@ -1,16 +1,11 @@
-/* Hero-only paint and motion: the desk the call frame sits on, the blinking
-   record dot, and the annotation arrow drawing itself in once on screen. */
-
-/* Two soft washes under the frame, so the hero rests on warm paper instead of
-   the flat page ground. It is the frame wrapper's first child, which is what
-   puts it behind both the frame and the margin note without a z-index. */
+/* Keep the background before the frame and margin note in DOM order. */
 .hr-desk {
   position: absolute;
   inset: -12% -16% -8%;
   background:
     radial-gradient(
       58% 60% at 18% 34%,
-      color-mix(in srgb, var(--color-hue-pink) 58%, transparent),
+      color-mix(in srgb, var(--color-accent) 58%, transparent),
       transparent 72%
     ),
     radial-gradient(
