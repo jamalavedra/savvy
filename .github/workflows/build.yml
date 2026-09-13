@@ -28,26 +28,15 @@ on:
         required: false
         type: boolean
         default: false
-    secrets:
-      APPLE_CERTIFICATE:
-        required: false
-      APPLE_CERTIFICATE_PASSWORD:
-        required: false
-      APPLE_ID:
-        required: false
-      APPLE_PASSWORD:
-        required: false
-      APPLE_TEAM_ID:
-        required: false
-      KEYCHAIN_PASSWORD:
-        required: false
-      TAURI_SIGNING_PRIVATE_KEY:
-        required: false
-      TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
-        required: false
+
+permissions:
+  contents: read
 
 jobs:
   build:
+    # Signing credentials belong to this protected environment, not to callers.
+    if: github.repository == 'jamalavedra/savvy' && github.ref == 'refs/heads/main'
+    environment: release-signing
     permissions:
       contents: write
     runs-on: ${{ inputs.platform }}
@@ -56,6 +45,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          ref: ${{ github.sha }}
 
       - name: Get version from tauri.conf.json
         id: get-version
