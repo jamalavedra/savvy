@@ -135,6 +135,10 @@ export function Hero() {
             <br />
             when you need them.
           </h1>
+          <p className="mx-auto mt-6 max-w-xl text-center text-lg leading-8 text-muted">
+            A real-time AI meeting assistant for Mac. Nothing joins the call: Savvy reads your own
+            documents first, then tells you what to say and which file says so.
+          </p>
         </FadeInUp>
 
         <FadeInUp delay={0.1}>

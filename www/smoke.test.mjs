@@ -8,7 +8,7 @@ import { SITE_URL } from "./src/lib/constants.ts";
 test("static export has metadata, FAQ answers and referenced assets", async () => {
   const html = await readFile("out/index.html", "utf8");
   assert.match(html, /rel="canonical" href="https:\/\/savvycopilot\.com\/"/);
-  assert.equal([...html.matchAll(/<details[ >]/g)].length, 8);
+  assert.equal([...html.matchAll(/<details[ >]/g)].length, 11);
   assert.match(html, /<button[^>]*disabled=""[^>]*>.*?Windows coming soon<\/button>/);
   assert.equal([...html.matchAll(/Reads your files first\.<br\//g)].length, 1);
   assert.match(html, /<summary[^>]*>Where does my data go\?/);
@@ -56,7 +56,7 @@ test("privacy notice is linked and analytics is absent from initial HTML", async
 
 test("static export includes the blog and generated llms.txt", async () => {
   const posts = getAllPosts();
-  assert.equal(posts.length, 5);
+  assert.equal(posts.length, 11);
   const llms = await readFile("out/llms.txt", "utf8");
   const sitemap = await readFile("out/sitemap.xml", "utf8");
   await access("out/blog/index.html");
