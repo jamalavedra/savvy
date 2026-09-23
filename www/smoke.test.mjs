@@ -4,10 +4,11 @@ import { test } from "node:test";
 import { getAllPosts } from "./src/lib/blog.ts";
 import { CONSENT_YEAR, readConsent } from "./src/lib/consent.ts";
 import { SITE_URL } from "./src/lib/constants.ts";
+import worker from "./worker.js";
 
 test("static export has metadata, FAQ answers and referenced assets", async () => {
   const html = await readFile("out/index.html", "utf8");
-  assert.match(html, /rel="canonical" href="https:\/\/savvycopilot\.com\/"/);
+  assert.match(html, /rel="canonical" href="https:\/\/www\.savvycopilot\.com\/"/);
   assert.equal([...html.matchAll(/<details[ >]/g)].length, 11);
   assert.match(html, /<button[^>]*disabled=""[^>]*>.*?Windows coming soon<\/button>/);
   assert.equal([...html.matchAll(/Reads your files first\.<br\//g)].length, 1);
@@ -16,7 +17,7 @@ test("static export has metadata, FAQ answers and referenced assets", async () =
     await access(`out${asset}`);
   }
   for (const file of ["robots.txt", "sitemap.xml"]) {
-    assert.match(await readFile(`out/${file}`, "utf8"), /https:\/\/savvycopilot\.com/);
+    assert.match(await readFile(`out/${file}`, "utf8"), /https:\/\/www\.savvycopilot\.com/);
   }
   await access("out/404.html");
 });
@@ -48,7 +49,7 @@ test("privacy notice is linked and analytics is absent from initial HTML", async
   const privacy = await readFile("out/privacy/index.html", "utf8");
   assert.match(home, /href="\/privacy\/"/);
   assert.doesNotMatch(home, /<script[^>]+src="https:\/\/analytics\.jamalavedra\.com/);
-  assert.match(privacy, /rel="canonical" href="https:\/\/savvycopilot\.com\/privacy\/"/);
+  assert.match(privacy, /rel="canonical" href="https:\/\/www\.savvycopilot\.com\/privacy\/"/);
   assert.match(privacy, /Alamas Labs, Inc\./);
   assert.match(privacy, /mailto:hello@savvycopilot\.com/);
   assert.doesNotMatch(privacy, /Draft for review|\[Confirm|\[public privacy/);
@@ -79,4 +80,13 @@ test("static export includes the blog and generated llms.txt", async () => {
   ]) {
     assert.ok(llms.includes(caveat), `Missing caveat: ${caveat}`);
   }
+});
+
+test("worker redirects the apex domain to www with a 308", async () => {
+  const env = { ASSETS: { fetch: () => new Response("asset") } };
+  const apex = await worker.fetch(new Request("https://savvycopilot.com/blog/?x=1"), env);
+  assert.equal(apex.status, 308);
+  assert.equal(apex.headers.get("location"), `${SITE_URL}/blog/?x=1`);
+  const www = await worker.fetch(new Request(`${SITE_URL}/`), env);
+  assert.equal(await www.text(), "asset");
 });

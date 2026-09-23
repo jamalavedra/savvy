@@ -6,12 +6,12 @@
   "scripts": {
     "dev": "next dev -p 3012",
     "build": "next build",
-    "start": "pnpm dlx wrangler@4.127.1 dev",
+    "start": "pnpm dlx --allow-build=esbuild --allow-build=workerd wrangler@4.127.1 dev",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "typecheck": "tsc --noEmit",
-    "deploy": "pnpm build && pnpm dlx wrangler@4.127.1 deploy",
-    "deploy:check": "pnpm dlx wrangler@4.127.1 deploy --dry-run"
+    "deploy": "pnpm build && pnpm dlx --allow-build=esbuild --allow-build=workerd wrangler@4.127.1 deploy",
+    "deploy:check": "pnpm dlx --allow-build=esbuild --allow-build=workerd wrangler@4.127.1 deploy --dry-run"
   },
   "dependencies": {
     "next": "16.3.4",

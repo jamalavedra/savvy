@@ -1,5 +1,5 @@
 export const COMPANY_NAME = "Alamas Labs";
-export const SITE_URL = "https://savvycopilot.com";
+export const SITE_URL = "https://www.savvycopilot.com";
 
 export const REPO_URL = "https://github.com/jamalavedra/savvy";
 
