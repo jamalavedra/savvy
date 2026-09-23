@@ -37,8 +37,6 @@ const jsonLd = {
       name: "Savvy",
       inLanguage: "en",
     },
-    // The FAQ section is the answer to most of what people search for about
-    // this category, so it is marked up rather than left as plain <details>.
     {
       "@type": "FAQPage",
       "@id": `${SITE_URL}/#faq`,
