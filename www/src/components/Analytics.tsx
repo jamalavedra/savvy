@@ -32,7 +32,7 @@ export function Analytics() {
       script = document.createElement("script");
       script.src = "https://analytics.jamalavedra.com/script.js";
       script.dataset.websiteId = "8a7ddcdb-2cee-4719-a8f2-9c18aa8239e7";
-      script.dataset.domains = "savvycopilot.com";
+      script.dataset.domains = "www.savvycopilot.com";
       script.defer = true;
       document.head.append(script);
     }
