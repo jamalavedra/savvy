@@ -9,7 +9,7 @@ import { COMPANY_NAME, SITE_URL } from "@/lib/constants";
 
 const TITLE = "Blog | Savvy";
 const DESCRIPTION =
-  "Notes on preparing for calls, meeting-recording consent, local-first meeting assistants, and how Savvy decides when to speak.";
+  "Notes on preparing for calls, meeting-recording consent, bot-free and real-time meeting assistants, choosing a transcription provider, and how Savvy decides when to speak.";
 
 export const metadata: Metadata = {
   title: TITLE,

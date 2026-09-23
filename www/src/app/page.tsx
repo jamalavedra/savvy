@@ -9,6 +9,7 @@ import { Divider } from "@/components/sections/primitives";
 import { Reasons } from "@/components/sections/Reasons";
 import { SourceBand } from "@/components/sections/SourceBand";
 import { YourModel } from "@/components/sections/YourModel";
+import { faqItems } from "@/content/faq";
 import { COMPANY_NAME, LINKS, REPO_URL, SITE_URL } from "@/lib/constants";
 
 const jsonLd = {
@@ -35,6 +36,15 @@ const jsonLd = {
       url: SITE_URL,
       name: "Savvy",
       inLanguage: "en",
+    },
+    {
+      "@type": "FAQPage",
+      "@id": `${SITE_URL}/#faq`,
+      mainEntity: faqItems.map((item) => ({
+        "@type": "Question",
+        name: item.question,
+        acceptedAnswer: { "@type": "Answer", text: item.answer },
+      })),
     },
   ],
 };
