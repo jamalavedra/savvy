@@ -1,4 +1,16 @@
+import { MeetingDetails } from "./MeetingDetails";
+import { transcriptionModels } from "./lib/transcriptionModels";
+import ConfirmDialog from "./ConfirmDialog";
+import AudioCheck from "./AudioCheck";
+import MeetingReadiness from "./MeetingReadiness";
 import {
+  briefReviewSections,
+  briefMarkdownPreview,
+  briefReviewPages,
+} from "./lib/briefReview";
+import ManagedAccount from "./ManagedAccount";
+import {
+  useCallback,
   useEffect,
   useEffectEvent,
   useMemo,
@@ -14,6 +26,7 @@ import {
   ChevronDown,
   ChevronsUpDown,
   Check,
+  Clock,
   Cpu,
   FileText,
   FolderOpen,
@@ -44,6 +57,9 @@ import {
   deleteTranscriptionApiKey,
   deleteMeeting,
   generateBriefDraft,
+  cancelBriefDraft,
+  getBriefProgress,
+  type BriefStage,
   getAppPaths,
   getAppSettings,
   getAppStatus,
@@ -181,11 +197,62 @@ function App() {
   );
   const [view, setView] = useState<View>("prepare");
   const [dashboard, setDashboard] = useState<DashboardSnapshot | null>(null);
+  const [dashboardError, setDashboardError] = useState<string | null>(null);
+  const [dashboardAttempt, setDashboardAttempt] = useState(0);
   const [activeClientId, setActiveClientId] = useState<string | null>(null);
   const [loadedPreparation, setPreparation] =
     useState<PreparationSnapshot | null>(null);
   const [preparationRevision, setPreparationRevision] = useState(0);
+  const [meetingObjective, setMeetingObjective] = useState("");
+  const [contextSelection, setContextSelection] = useState<{
+    clientId: string;
+    excludedPaths: string[];
+    error: string | null;
+  } | null>(null);
+  const contextSelectionInFlight = useRef(false);
+  const preparationRead = useRef(0);
   const [busy, setBusy] = useState(false);
+  const [readinessOpen, setReadinessOpen] = useState(false);
+  const [readinessBrief, setReadinessBrief] = useState<NegotiationBrief | null>(
+    null,
+  );
+  const [reviewBriefId, setReviewBriefId] = useState<string | null>(null);
+  const approvedBrief = useRef<{ id: string; content: string } | null>(null);
+  const prepareSurface = useRef<HTMLDivElement>(null);
+  const readinessReturnFocus = useRef<HTMLElement | null>(null);
+  const [stoppedSessionId, setStoppedSessionId] = useState<string | null>(null);
+  const briefJob = useRef<{
+    clientId: string | null;
+    requestId: string;
+  } | null>(null);
+  const [briefProgress, setBriefProgress] = useState<
+    "generating" | "cancelling" | null
+  >(null);
+  const briefReturnFocus = useRef<HTMLElement | null>(null);
+  const [briefStage, setBriefStage] = useState<BriefStage>("reading");
+  useEffect(() => {
+    if (!briefProgress) return;
+    const job = briefJob.current;
+    if (!job) return;
+    let disposed = false;
+    let timer: ReturnType<typeof setTimeout>;
+    async function poll() {
+      try {
+        const stage = await getBriefProgress(job!.clientId, job!.requestId);
+        if (!disposed && briefJob.current === job && stage)
+          setBriefStage(stage);
+      } catch {
+        /* Retain the last observed stage; completion removes the job. */
+      }
+      if (!disposed) timer = setTimeout(() => void poll(), 250);
+    }
+    void poll();
+    return () => {
+      disposed = true;
+      clearTimeout(timer);
+    };
+  }, [briefProgress]);
+
   const [settingsBusy, setSettingsBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
@@ -306,12 +373,14 @@ function App() {
   useEffect(() => {
     if (clientRevision === null) return;
     let cancelled = false;
+    const read = ++preparationRead.current;
     getPreparationSnapshot(activeClientId)
       .then((snapshot) => {
-        if (!cancelled) setPreparation(snapshot);
+        if (!cancelled && read === preparationRead.current)
+          setPreparation(snapshot);
       })
       .catch((reason: unknown) => {
-        if (!cancelled) {
+        if (!cancelled && read === preparationRead.current) {
           setError(reason instanceof Error ? reason.message : String(reason));
         }
       });
@@ -321,19 +390,27 @@ function App() {
   }, [activeClientId, clientRevision, preparationRevision]);
 
   useEffect(() => {
+    let cancelled = false;
     getDashboard()
       .then((snapshot) => {
+        if (cancelled) return;
         setDashboard(snapshot);
+        setDashboardError(null);
         setActiveClientId(snapshot.clients[0]?.id ?? null);
       })
-      .catch((reason: unknown) =>
-        setError(reason instanceof Error ? reason.message : String(reason)),
-      );
-    if (overlayWindow) return;
+      .catch((reason: unknown) => {
+        if (!cancelled)
+          setDashboardError(
+            reason instanceof Error ? reason.message : String(reason),
+          );
+      });
     const refresh = () => void refreshDashboard();
-    window.addEventListener("focus", refresh);
-    return () => window.removeEventListener("focus", refresh);
-  }, [overlayWindow]);
+    if (!overlayWindow) window.addEventListener("focus", refresh);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("focus", refresh);
+    };
+  }, [overlayWindow, dashboardAttempt]);
 
   useEffect(() => {
     document.documentElement.dataset.surface = overlayWindow
@@ -373,6 +450,10 @@ function App() {
           listen<MeetingEvent>("meeting://event", (event) =>
             handleMeetingEvent(event.payload),
           ),
+          listen<string>("meeting://stopped", (event) => {
+            setStoppedSessionId(event.payload);
+            setThinking(null);
+          }),
           listen<MeetingSession>("meeting://session", (event) => {
             const newMeeting = startsNewMeeting(
               event.payload,
@@ -432,6 +513,9 @@ function App() {
       unlisten.forEach((listener) => listener());
     };
   }, [overlayWindow]);
+
+  const reviewedBrief =
+    preparation?.brief?.id === reviewBriefId ? preparation.brief : null;
 
   const activeClient = useMemo(
     () =>
@@ -502,10 +586,10 @@ function App() {
 
   async function completeOnboarding() {
     setOnboarding("done");
-    if (!appSettings || appSettings.onboardingCompleted) return;
     try {
+      const configured = await getAppSettings();
       setAppSettings(
-        await updateAppSettings({ ...appSettings, onboardingCompleted: true }),
+        await updateAppSettings({ ...configured, onboardingCompleted: true }),
       );
     } catch (reason) {
       // Setup already happened; failing to record that must not block the app.
@@ -534,10 +618,42 @@ function App() {
     }
   }
 
+  async function saveContextSelection(
+    clientId: string,
+    excludedPaths: string[],
+  ) {
+    if (contextSelectionInFlight.current || busy) return;
+    contextSelectionInFlight.current = true;
+    const read = ++preparationRead.current;
+    setPreparation(null);
+    setContextSelection({ clientId, excludedPaths, error: null });
+    try {
+      const updated = await setClientDocumentSelection(clientId, excludedPaths);
+      const snapshot = await getPreparationSnapshot(clientId);
+      setDashboard((current) =>
+        current
+          ? {
+              ...current,
+              clients: current.clients.map((client) =>
+                client.id === updated.id ? updated : client,
+              ),
+            }
+          : current,
+      );
+      if (read === preparationRead.current) setPreparation(snapshot);
+      setContextSelection(null);
+    } catch (reason) {
+      setContextSelection({ clientId, excludedPaths, error: String(reason) });
+    } finally {
+      contextSelectionInFlight.current = false;
+    }
+  }
+
   async function prepareBrief(
     instructions = appSettings?.briefGenerationPrompt,
   ) {
-    if (!instructions) return;
+    if (!instructions || contextSelection || contextSelectionInFlight.current)
+      return;
     setBusy(true);
     setError(null);
     try {
@@ -547,19 +663,59 @@ function App() {
       ) {
         return;
       }
+      const job = {
+        clientId: activeClient?.id ?? null,
+        requestId: crypto.randomUUID(),
+      };
+      briefJob.current = job;
+      briefReturnFocus.current =
+        document.activeElement instanceof HTMLElement
+          ? document.activeElement
+          : null;
+      setBriefStage("reading");
+      setBriefProgress("generating");
       const brief = await generateBriefDraft(
-        activeClient?.id ?? null,
-        instructions,
+        job.clientId,
+        meetingObjective.trim()
+          ? `${instructions}\n\nMeeting objective: ${meetingObjective.trim()}`
+          : instructions,
+        job.requestId,
       );
       setPreparation((current) => (current ? { ...current, brief } : current));
       setDashboard((current) =>
         current ? { ...current, activeBrief: brief } : current,
       );
+      setReviewBriefId(brief.id);
       setView("prepare");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
+      briefJob.current = null;
+      setBriefProgress(null);
       setBusy(false);
+      requestAnimationFrame(() => {
+        const target = briefReturnFocus.current;
+        if (
+          document.activeElement === document.body &&
+          target?.isConnected &&
+          target.getClientRects().length
+        )
+          target.focus();
+      });
+    }
+  }
+
+  async function cancelCurrentBrief() {
+    const job = briefJob.current;
+    if (!job || briefProgress === "cancelling") return;
+    setBriefProgress("cancelling");
+    try {
+      await cancelBriefDraft(job.clientId, job.requestId);
+    } catch (reason) {
+      if (briefJob.current === job) {
+        setBriefProgress("generating");
+        setError(reason instanceof Error ? reason.message : String(reason));
+      }
     }
   }
 
@@ -570,6 +726,9 @@ function App() {
     setError(null);
     try {
       const refreshed = await refreshBriefFromDocument(brief.id);
+      setReviewBriefId((current) =>
+        current === brief.id ? refreshed.id : current,
+      );
       setPreparation((current) =>
         current ? { ...current, brief: refreshed } : current,
       );
@@ -589,6 +748,7 @@ function App() {
     try {
       const selected = await importBriefDocument(activeClient?.id ?? null);
       if (selected) {
+        setReviewBriefId(selected.id);
         setPreparation((current) =>
           current ? { ...current, brief: selected } : current,
         );
@@ -611,6 +771,7 @@ function App() {
     try {
       const selected = await replaceBriefDocument(brief.id);
       if (selected) {
+        setReviewBriefId(selected.id);
         setPreparation((current) =>
           current ? { ...current, brief: selected } : current,
         );
@@ -625,27 +786,76 @@ function App() {
     }
   }
 
-  async function startActiveMeeting() {
-    if (dashboard?.activeSession || busy) {
+  function startActiveMeeting() {
+    if (
+      dashboard?.activeSession ||
+      busy ||
+      contextSelection ||
+      contextSelectionInFlight.current
+    )
+      return;
+    if (!preparation) {
+      setError("Meeting context is still loading. Try again when it is ready.");
       return;
     }
-    const brief =
-      preparation?.brief?.clientId === (activeClient?.id ?? null)
+    readinessReturnFocus.current =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    setView("prepare");
+    const selected =
+      preparation.brief?.clientId === (activeClient?.id ?? null)
         ? preparation.brief
         : null;
+    if (
+      selected &&
+      (approvedBrief.current?.id !== selected.id ||
+        approvedBrief.current.content !== selected.documentContent)
+    ) {
+      setReviewBriefId(selected.id);
+      setReadinessOpen(false);
+    } else {
+      setReadinessBrief(selected ? { ...selected } : null);
+      setReadinessOpen(true);
+    }
+    if (window.__TAURI_INTERNALS__) {
+      const mainWindow = getCurrentWindow();
+      void mainWindow
+        .show()
+        .then(() => mainWindow.setFocus())
+        .catch((reason) =>
+          setError(reason instanceof Error ? reason.message : String(reason)),
+        );
+    }
+  }
+
+  async function beginActiveMeeting() {
+    if (
+      dashboard?.activeSession ||
+      busy ||
+      contextSelection ||
+      contextSelectionInFlight.current
+    ) {
+      return;
+    }
+    const brief = readinessBrief;
     setBusy(true);
     setError(null);
     try {
       if (window.__TAURI_INTERNALS__ && appSettings) {
-        const keyStatus = await getTranscriptionKeyStatus();
-        if (!keyStatus[appSettings.transcriptionProvider]) {
-          const provider =
-            appSettings.transcriptionProvider === "deepgram"
-              ? "Deepgram"
-              : "AssemblyAI";
-          throw new Error(
-            `Add a ${provider} API key in Models before starting.`,
-          );
+        // BYOK needs a transcription key; managed eligibility is checked by the
+        // Rust preflight and, authoritatively, by the hosted service.
+        if (appSettings.serviceMode !== "managed") {
+          const keyStatus = await getTranscriptionKeyStatus();
+          if (!keyStatus[appSettings.transcriptionProvider]) {
+            const provider =
+              appSettings.transcriptionProvider === "deepgram"
+                ? "Deepgram"
+                : "AssemblyAI";
+            throw new Error(
+              `Add a ${provider} API key in Models before starting.`,
+            );
+          }
         }
         if ((await getAppStatus()).platform === "macos") {
           const {
@@ -665,7 +875,10 @@ function App() {
               );
             }
           }
-          if (!(await checkScreenRecordingPermission())) {
+          if (
+            !appSettings.microphoneOnly &&
+            !(await checkScreenRecordingPermission())
+          ) {
             await requestPermissionDecision(
               requestScreenRecordingPermission,
               checkScreenRecordingPermission,
@@ -677,7 +890,9 @@ function App() {
       const session = await startMeeting(
         activeClient?.id ?? null,
         meetingBrief?.id ?? null,
+        meetingBrief?.documentContent,
       );
+      setReadinessOpen(false);
       setTranscriptTurns([]);
       if (meetingBrief) {
         setPreparation((current) =>
@@ -764,7 +979,26 @@ function App() {
     }
   }
 
-  if (!dashboard) return <LoadingState />;
+  if (!dashboard)
+    return dashboardError ? (
+      <div className="startup-error">
+        <p role="alert" tabIndex={0}>
+          Could not load Savvy: {dashboardError}
+        </p>
+        <button
+          type="button"
+          className="button primary"
+          onClick={() => {
+            setDashboardError(null);
+            setDashboardAttempt((attempt) => attempt + 1);
+          }}
+        >
+          Retry loading
+        </button>
+      </div>
+    ) : (
+      <LoadingState />
+    );
 
   // The overlay window is a separate surface and must never be fronted by setup.
   if (!overlayWindow && onboarding === "new" && appSettings) {
@@ -785,6 +1019,7 @@ function App() {
           onTogglePause={toggleMeetingPause}
           onRequestRecommendation={forceRecommendation}
           onStop={endActiveMeeting}
+          stopped={stoppedSessionId === dashboard.activeSession.id}
           busy={busy}
           error={error}
           style={appSettings?.overlayStyle ?? "live"}
@@ -824,7 +1059,9 @@ function App() {
           <NavButton
             active={view === "models"}
             icon={icons.models}
-            label="Models"
+            label={
+              appSettings?.serviceMode === "managed" ? "Account" : "Models"
+            }
             onClick={() => setView("models")}
           />
           <NavButton
@@ -849,6 +1086,31 @@ function App() {
       </aside>
 
       <main className="workspace">
+        {contextSelection && (
+          <div
+            className="error-banner"
+            role={contextSelection.error ? "alert" : "status"}
+          >
+            <span>
+              {contextSelection.error
+                ? `Context selection was not confirmed. Save it before preparing a brief or starting a meeting. ${contextSelection.error}`
+                : "Saving context selection…"}
+            </span>
+            {contextSelection.error && (
+              <button
+                className="button secondary"
+                onClick={() =>
+                  void saveContextSelection(
+                    contextSelection.clientId,
+                    contextSelection.excludedPaths,
+                  )
+                }
+              >
+                Retry context selection
+              </button>
+            )}
+          </div>
+        )}
         {error && (
           <div className="error-banner" role="alert">
             <span>{error}</span>
@@ -863,55 +1125,119 @@ function App() {
           </div>
         )}
         <div className="page-scroll">
-          {view === "prepare" ? (
-            <PrepareView
-              key={`${activeClientId ?? "general"}:${appSettings?.briefGenerationPrompt ?? ""}`}
-              dashboard={dashboard}
-              activeClient={activeClient}
-              preparation={preparation}
-              onSelectClient={setActiveClientId}
-              onAddClient={addClient}
-              onRemoveClient={removeClient}
-              onClientUpdated={(client) =>
-                setDashboard((current) =>
-                  current
-                    ? {
-                        ...current,
-                        clients: current.clients.map((item) =>
-                          item.id === client.id ? client : item,
-                        ),
-                      }
-                    : current,
-                )
-              }
-              generationPrompt={appSettings?.briefGenerationPrompt ?? ""}
-              provider={appSettings?.recommendationProvider ?? "codex"}
-              transcriptionProvider={
-                appSettings?.transcriptionProvider ?? "deepgram"
-              }
-              transcriptionModel={appSettings?.transcriptionModel ?? "nova-3"}
-              transcriptionLanguage={
-                appSettings?.transcriptionLanguage ?? "multi"
-              }
-              onPrepareBrief={prepareBrief}
-              onImportBrief={importCurrentBrief}
-              onReplaceBrief={replaceCurrentBrief}
-              onOpenBrief={(briefId) => void openBriefDocument(briefId)}
-              onRefreshBrief={refreshCurrentBrief}
-              onRemoveBrief={removeCurrentBrief}
-              onStartMeeting={startActiveMeeting}
+          {briefProgress && view === "prepare" && (
+            <BriefGenerationProgress
+              stage={briefStage}
+              cancelling={briefProgress === "cancelling"}
+              clientName={activeClient?.name ?? "General meeting"}
+              onCancel={() => void cancelCurrentBrief()}
+            />
+          )}
+          {view === "prepare" && reviewedBrief && !briefProgress && (
+            <div hidden={readinessOpen}>
+              <BriefReview
+                key={reviewedBrief.id}
+                brief={reviewedBrief}
+                clientName={activeClient?.name ?? "General meeting"}
+                busy={busy}
+                onOpen={() =>
+                  void openBriefDocument(reviewedBrief.id).catch((reason) =>
+                    setError(
+                      reason instanceof Error ? reason.message : String(reason),
+                    ),
+                  )
+                }
+                onRefresh={() => void refreshCurrentBrief()}
+                onEdit={() => {
+                  setReviewBriefId(null);
+                  requestAnimationFrame(() =>
+                    prepareSurface.current?.querySelector("h1")?.focus(),
+                  );
+                }}
+                onReadiness={() => {
+                  approvedBrief.current = {
+                    id: reviewedBrief.id,
+                    content: reviewedBrief.documentContent,
+                  };
+                  startActiveMeeting();
+                }}
+              />
+            </div>
+          )}
+          {view === "prepare" && readinessOpen && appSettings ? (
+            <MeetingReadiness
+              settings={appSettings}
+              clientName={activeClient?.name ?? "General meeting"}
               busy={busy}
-              shortcut={
-                appSettings?.startListeningShortcut ?? "Command+Shift+M"
-              }
-              guidanceFolder={appSettings?.guidanceFolder ?? null}
-              settingsBusy={settingsBusy}
-              onSaveSettings={async (patch) => {
-                const saved = await saveAppSettings(patch);
-                if (saved) setPreparationRevision((value) => value + 1);
-                return saved;
+              onBack={() => {
+                setReadinessOpen(false);
+                requestAnimationFrame(() =>
+                  readinessReturnFocus.current?.focus(),
+                );
+              }}
+              onStart={() => void beginActiveMeeting()}
+              onConfigure={() => {
+                setReadinessOpen(false);
+                setView("models");
               }}
             />
+          ) : null}
+          {view === "prepare" ? (
+            <div
+              ref={prepareSurface}
+              hidden={
+                Boolean(briefProgress) ||
+                readinessOpen ||
+                Boolean(reviewedBrief)
+              }
+            >
+              <PrepareView
+                key={`${activeClientId ?? "general"}:${appSettings?.briefGenerationPrompt ?? ""}`}
+                dashboard={dashboard}
+                activeClient={activeClient}
+                preparation={preparation}
+                onSelectClient={setActiveClientId}
+                onAddClient={addClient}
+                onRemoveClient={removeClient}
+                onSelectionChange={saveContextSelection}
+                objective={meetingObjective}
+                onObjectiveChange={setMeetingObjective}
+                generationPrompt={appSettings?.briefGenerationPrompt ?? ""}
+                provider={
+                  appSettings?.serviceMode === "managed"
+                    ? "managed"
+                    : (appSettings?.recommendationProvider ?? "codex")
+                }
+                transcriptionProvider={
+                  appSettings?.transcriptionProvider ?? "deepgram"
+                }
+                transcriptionModel={appSettings?.transcriptionModel ?? "nova-3"}
+                transcriptionLanguage={
+                  appSettings?.transcriptionLanguage ?? "multi"
+                }
+                onPrepareBrief={prepareBrief}
+                onImportBrief={importCurrentBrief}
+                onReplaceBrief={replaceCurrentBrief}
+                onOpenBrief={(briefId) => void openBriefDocument(briefId)}
+                onReviewBrief={() =>
+                  setReviewBriefId(preparation?.brief?.id ?? null)
+                }
+                onRefreshBrief={refreshCurrentBrief}
+                onRemoveBrief={removeCurrentBrief}
+                onStartMeeting={startActiveMeeting}
+                busy={busy || Boolean(contextSelection)}
+                shortcut={
+                  appSettings?.startListeningShortcut ?? "Command+Shift+M"
+                }
+                guidanceFolder={appSettings?.guidanceFolder ?? null}
+                settingsBusy={settingsBusy}
+                onSaveSettings={async (patch) => {
+                  const saved = await saveAppSettings(patch);
+                  if (saved) setPreparationRevision((value) => value + 1);
+                  return saved;
+                }}
+              />
+            </div>
           ) : view === "meetings" ? (
             <HistoryView key={dashboard.activeSession?.id ?? "idle"} />
           ) : (
@@ -926,6 +1252,7 @@ function App() {
         </div>
       </main>
       <AppFooter
+        activity={briefProgress ? "Preparing brief" : undefined}
         settings={appSettings}
         version={version}
         saving={settingsBusy}
@@ -968,7 +1295,9 @@ function PrepareView({
   onSelectClient,
   onAddClient,
   onRemoveClient,
-  onClientUpdated,
+  onSelectionChange,
+  objective,
+  onObjectiveChange,
   generationPrompt,
   provider,
   transcriptionProvider,
@@ -979,6 +1308,7 @@ function PrepareView({
   onReplaceBrief,
   onOpenBrief,
   onRefreshBrief,
+  onReviewBrief,
   onRemoveBrief,
   onStartMeeting,
   busy,
@@ -993,9 +1323,14 @@ function PrepareView({
   onSelectClient: (id: string | null) => void;
   onAddClient: () => void;
   onRemoveClient: (client: ClientWorkspace) => void;
-  onClientUpdated: (client: ClientWorkspace) => void;
+  onSelectionChange: (
+    clientId: string,
+    excludedPaths: string[],
+  ) => Promise<void>;
+  objective: string;
+  onObjectiveChange: (value: string) => void;
   generationPrompt: string;
-  provider: AppSettings["recommendationProvider"];
+  provider: AppSettings["recommendationProvider"] | "managed";
   transcriptionProvider: AppSettings["transcriptionProvider"];
   transcriptionModel: string;
   transcriptionLanguage: string;
@@ -1004,6 +1339,7 @@ function PrepareView({
   onReplaceBrief: () => void;
   onOpenBrief: (briefId: string) => void;
   onRefreshBrief: () => void;
+  onReviewBrief: () => void;
   onRemoveBrief: () => void;
   onStartMeeting: () => void;
   busy: boolean;
@@ -1017,7 +1353,12 @@ function PrepareView({
   const [guidelinesOpen, setGuidelinesOpen] = useState(false);
   const [documentsOpen, setDocumentsOpen] = useState(false);
   const brief = preparation?.brief ?? null;
-  const providerName = provider === "claude" ? "Claude" : "Codex";
+  const providerName =
+    provider === "managed"
+      ? "Savvy managed"
+      : provider === "claude"
+        ? "Claude"
+        : "Codex";
   const selectedTranscriptionModel =
     transcriptionModels[transcriptionProvider].find(
       (model) => model.value === transcriptionModel,
@@ -1035,22 +1376,13 @@ function PrepareView({
     <div className="page-content prepare-page">
       <div className="page-title prepare-title">
         <div>
-          <h1>Prepare for your meeting</h1>
-          <p>Choose what Savvy should know before you start listening.</p>
+          <h1 tabIndex={-1}>Prepare for your meeting</h1>
+          <p>Add context for useful briefs and live suggestions.</p>
         </div>
-        <button
-          className="button primary"
-          onClick={onStartMeeting}
-          disabled={busy || settingsBusy}
-          aria-label="Start listening"
-        >
-          <Mic width={14} height={14} /> Start listening
-          <kbd>{formatShortcut(shortcut)}</kbd>
-        </button>
       </div>
 
       <section className="prepare-section">
-        <h2 className="group-title">SAVVY READS</h2>
+        <h2 className="group-title">CONTEXT</h2>
         <div className="prepare-card">
           <div className="prepare-card-header">
             <MeetingContextSelector
@@ -1082,7 +1414,7 @@ function PrepareView({
                 key={activeClient.id}
                 client={activeClient}
                 disabled={busy || settingsBusy}
-                onClientUpdated={onClientUpdated}
+                onSelectionChange={onSelectionChange}
               />
               <div className="prepare-card-actions">
                 <button
@@ -1137,74 +1469,112 @@ function PrepareView({
         </div>
       </section>
 
-      <section className="prepare-section">
-        <h2 className="group-title">SAVVY USES</h2>
-        <div className="prepare-card">
-          <button
-            type="button"
-            className="prepare-card-header"
-            aria-expanded={promptOpen}
-            aria-controls="brief-prompt-panel"
-            onClick={() => setPromptOpen((value) => !value)}
-          >
-            <span className="prepare-card-title">
-              <strong>Brief prompt</strong>
-              <small>{prompt.trim() || "No instructions yet"}</small>
-            </span>
-            <span className="prepare-tag">this brief</span>
-            <ChevronDown className={`chevron ${promptOpen ? "open" : ""}`} />
-          </button>
-          {promptOpen && (
-            <div id="brief-prompt-panel" className="prepare-card-body">
-              <label htmlFor="brief-generation-prompt">Generation prompt</label>
-              <textarea
-                id="brief-generation-prompt"
-                value={prompt}
-                disabled={busy}
-                onChange={(event) => setPrompt(event.target.value)}
-              />
-              <small>
-                Used when generating or regenerating the brief with{" "}
-                {providerName}.
-              </small>
-            </div>
-          )}
-        </div>
-        <div className="prepare-card">
-          <SettingSelect
-            title="Conversation language"
-            detail={`Used for transcripts and recommendations via ${
-              transcriptionProviders.find(
-                ({ value }) => value === transcriptionProvider,
-              )?.label ?? transcriptionProvider
-            } ${selectedTranscriptionModel.label}.`}
-            value={transcriptionLanguage}
-            options={meetingLanguageOptions}
-            disabled={busy || settingsBusy}
-            searchable
-            onChange={(value) => {
-              const currentSupports =
-                selectedTranscriptionModel.languages.includes(value);
-              if (currentSupports) {
-                void onSaveSettings({ transcriptionLanguage: value });
-                return;
-              }
-              const compatible = Object.entries(transcriptionModels)
-                .flatMap(([provider, models]) =>
-                  models.map((model) => ({ provider, model })),
-                )
-                .find(({ model }) => model.languages.includes(value));
-              if (!compatible) return;
-              void onSaveSettings({
-                transcriptionProvider:
-                  compatible.provider as AppSettings["transcriptionProvider"],
-                transcriptionModel: compatible.model.value,
-                transcriptionLanguage: value,
-              });
-            }}
-          />
-        </div>
+      <section className="prepare-section prepare-objective">
+        <label htmlFor="meeting-objective">Meeting objective</label>
+        <input
+          id="meeting-objective"
+          value={objective}
+          maxLength={2000}
+          placeholder="What would you like to achieve?"
+          disabled={busy}
+          onChange={(event) => onObjectiveChange(event.target.value)}
+        />
+        <p>
+          {provider === "managed"
+            ? "Selected text is sent to Savvy’s AI service when you prepare a brief or start assistance."
+            : `Selected text is sent through your ${providerName} provider when you prepare a brief or start assistance.`}
+        </p>
       </section>
+      <div className="prepare-main-actions">
+        <button
+          className="button primary"
+          disabled={busy || settingsBusy || !preparation}
+          onClick={() => onPrepareBrief(prompt)}
+        >
+          Prepare brief
+        </button>
+        <button
+          className="button secondary"
+          onClick={onStartMeeting}
+          disabled={busy || settingsBusy || !preparation}
+          title={`Check readiness (${formatShortcut(shortcut)})`}
+        >
+          Check readiness
+        </button>
+      </div>
+      <details className="prepare-options">
+        <summary>Meeting options</summary>
+        <section className="prepare-section">
+          <h2 className="group-title">BRIEF AND LANGUAGE</h2>
+          <div className="prepare-card">
+            <button
+              type="button"
+              className="prepare-card-header"
+              aria-expanded={promptOpen}
+              aria-controls="brief-prompt-panel"
+              onClick={() => setPromptOpen((value) => !value)}
+            >
+              <span className="prepare-card-title">
+                <strong>Brief prompt</strong>
+                <small>{prompt.trim() || "No instructions yet"}</small>
+              </span>
+              <span className="prepare-tag">this brief</span>
+              <ChevronDown className={`chevron ${promptOpen ? "open" : ""}`} />
+            </button>
+            {promptOpen && (
+              <div id="brief-prompt-panel" className="prepare-card-body">
+                <label htmlFor="brief-generation-prompt">
+                  Generation prompt
+                </label>
+                <textarea
+                  id="brief-generation-prompt"
+                  value={prompt}
+                  disabled={busy}
+                  onChange={(event) => setPrompt(event.target.value)}
+                />
+                <small>
+                  Used when generating or regenerating the brief with{" "}
+                  {providerName}.
+                </small>
+              </div>
+            )}
+          </div>
+          <div className="prepare-card">
+            <SettingSelect
+              title="Conversation language"
+              detail={`Used for transcripts and recommendations via ${
+                transcriptionProviders.find(
+                  ({ value }) => value === transcriptionProvider,
+                )?.label ?? transcriptionProvider
+              } ${selectedTranscriptionModel.label}.`}
+              value={transcriptionLanguage}
+              options={meetingLanguageOptions}
+              disabled={busy || settingsBusy}
+              searchable
+              onChange={(value) => {
+                const currentSupports =
+                  selectedTranscriptionModel.languages.includes(value);
+                if (currentSupports) {
+                  void onSaveSettings({ transcriptionLanguage: value });
+                  return;
+                }
+                const compatible = Object.entries(transcriptionModels)
+                  .flatMap(([provider, models]) =>
+                    models.map((model) => ({ provider, model })),
+                  )
+                  .find(({ model }) => model.languages.includes(value));
+                if (!compatible) return;
+                void onSaveSettings({
+                  transcriptionProvider:
+                    compatible.provider as AppSettings["transcriptionProvider"],
+                  transcriptionModel: compatible.model.value,
+                  transcriptionLanguage: value,
+                });
+              }}
+            />
+          </div>
+        </section>
+      </details>
 
       {brief ? (
         <BriefPreview
@@ -1212,6 +1582,7 @@ function PrepareView({
           busy={busy}
           onOpen={() => onOpenBrief(brief.id)}
           onRefresh={onRefreshBrief}
+          onReview={onReviewBrief}
           onReplace={onReplaceBrief}
           onRegenerate={() => onPrepareBrief(prompt)}
           onRemove={onRemoveBrief}
@@ -1369,20 +1740,36 @@ const DOCUMENT_KIND_LABELS: Record<DocumentKind, string> = {
 function ClientDocumentList({
   client,
   disabled,
-  onClientUpdated,
+  onSelectionChange,
 }: {
   client: ClientWorkspace;
   disabled: boolean;
-  onClientUpdated: (client: ClientWorkspace) => void;
+  onSelectionChange: (
+    clientId: string,
+    excludedPaths: string[],
+  ) => Promise<void>;
 }) {
-  const [documents, setDocuments] = useState<ClientDocument[] | null>(null);
+  const [loadedDocuments, setDocuments] = useState<ClientDocument[] | null>(
+    null,
+  );
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const excludedPaths = new Set(client.excludedPaths);
+  const documents =
+    loadedDocuments?.map((document) => ({
+      ...document,
+      included:
+        document.kind !== null && !excludedPaths.has(document.relativePath),
+    })) ?? null;
   const [error, setError] = useState<string | null>(null);
   const [openFolders, setOpenFolders] = useState<Record<string, boolean>>({});
   useEffect(() => {
     let cancelled = false;
     listClientDocuments(client.id)
       .then((items) => {
-        if (!cancelled) setDocuments(items);
+        if (!cancelled) {
+          setError(null);
+          setDocuments(items);
+        }
       })
       .catch((reason: unknown) => {
         if (!cancelled)
@@ -1391,146 +1778,180 @@ function ClientDocumentList({
     return () => {
       cancelled = true;
     };
-  }, [client.id]);
+  }, [client.id, loadAttempt]);
 
   async function applySelection(next: ClientDocument[]) {
-    setDocuments(next);
     const excluded = next
       .filter((document) => document.kind !== null && !document.included)
       .map((document) => document.relativePath);
-    try {
-      onClientUpdated(await setClientDocumentSelection(client.id, excluded));
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
-    }
+    await onSelectionChange(client.id, excluded);
   }
 
-  if (error) return <p className="document-list-note">{error}</p>;
-  if (!documents) return <p className="document-list-note">Reading folder…</p>;
-  const supported = documents.filter((document) => document.kind !== null);
+  const supported = (documents ?? []).filter(
+    (document) => document.kind !== null,
+  );
   const setAll = (included: boolean) =>
     void applySelection(
-      documents.map((document) =>
+      (documents ?? []).map((document) =>
         document.kind === null ? document : { ...document, included },
       ),
     );
-  const groups = groupDocuments(documents, client.name);
+  const groups = groupDocuments(documents ?? [], client.name);
   return (
     <div className="document-list">
-      <div className="document-list-toolbar">
-        <button
-          type="button"
-          className="link-button"
-          disabled={
-            disabled || supported.every((document) => document.included)
-          }
-          onClick={() => setAll(true)}
-        >
-          Select all
-        </button>
-        <button
-          type="button"
-          className="link-button"
-          disabled={
-            disabled || supported.every((document) => !document.included)
-          }
-          onClick={() => setAll(false)}
-        >
-          Select none
-        </button>
-        <span className="document-list-note">
-          Unselected files stay in the folder
-        </span>
-      </div>
-      {groups.map((group) => {
-        const open = openFolders[group.key] ?? group.files.length <= 6;
-        const groupSupported = group.files.filter((file) => file.kind !== null);
-        const includedCount = groupSupported.filter(
-          (file) => file.included,
-        ).length;
-        const allIncluded =
-          groupSupported.length > 0 && includedCount === groupSupported.length;
-        const inGroup = new Set(group.files.map((file) => file.relativePath));
-        return (
-          <div key={group.key} className="document-group">
-            <div className="document-group-header">
-              <input
-                type="checkbox"
-                aria-label={`${group.label} folder`}
-                checked={allIncluded}
-                disabled={disabled || groupSupported.length === 0}
-                ref={(element) => {
-                  if (element) {
-                    element.indeterminate = includedCount > 0 && !allIncluded;
-                  }
-                }}
-                onChange={(event) =>
-                  void applySelection(
-                    documents.map((item) =>
-                      item.kind !== null && inGroup.has(item.relativePath)
-                        ? { ...item, included: event.target.checked }
-                        : item,
-                    ),
-                  )
-                }
-              />
-              <button
-                type="button"
-                className="document-group-toggle"
-                aria-expanded={open}
-                onClick={() =>
-                  setOpenFolders((current) => ({
-                    ...current,
-                    [group.key]: !open,
-                  }))
-                }
-              >
-                <ChevronDown className={`chevron ${open ? "open" : ""}`} />
-                <span className="document-group-name">{group.label}</span>
-                <span className="document-group-count">
-                  {groupSupported.length === 0
-                    ? `${group.files.length} not supported`
-                    : `${includedCount} of ${groupSupported.length}`}
-                </span>
-              </button>
-            </div>
-            {open &&
-              group.files.map((document) => {
-                const unsupported = document.kind === null;
-                return (
-                  <label
-                    key={document.relativePath}
-                    className={`document-row ${unsupported ? "unsupported" : ""}`}
-                    title={document.relativePath}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={document.included}
-                      disabled={disabled || unsupported}
-                      onChange={(event) =>
-                        void applySelection(
-                          documents.map((item) =>
-                            item.relativePath === document.relativePath
-                              ? { ...item, included: event.target.checked }
-                              : item,
-                          ),
-                        )
-                      }
-                    />
-                    <span className="document-name">
-                      {document.relativePath.split("/").pop()}
-                    </span>
-                    <span className="document-kind">
-                      {document.kind
-                        ? DOCUMENT_KIND_LABELS[document.kind]
-                        : "Not supported"}
-                    </span>
-                  </label>
-                );
-              })}
+      <button
+        type="button"
+        className="link-button"
+        disabled={disabled}
+        aria-disabled={!documents && !error}
+        onClick={() => {
+          if (disabled || (!documents && !error)) return;
+          setDocuments(null);
+          setError(null);
+          setLoadAttempt((attempt) => attempt + 1);
+        }}
+      >
+        {error ? "Retry reading documents" : "Refresh documents"}
+      </button>
+      {error && (
+        <p className="document-list-note" role="alert">
+          {error}
+        </p>
+      )}
+      {!documents && !error && (
+        <p className="document-list-note" role="status">
+          Reading folder…
+        </p>
+      )}
+      {documents?.length === 0 && !error && (
+        <p className="document-list-note" role="status">
+          No documents found in this folder. Add files, then refresh.
+        </p>
+      )}
+      {documents && !error && (
+        <>
+          <div className="document-list-toolbar">
+            <button
+              type="button"
+              className="link-button"
+              disabled={
+                disabled || supported.every((document) => document.included)
+              }
+              onClick={() => setAll(true)}
+            >
+              Select all
+            </button>
+            <button
+              type="button"
+              className="link-button"
+              disabled={
+                disabled || supported.every((document) => !document.included)
+              }
+              onClick={() => setAll(false)}
+            >
+              Select none
+            </button>
+            <span className="document-list-note">
+              Unselected files stay in the folder
+            </span>
           </div>
-        );
-      })}
+          {groups.map((group) => {
+            const open = openFolders[group.key] ?? group.files.length <= 6;
+            const groupSupported = group.files.filter(
+              (file) => file.kind !== null,
+            );
+            const includedCount = groupSupported.filter(
+              (file) => file.included,
+            ).length;
+            const allIncluded =
+              groupSupported.length > 0 &&
+              includedCount === groupSupported.length;
+            const inGroup = new Set(
+              group.files.map((file) => file.relativePath),
+            );
+            return (
+              <div key={group.key} className="document-group">
+                <div className="document-group-header">
+                  <input
+                    type="checkbox"
+                    aria-label={`${group.label} folder`}
+                    checked={allIncluded}
+                    disabled={disabled || groupSupported.length === 0}
+                    ref={(element) => {
+                      if (element) {
+                        element.indeterminate =
+                          includedCount > 0 && !allIncluded;
+                      }
+                    }}
+                    onChange={(event) =>
+                      void applySelection(
+                        documents.map((item) =>
+                          item.kind !== null && inGroup.has(item.relativePath)
+                            ? { ...item, included: event.target.checked }
+                            : item,
+                        ),
+                      )
+                    }
+                  />
+                  <button
+                    type="button"
+                    className="document-group-toggle"
+                    aria-expanded={open}
+                    onClick={() =>
+                      setOpenFolders((current) => ({
+                        ...current,
+                        [group.key]: !open,
+                      }))
+                    }
+                  >
+                    <ChevronDown className={`chevron ${open ? "open" : ""}`} />
+                    <span className="document-group-name">{group.label}</span>
+                    <span className="document-group-count">
+                      {groupSupported.length === 0
+                        ? `${group.files.length} not supported`
+                        : `${includedCount} of ${groupSupported.length}`}
+                    </span>
+                  </button>
+                </div>
+                {open &&
+                  group.files.map((document) => {
+                    const unsupported = document.kind === null;
+                    return (
+                      <label
+                        key={document.relativePath}
+                        className={`document-row ${unsupported ? "unsupported" : ""}`}
+                        title={document.relativePath}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={document.included}
+                          disabled={disabled || unsupported}
+                          onChange={(event) =>
+                            void applySelection(
+                              documents.map((item) =>
+                                item.relativePath === document.relativePath
+                                  ? { ...item, included: event.target.checked }
+                                  : item,
+                              ),
+                            )
+                          }
+                        />
+                        <span className="document-name">
+                          {document.relativePath.split("/").pop()}
+                        </span>
+                        <span className="document-kind">
+                          {document.kind
+                            ? DOCUMENT_KIND_LABELS[document.kind]
+                            : "Not supported"}
+                        </span>
+                      </label>
+                    );
+                  })}
+              </div>
+            );
+          })}
+        </>
+      )}
     </div>
   );
 }
@@ -1548,6 +1969,87 @@ function groupDocuments(documents: ClientDocument[], rootLabel: string) {
       left === "" ? -1 : right === "" ? 1 : left.localeCompare(right),
     )
     .map(([key, files]) => ({ key, label: key || rootLabel, files }));
+}
+
+function BriefGenerationProgress({
+  stage,
+  cancelling,
+  clientName,
+  onCancel,
+}: {
+  stage: BriefStage;
+  cancelling: boolean;
+  clientName: string;
+  onCancel: () => void;
+}) {
+  const heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    heading.current?.focus();
+  }, []);
+  return (
+    <section
+      className="brief-generation-progress"
+      aria-labelledby="brief-progress-heading"
+    >
+      <header>
+        <h1 id="brief-progress-heading" ref={heading} tabIndex={-1}>
+          Preparing your brief
+        </h1>
+        <p>{clientName}</p>
+      </header>
+      <div className="brief-progress-card" role="status">
+        <div>
+          <span className="brief-stage-label">
+            {stage === "reading" ? <Clock /> : <Check />} Reading selected
+            context
+          </span>
+          <span data-state={stage === "reading" ? "active" : "complete"}>
+            {stage === "reading" ? "In progress" : "Complete"}
+          </span>
+        </div>
+        <div>
+          <span className="brief-stage-label">
+            {stage === "saving" ? <Check /> : <Clock />} Drafting your brief
+          </span>
+          <span
+            data-state={
+              stage === "drafting"
+                ? "active"
+                : stage === "saving"
+                  ? "complete"
+                  : "waiting"
+            }
+          >
+            {stage === "reading"
+              ? "Waiting"
+              : stage === "drafting"
+                ? "In progress"
+                : "Complete"}
+          </span>
+        </div>
+        {stage === "saving" && <p>Saving your brief…</p>}
+        <div className="brief-progress-placeholder" aria-hidden="true">
+          <i />
+          <i />
+          <i />
+        </div>
+      </div>
+      <p>
+        {cancelling
+          ? "Cancelling brief generation… Waiting for the current request to finish."
+          : "You can cancel while this runs. Your meeting objective and selected context will be kept."}
+      </p>
+      <button
+        type="button"
+        className="button secondary"
+        aria-label="Cancel brief generation"
+        disabled={cancelling || stage === "saving"}
+        onClick={onCancel}
+      >
+        Cancel
+      </button>
+    </section>
+  );
 }
 
 function BriefEmptyState({
@@ -1584,11 +2086,151 @@ function BriefEmptyState({
   );
 }
 
+function BriefReview({
+  brief,
+  clientName,
+  busy,
+  onOpen,
+  onRefresh,
+  onEdit,
+  onReadiness,
+}: {
+  brief: NegotiationBrief;
+  clientName: string;
+  busy: boolean;
+  onOpen: () => void;
+  onRefresh: () => void;
+  onEdit: () => void;
+  onReadiness: () => void;
+}) {
+  const heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => heading.current?.focus(), []);
+  const pages = useMemo(
+    () => briefReviewPages(brief.documentContent),
+    [brief.documentContent],
+  );
+  const [review, setReview] = useState({
+    content: brief.documentContent,
+    page: 0,
+  });
+  const page = review.content === brief.documentContent ? review.page : 0;
+  const contentRegion = useRef<HTMLElement>(null);
+  const sections = briefReviewSections(brief.documentContent);
+  function changePage(next: number) {
+    setReview({ content: brief.documentContent, page: next });
+    contentRegion.current?.scrollTo?.(0, 0);
+    contentRegion.current?.focus();
+  }
+  return (
+    <div className="page-content brief-review-page">
+      <div className="page-title">
+        <h1 ref={heading} tabIndex={-1}>
+          Your meeting brief
+        </h1>
+        <p>
+          {clientName} · Prepared {formatBriefDate(brief.createdAt)}
+        </p>
+      </div>
+      <section
+        ref={contentRegion}
+        className={`prepare-card brief-review-content${pages.length > 1 ? " paginated" : ""}`}
+        aria-label="Meeting brief"
+        tabIndex={0}
+      >
+        {pages.length > 1 ? (
+          <pre
+            style={{
+              whiteSpace: "pre-wrap",
+              overflowWrap: "anywhere",
+              font: "inherit",
+            }}
+          >
+            {pages[page]}
+          </pre>
+        ) : sections ? (
+          sections.map(({ title, content }) => (
+            <div key={title}>
+              <h2 className="group-title">{title}</h2>
+              {renderBriefMarkdown(content)}
+            </div>
+          ))
+        ) : brief.documentContent.trim() ? (
+          renderBriefMarkdown(brief.documentContent)
+        ) : (
+          <p>
+            Brief content is unavailable. Refresh the file or edit context to
+            choose another brief.
+          </p>
+        )}
+      </section>
+      {pages.length > 1 && (
+        <nav className="brief-review-links" aria-label="Brief pages">
+          <button
+            className="link-button"
+            disabled={busy || page === 0}
+            onClick={() => changePage(page - 1)}
+          >
+            Previous page
+          </button>
+          <span role="status">
+            Page {page + 1} of {pages.length}. Review every page before
+            continuing.
+          </span>
+          <button
+            className="link-button"
+            disabled={busy || page === pages.length - 1}
+            onClick={() => changePage(page + 1)}
+          >
+            Next page
+          </button>
+        </nav>
+      )}
+      <p className="brief-policy-note">
+        Runtime constraints use plain text under <code>## Red lines</code>,{" "}
+        <code>## Prohibited claims</code> and{" "}
+        <code>## Unauthorized commitments</code>. Other formatting is AI
+        context.
+      </p>
+      <div className="brief-review-links">
+        <button
+          className="link-button"
+          disabled={busy || !brief.documentPath}
+          onClick={onOpen}
+        >
+          Open full brief
+        </button>
+        <button
+          className="link-button"
+          disabled={busy || !brief.documentPath}
+          onClick={onRefresh}
+        >
+          Refresh from file
+        </button>
+      </div>
+      <div className="onboarding-actions readiness-actions">
+        <button className="link-button" disabled={busy} onClick={onEdit}>
+          Edit context
+        </button>
+        <button
+          className="button primary"
+          disabled={
+            busy || !brief.documentContent.trim() || page !== pages.length - 1
+          }
+          onClick={onReadiness}
+        >
+          Check readiness
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function BriefPreview({
   brief,
   busy,
   onOpen,
   onRefresh,
+  onReview,
   onReplace,
   onRegenerate,
   onRemove,
@@ -1597,6 +2239,7 @@ function BriefPreview({
   busy: boolean;
   onOpen: () => void;
   onRefresh: () => void;
+  onReview: () => void;
   onReplace: () => void;
   onRegenerate: () => void;
   onRemove: () => void;
@@ -1644,6 +2287,9 @@ function BriefPreview({
         )}
       </div>
       <div className="prepare-card-body prepare-card-actions">
+        <button className="button primary" disabled={busy} onClick={onReview}>
+          Review brief
+        </button>
         <button
           className="button secondary"
           disabled={busy}
@@ -1685,7 +2331,8 @@ function briefFileName(brief: NegotiationBrief) {
 
 function renderBriefMarkdown(markdown: string) {
   const elements: React.ReactNode[] = [];
-  const lines = markdown.split(/\r?\n/);
+  const preview = briefMarkdownPreview(markdown);
+  const lines = preview.markdown.split(/\r?\n/);
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index].trim();
     if (!line) continue;
@@ -1713,6 +2360,13 @@ function renderBriefMarkdown(markdown: string) {
     }
     elements.push(<p key={index}>{line}</p>);
   }
+  if (preview.truncated)
+    elements.push(
+      <p key="preview-limit" role="note">
+        Preview limited to 20,000 characters and 200 lines. Open the full brief
+        to read all content sent to your provider.
+      </p>,
+    );
   // Deliberately minimal: add a Markdown dependency only when real briefs need richer syntax.
   return elements;
 }
@@ -1822,6 +2476,7 @@ function RecommendationPreview({
 
 export function MeetingOverlay({
   session,
+  stopped = false,
   turns,
   recommendation,
   onTogglePause,
@@ -1836,6 +2491,7 @@ export function MeetingOverlay({
   hasNotes,
 }: {
   session: DashboardSnapshot["activeSession"];
+  stopped?: boolean;
   turns: TranscriptTurn[];
   recommendation: DashboardSnapshot["latestRecommendation"];
   onTogglePause: () => void;
@@ -1861,7 +2517,7 @@ export function MeetingOverlay({
   );
   const transcriptRef = useRef<HTMLDivElement>(null);
   const sessionId = session?.id;
-  const paused = session?.state === "paused";
+  const paused = stopped || session?.state === "paused";
   const mascot = thinking
     ? { image: mascotThinking, state: "thinking" }
     : paused
@@ -2064,11 +2720,13 @@ export function MeetingOverlay({
               draggable="false"
             />
             <span className="overlay-status-label">
-              {thinking
-                ? thinkingLabel(thinking, hasNotes)
-                : paused
-                  ? "Savvy is muted"
-                  : "Savvy is listening"}
+              {stopped
+                ? "Meeting stopped"
+                : thinking
+                  ? thinkingLabel(thinking, hasNotes)
+                  : paused
+                    ? "Savvy is muted"
+                    : "Savvy is listening"}
             </span>
           </span>
           {lastTurn && (
@@ -2078,6 +2736,7 @@ export function MeetingOverlay({
               disabled={
                 (thinking !== null && thinking.trigger !== "opportunity") ||
                 busy ||
+                stopped ||
                 !session
               }
               aria-label="Get recommendation now"
@@ -2106,7 +2765,7 @@ export function MeetingOverlay({
             <button
               className="sx spause"
               onClick={onTogglePause}
-              disabled={busy || !session}
+              disabled={busy || stopped || !session}
               aria-label={paused ? "Unmute microphone" : "Mute microphone"}
               title={paused ? "Unmute microphone" : "Mute microphone"}
             >
@@ -2153,12 +2812,16 @@ export function MeetingOverlay({
 }
 
 function HistoryView() {
+  const [selected, setSelected] = useState<MeetingHistoryItem | null>(null);
   const [meetings, setMeetings] = useState<MeetingHistoryItem[] | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<MeetingHistoryItem | null>(
     null,
   );
   const [deleting, setDeleting] = useState(false);
+  const heading = useRef<HTMLHeadingElement>(null);
+  const reportError = (reason: unknown) =>
+    setHistoryError(reason instanceof Error ? reason.message : String(reason));
 
   useEffect(() => {
     void getMeetingHistory()
@@ -2170,23 +2833,47 @@ function HistoryView() {
       );
   }, []);
 
+  if (selected)
+    return (
+      <MeetingDetails
+        key={selected.session.id}
+        meeting={selected}
+        onBack={() => {
+          const id = selected.session.id;
+          setSelected(null);
+          requestAnimationFrame(() =>
+            document.getElementById(`history-details-${id}`)?.focus(),
+          );
+        }}
+      />
+    );
+
   return (
     <div className="page-content">
       <section className="settings-group">
         <div className="history-heading">
-          <h2 className="group-title">Meeting history</h2>
+          <h2 className="group-title" ref={heading} tabIndex={-1}>
+            Meeting history
+          </h2>
           <button
             className="button"
-            onClick={() => void openRecordingsFolder()}
+            onClick={() => void openRecordingsFolder().catch(reportError)}
           >
             <FolderOpen width={13} height={13} /> Open recordings
           </button>
         </div>
+        {historyError && !pendingDelete && (
+          <p className="settings-error" role="alert">
+            {historyError}
+          </p>
+        )}
         <div className="group-card">
-          {historyError ? (
-            <p className="settings-error">{historyError}</p>
-          ) : meetings === null ? (
-            <div className="history-empty">Loading meetings…</div>
+          {meetings === null ? (
+            historyError ? null : (
+              <div className="history-empty" role="status">
+                Loading meetings…
+              </div>
+            )
           ) : meetings.length === 0 ? (
             <div className="history-empty">
               <span className="large-mark">
@@ -2200,64 +2887,55 @@ function HistoryView() {
               <MeetingHistoryRow
                 meeting={meeting}
                 key={meeting.session.id}
-                onDelete={() => setPendingDelete(meeting)}
+                onDelete={() => {
+                  setHistoryError(null);
+                  setPendingDelete(meeting);
+                }}
+                onError={reportError}
+                onOpen={() => {
+                  setHistoryError(null);
+                  setSelected(meeting);
+                }}
               />
             ))
           )}
         </div>
       </section>
       {pendingDelete && (
-        <div className="modal-backdrop">
-          <section
-            className="confirmation-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="delete-meeting-title"
-          >
-            <h2 id="delete-meeting-title">Delete meeting?</h2>
-            <p>
-              <strong>Are you sure?</strong> The recording, transcript, and
-              insights will be permanently removed.
+        <ConfirmDialog
+          title="Delete meeting?"
+          confirm={deleting ? "Deleting…" : "Delete permanently"}
+          busy={deleting}
+          onCancel={() => setPendingDelete(null)}
+          onConfirm={() => {
+            if (deleting) return;
+            setDeleting(true);
+            setHistoryError(null);
+            void deleteMeeting(pendingDelete.session.id)
+              .then(() => {
+                setMeetings(
+                  (current) =>
+                    current?.filter(
+                      ({ session }) => session.id !== pendingDelete.session.id,
+                    ) ?? [],
+                );
+                setPendingDelete(null);
+                requestAnimationFrame(() => heading.current?.focus());
+              })
+              .catch(reportError)
+              .finally(() => setDeleting(false));
+          }}
+        >
+          <p>
+            <strong>Are you sure?</strong> The recording, transcript, and
+            insights will be permanently removed.
+          </p>
+          {historyError && (
+            <p className="settings-error" role="alert">
+              {historyError}
             </p>
-            <div>
-              <button
-                className="button"
-                onClick={() => setPendingDelete(null)}
-                disabled={deleting}
-                autoFocus
-              >
-                Cancel
-              </button>
-              <button
-                className="button danger"
-                disabled={deleting}
-                onClick={async () => {
-                  setDeleting(true);
-                  setHistoryError(null);
-                  try {
-                    await deleteMeeting(pendingDelete.session.id);
-                    setMeetings(
-                      (current) =>
-                        current?.filter(
-                          ({ session }) =>
-                            session.id !== pendingDelete.session.id,
-                        ) ?? [],
-                    );
-                    setPendingDelete(null);
-                  } catch (reason) {
-                    setHistoryError(
-                      reason instanceof Error ? reason.message : String(reason),
-                    );
-                  } finally {
-                    setDeleting(false);
-                  }
-                }}
-              >
-                {deleting ? "Deleting…" : "Delete permanently"}
-              </button>
-            </div>
-          </section>
-        </div>
+          )}
+        </ConfirmDialog>
       )}
     </div>
   );
@@ -2266,9 +2944,13 @@ function HistoryView() {
 function MeetingHistoryRow({
   meeting,
   onDelete,
+  onError,
+  onOpen,
 }: {
   meeting: MeetingHistoryItem;
   onDelete: () => void;
+  onError: (reason: unknown) => void;
+  onOpen: () => void;
 }) {
   const started = new Date(meeting.session.startedAt);
   const ended = meeting.session.endedAt
@@ -2290,8 +2972,17 @@ function MeetingHistoryRow({
         </span>
         <div className="history-actions">
           <button
+            className="button"
+            id={`history-details-${meeting.session.id}`}
+            onClick={onOpen}
+          >
+            View details
+          </button>
+          <button
             className="button history-transcript-button"
-            onClick={() => void openMeetingTranscript(meeting.session.id)}
+            onClick={() =>
+              void openMeetingTranscript(meeting.session.id).catch(onError)
+            }
           >
             <FolderOpen width={13} height={13} /> Show transcript file
           </button>
@@ -2516,223 +3207,6 @@ const conversationLanguages = [
   { value: "su", label: "Sundanese" },
 ];
 
-const transcriptionModels: Record<
-  AppSettings["transcriptionProvider"],
-  Array<{
-    value: string;
-    label: string;
-    languages: string[];
-  }>
-> = {
-  deepgram: [
-    {
-      value: "nova-3",
-      label: "Nova-3",
-      languages: [
-        "multi",
-        "ar",
-        "ar-AE",
-        "ar-SA",
-        "ar-QA",
-        "ar-KW",
-        "ar-SY",
-        "ar-LB",
-        "ar-PS",
-        "ar-JO",
-        "ar-EG",
-        "ar-SD",
-        "ar-TD",
-        "ar-MA",
-        "ar-DZ",
-        "ar-TN",
-        "ar-IQ",
-        "ar-IR",
-        "be",
-        "bn",
-        "bs",
-        "bg",
-        "ca",
-        "zh-HK",
-        "zh",
-        "zh-CN",
-        "zh-Hans",
-        "zh-TW",
-        "zh-Hant",
-        "hr",
-        "cs",
-        "da",
-        "da-DK",
-        "nl",
-        "nl-BE",
-        "en",
-        "en-US",
-        "en-AU",
-        "en-GB",
-        "en-IN",
-        "en-NZ",
-        "et",
-        "fi",
-        "fr",
-        "fr-CA",
-        "de",
-        "de-CH",
-        "el",
-        "gu",
-        "gu-IN",
-        "he",
-        "hi",
-        "hu",
-        "id",
-        "it",
-        "ja",
-        "kn",
-        "ko",
-        "ko-KR",
-        "lv",
-        "lt",
-        "mk",
-        "ms",
-        "mr",
-        "no",
-        "fa",
-        "pl",
-        "pt",
-        "pt-BR",
-        "pt-PT",
-        "ro",
-        "ru",
-        "sr",
-        "sk",
-        "sl",
-        "es",
-        "es-419",
-        "sv",
-        "sv-SE",
-        "tl",
-        "ta",
-        "te",
-        "th",
-        "th-TH",
-        "tr",
-        "uk",
-        "ur",
-        "vi",
-      ],
-    },
-    {
-      value: "nova-3-medical",
-      label: "Nova-3 Medical",
-      languages: [
-        "en",
-        "en-US",
-        "en-AU",
-        "en-CA",
-        "en-GB",
-        "en-IE",
-        "en-IN",
-        "en-NZ",
-      ],
-    },
-    {
-      value: "nova-2",
-      label: "Nova-2",
-      languages: [
-        "multi",
-        "bg",
-        "ca",
-        "zh",
-        "zh-CN",
-        "zh-Hans",
-        "zh-TW",
-        "zh-Hant",
-        "zh-HK",
-        "cs",
-        "da",
-        "da-DK",
-        "nl",
-        "nl-BE",
-        "en",
-        "en-US",
-        "en-AU",
-        "en-GB",
-        "en-NZ",
-        "en-IN",
-        "et",
-        "fi",
-        "fr",
-        "fr-CA",
-        "de",
-        "de-CH",
-        "el",
-        "hi",
-        "hu",
-        "id",
-        "it",
-        "ja",
-        "ko",
-        "ko-KR",
-        "lv",
-        "lt",
-        "ms",
-        "no",
-        "pl",
-        "pt",
-        "pt-BR",
-        "pt-PT",
-        "ro",
-        "ru",
-        "sk",
-        "es",
-        "es-419",
-        "sv",
-        "sv-SE",
-        "th",
-        "th-TH",
-        "tr",
-        "uk",
-        "vi",
-      ],
-    },
-    {
-      value: "nova-2-conversationalai",
-      label: "Nova-2 Conversational AI",
-      languages: ["en", "en-US"],
-    },
-    {
-      value: "nova-2-medical",
-      label: "Nova-2 Medical",
-      languages: ["en", "en-US"],
-    },
-    {
-      value: "nova-2-phonecall",
-      label: "Nova-2 Phone Call",
-      languages: ["en", "en-US"],
-    },
-  ],
-  assemblyAi: [
-    {
-      value: "u3-rt-pro",
-      label: "Universal-3 Pro Streaming",
-      languages: ["multi", "en", "es", "fr", "de", "it", "pt"],
-    },
-    {
-      value: "universal-streaming-english",
-      label: "Universal Streaming English",
-      languages: ["en"],
-    },
-    {
-      value: "universal-streaming-multilingual",
-      label: "Universal Streaming Multilingual",
-      languages: ["multi"],
-    },
-    {
-      value: "whisper-rt",
-      label: "Whisper Streaming",
-      languages: ["multi"],
-    },
-  ],
-};
-
 function languageOptions(
   model: (typeof transcriptionModels)[AppSettings["transcriptionProvider"]][number],
 ) {
@@ -2754,6 +3228,8 @@ function SettingsView({
   saving: boolean;
   onSave: (patch: Partial<AppSettings>) => Promise<boolean>;
 }) {
+  const [configureProviders, setConfigureProviders] = useState(false);
+  const [confirmSwitch, setConfirmSwitch] = useState(false);
   const [inputs, setInputs] = useState<AudioDevice[]>([]);
   const [outputs, setOutputs] = useState<AudioDevice[]>([]);
   const [paths, setPaths] = useState<AppPaths | null>(null);
@@ -2781,7 +3257,11 @@ function SettingsView({
   }, [section]);
 
   useEffect(() => {
-    if (section !== "models") return;
+    if (
+      section !== "models" ||
+      (settings?.serviceMode === "managed" && !configureProviders)
+    )
+      return;
     let cancelled = false;
     void getTranscriptionKeyStatus()
       .then((status) => {
@@ -2794,7 +3274,7 @@ function SettingsView({
           );
         }
       });
-    void getRecommendationProviderStatus()
+    void getRecommendationProviderStatus(configureProviders)
       .then((status) => {
         if (!cancelled) setProviderHealth(status);
       })
@@ -2802,7 +3282,7 @@ function SettingsView({
     return () => {
       cancelled = true;
     };
-  }, [section]);
+  }, [section, settings?.serviceMode, configureProviders]);
 
   useEffect(() => {
     if (section !== "about") return;
@@ -2840,7 +3320,18 @@ function SettingsView({
             />
           </PreferenceRow>
         </SettingsGroup>
+        <AudioCheck
+          managed={settings.serviceMode === "managed"}
+          microphoneOnly={settings.microphoneOnly}
+        />
         <SettingsGroup title="Sound">
+          <ToggleSetting
+            title="Microphone only"
+            detail="Hear your microphone without capturing system audio. Change between meetings."
+            checked={settings.microphoneOnly}
+            disabled={saving}
+            onChange={(microphoneOnly) => onSave({ microphoneOnly })}
+          />
           <SettingSelect
             title="Microphone"
             detail="Uses the system default if your preferred microphone is disconnected."
@@ -2927,6 +3418,18 @@ function SettingsView({
   }
 
   if (section === "models") {
+    if (settings.serviceMode === "managed" && !configureProviders)
+      return (
+        <div className="page-content preference-page">
+          <ManagedAccount />
+          <button
+            className="button secondary"
+            onClick={() => setConfigureProviders(true)}
+          >
+            Configure your own providers
+          </button>
+        </div>
+      );
     const selectedProvider = settings.transcriptionProvider;
     const selectedTranscriptionModel =
       transcriptionModels[selectedProvider].find(
@@ -2935,6 +3438,46 @@ function SettingsView({
     const configured = keyStatus?.[selectedProvider] ?? false;
     return (
       <div className="page-content preference-page">
+        {confirmSwitch && (
+          <ConfirmDialog
+            title="Use your own providers?"
+            confirm="Switch providers"
+            onCancel={() => setConfirmSwitch(false)}
+            onConfirm={() => {
+              setConfirmSwitch(false);
+              void onSave({ serviceMode: "byok" });
+            }}
+          >
+            <p>
+              Configure transcription and AI below before switching. End your
+              meeting first. Your Savvy account and subscription stay active.
+            </p>
+          </ConfirmDialog>
+        )}
+        <SettingsGroup title="Provider path">
+          <SettingSelect
+            title="Service mode"
+            detail="Change between meetings. Switching does not cancel billing or delete your keys."
+            value={settings.serviceMode}
+            options={[
+              { value: "byok", label: "Use your own providers" },
+              { value: "managed", label: "Savvy managed" },
+            ]}
+            onChange={(value) =>
+              value === "byok" && settings.serviceMode === "managed"
+                ? setConfirmSwitch(true)
+                : onSave({ serviceMode: value as AppSettings["serviceMode"] })
+            }
+          />
+        </SettingsGroup>
+        <ManagedAccount />
+        {settings.serviceMode === "managed" ? (
+          <p>
+            Savvy supplies Deepgram Nova-3 transcription and Claude reasoning.
+            Personal provider settings below apply only when you select your own
+            providers.
+          </p>
+        ) : null}
         <SettingsGroup title="Live Transcript">
           <SettingSelect
             title="Transcription Provider"
@@ -2987,7 +3530,7 @@ function SettingsView({
           />
           <PreferenceRow
             title="API Key"
-            detail="Saved securely in macOS Keychain and never written to Savvy settings."
+            detail="Checked directly with your provider before saving in macOS Keychain. No audio is sent during this check."
             disabled={keyBusy}
           >
             <span className="credential-control">
@@ -3490,8 +4033,10 @@ function ToggleSetting({
         role="switch"
         aria-label={title}
         aria-checked={checked}
-        disabled={disabled}
-        onClick={() => onChange(!checked)}
+        aria-disabled={disabled}
+        onClick={() => {
+          if (!disabled) onChange(!checked);
+        }}
       >
         <i />
       </button>
@@ -3513,6 +4058,21 @@ function ShortcutEditor({
   const pressedKeys = useRef(new Set<string>());
   const pendingShortcut = useRef<string | null>(null);
 
+  const mounted = useRef(false);
+  const suspended = useRef(false);
+  const restore = useCallback(() => {
+    if (!suspended.current) return;
+    suspended.current = false;
+    void setShortcutRecording(false).catch(() => undefined);
+  }, []);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      restore();
+    };
+  }, [restore]);
+
   useEffect(() => {
     if (!recording) return;
 
@@ -3524,7 +4084,7 @@ function ShortcutEditor({
 
     function cancelCapture() {
       resetCapture();
-      void setShortcutRecording(false);
+      restore();
     }
 
     function handleKeyDown(event: KeyboardEvent) {
@@ -3558,7 +4118,7 @@ function ShortcutEditor({
       const shortcut = pendingShortcut.current;
       resetCapture();
       void onChange(shortcut)
-        .finally(() => setShortcutRecording(false))
+        .finally(restore)
         .catch(() => undefined);
     }
 
@@ -3573,8 +4133,9 @@ function ShortcutEditor({
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
       window.removeEventListener("mousedown", handleClickOutside);
+      restore();
     };
-  }, [onChange, recording]);
+  }, [onChange, recording, restore]);
 
   return (
     <span className="shortcut-control" ref={controlRef}>
@@ -3585,7 +4146,11 @@ function ShortcutEditor({
         aria-label="Change start listening shortcut"
         onClick={() => {
           void setShortcutRecording(true)
-            .then(() => setRecording(true))
+            .then(() => {
+              suspended.current = true;
+              if (mounted.current) setRecording(true);
+              else restore();
+            })
             .catch(() => undefined);
         }}
       >
@@ -3651,6 +4216,7 @@ function Dropdown({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const ref = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
   const selected = options.find((option) => option.value === selectedValue);
 
   useEffect(() => {
@@ -3663,6 +4229,7 @@ function Dropdown({
     };
     const escape = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        trigger.current?.focus();
         setOpen(false);
         setQuery("");
       }
@@ -3678,6 +4245,7 @@ function Dropdown({
   return (
     <div className={`settings-dropdown ${compact ? "compact" : ""}`} ref={ref}>
       <button
+        ref={trigger}
         type="button"
         className="dropdown-control"
         disabled={disabled}
@@ -3717,6 +4285,7 @@ function Dropdown({
                 className={option.value === selectedValue ? "selected" : ""}
                 key={`${option.value}-${option.label}`}
                 onClick={() => {
+                  trigger.current?.focus();
                   onSelect(option.value);
                   setOpen(false);
                   setQuery("");
@@ -3742,11 +4311,13 @@ const updateStatusLabels: Record<UpdateStatus, string> = {
 };
 
 function AppFooter({
+  activity,
   settings,
   version,
   saving,
   onSave,
 }: {
+  activity?: string;
   settings: AppSettings | null;
   version: string;
   saving: boolean;
@@ -3791,7 +4362,11 @@ function AppFooter({
 
   return (
     <footer className="app-footer">
-      {settings ? (
+      {activity ? (
+        <span className="model-state">
+          <i /> {activity}
+        </span>
+      ) : settings ? (
         <Dropdown
           compact
           label="Reasoning model"
@@ -3822,8 +4397,10 @@ function AppFooter({
       <span className="footer-update">
         <button
           type="button"
-          disabled={updateStatus !== "idle"}
-          onClick={() => void handleUpdateCheck()}
+          aria-disabled={updateStatus !== "idle"}
+          onClick={() => {
+            if (updateStatus === "idle") void handleUpdateCheck();
+          }}
         >
           {updateStatusLabels[updateStatus]}
         </button>

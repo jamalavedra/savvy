@@ -152,9 +152,10 @@ export function mergeTranscriptTurn(
   turns: TranscriptTurn[],
   incoming: TranscriptTurn,
 ) {
-  const current = turns.filter(
+  const current = liveTranscriptWindow(turns).filter(
     (turn) => turn.isFinal || turn.channel !== incoming.channel,
   );
+  if (transcriptEncoder.encode(incoming.text).length > 8_192) return current;
   if (!incoming.isFinal) {
     const previousFinal = [...current]
       .reverse()
@@ -167,6 +168,7 @@ export function mergeTranscriptTurn(
       if (!incoming.text) return current;
     }
   }
+  turns = current;
   if (incoming.channel === "selfSpeaker") {
     if (echoCandidates(incoming, current, "other").length) return current;
   } else if (incoming.channel === "other") {
@@ -179,9 +181,25 @@ export function mergeTranscriptTurn(
   } else {
     turns = current;
   }
-  return [...turns, incoming].sort(
-    (left, right) => left.startMs - right.startMs || left.endMs - right.endMs,
+  return liveTranscriptWindow(
+    [...turns, incoming].sort(
+      (left, right) => left.startMs - right.startMs || left.endMs - right.endMs,
+    ),
   );
+}
+
+const transcriptEncoder = new TextEncoder();
+
+function liveTranscriptWindow(turns: TranscriptTurn[]) {
+  let start = turns.length;
+  let bytes = 0;
+  // Saved history is read separately; this is only the live reconciliation window.
+  while (start > Math.max(0, turns.length - 256)) {
+    bytes += transcriptEncoder.encode(turns[start - 1].text).length;
+    if (bytes > 256 * 1024) break;
+    start--;
+  }
+  return turns.slice(start);
 }
 
 function withoutRepeatedPrefix(text: string, prefix: string) {
@@ -206,6 +224,7 @@ function echoCandidates(
   turns: TranscriptTurn[],
   channel: TranscriptTurn["channel"],
 ) {
+  const comparisonBudget = { remaining: 65_536 };
   const candidates = turns.filter(
     (turn) =>
       turn.channel === channel &&
@@ -213,7 +232,7 @@ function echoCandidates(
       intervalGap(incoming, turn) <= 4_500,
   );
   const direct = candidates.filter((turn) =>
-    transcriptTurnsMatch(incoming, turn),
+    transcriptTurnsMatch(incoming, turn, comparisonBudget),
   );
   if (direct.length || !candidates.length) return direct;
   const combined = {
@@ -222,16 +241,28 @@ function echoCandidates(
     startMs: Math.min(...candidates.map((turn) => turn.startMs)),
     endMs: Math.max(...candidates.map((turn) => turn.endMs)),
   };
-  return transcriptTurnsMatch(incoming, combined) ? candidates : [];
+  return transcriptTurnsMatch(incoming, combined, comparisonBudget)
+    ? candidates
+    : [];
 }
 
-function transcriptTurnsMatch(left: TranscriptTurn, right: TranscriptTurn) {
+function transcriptTurnsMatch(
+  left: TranscriptTurn,
+  right: TranscriptTurn,
+  budget: { remaining: number },
+) {
   const leftWords = words(left.text);
   const rightWords = words(right.text);
   if (!leftWords.length || !rightWords.length) return false;
   const short = Math.min(leftWords.length, rightWords.length) <= 2;
   if (intervalGap(left, right) > (short ? 1_500 : 4_500)) return false;
   if (short) return leftWords.join(" ") === rightWords.join(" ");
+  if (leftWords.join(" ") === rightWords.join(" ")) return true;
+  const work = leftWords.length * rightWords.length;
+  // ponytail: keep possible echoes when fuzzy matching exceeds this per-event
+  // budget; use a bounded matching algorithm if long-form echo accuracy matters.
+  if (work > budget.remaining) return false;
+  budget.remaining -= work;
   return orderedCoverage(leftWords, rightWords) >= 0.7;
 }
 

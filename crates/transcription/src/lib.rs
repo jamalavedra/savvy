@@ -4,15 +4,85 @@ use savvy_audio::{downmix_to_mono, AudioFrame, AudioSource};
 use savvy_domain::SpeakerChannel;
 use serde_json::Value;
 use std::collections::VecDeque;
+use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 use thiserror::Error;
-use tokio::sync::{mpsc::UnboundedSender, watch};
+use tokio::sync::{mpsc::Sender, watch};
 use tokio_tungstenite::{
-    connect_async,
-    tungstenite::{client::IntoClientRequest, http::HeaderValue, Message},
+    connect_async_with_config,
+    tungstenite::{
+        client::IntoClientRequest, http::HeaderValue, protocol::WebSocketConfig, Message,
+    },
 };
 
 const ASSUMED_CONFIDENCE: f32 = 0.8;
+const MAX_PROVIDER_MESSAGE: usize = 65_536;
+const MAX_TRANSCRIPT_BYTES: usize = 8_192;
+const MAX_TRANSCRIPT_WORDS: usize = 256;
+const MAX_RECONCILE_HISTORY: usize = 32;
+static STREAM_EPOCH: LazyLock<Instant> = LazyLock::new(Instant::now);
+
+fn socket_config() -> WebSocketConfig {
+    WebSocketConfig::default()
+        .max_message_size(Some(MAX_PROVIDER_MESSAGE))
+        .max_frame_size(Some(MAX_PROVIDER_MESSAGE))
+        .write_buffer_size(0)
+        .max_write_buffer_size(MAX_PROVIDER_MESSAGE)
+}
+
+fn incoming_message(window: &mut (Instant, u32)) -> Result<(), TranscriptionError> {
+    if window.0.elapsed() >= Duration::from_secs(1) {
+        *window = (Instant::now(), 0);
+    }
+    window.1 += 1;
+    if window.1 > 64 {
+        return Err(TranscriptionError::Failed(
+            "provider message rate exceeded".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn rebase_transcript(mut transcript: LiveTranscript, epoch_ms: u64) -> LiveTranscript {
+    transcript.start_ms = transcript.start_ms.saturating_add(epoch_ms);
+    transcript.end_ms = transcript.end_ms.saturating_add(epoch_ms);
+    transcript
+}
+
+async fn deliver_transcript(
+    sender: &Sender<LiveTranscript>,
+    transcript: LiveTranscript,
+    epoch_ms: u64,
+    stop: &mut watch::Receiver<bool>,
+) -> Result<bool, TranscriptionError> {
+    tokio::select! {
+        _ = stop.changed() => Ok(false),
+        result = tokio::time::timeout(Duration::from_millis(500), sender.send(rebase_transcript(transcript, epoch_ms))) => {
+            result.map_err(|_| TranscriptionError::Failed("transcript consumer stalled".into()))?
+                .map_err(|_| TranscriptionError::Failed("transcript consumer closed".into()))?;
+            Ok(true)
+        }
+    }
+}
+
+async fn write_message<S>(
+    writer: &mut S,
+    message: Message,
+    stop: &mut watch::Receiver<bool>,
+) -> Result<bool, TranscriptionError>
+where
+    S: futures_util::Sink<Message> + Unpin,
+    S::Error: std::fmt::Display,
+{
+    tokio::select! {
+        _ = stop.changed() => Ok(false),
+        result = tokio::time::timeout(Duration::from_millis(500), writer.send(message)) => {
+            result.map_err(|_| TranscriptionError::Failed("provider write stalled".into()))?
+                .map_err(|error| TranscriptionError::Failed(format!("provider write failed: {error}")))?;
+            Ok(true)
+        }
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum TranscriptionError {
@@ -88,11 +158,18 @@ impl CrossStreamReconciler {
                 if let Some((score, delta_ms)) = echo_match(&transcript, &self.recent_system) {
                     vec![ReconciledTranscript::Suppressed { score, delta_ms }]
                 } else {
+                    let overflow = if self.pending_microphone.len() >= MAX_RECONCILE_HISTORY {
+                        self.pending_microphone
+                            .pop_front()
+                            .map(|item| ReconciledTranscript::Emit(item.transcript))
+                    } else {
+                        None
+                    };
                     self.pending_microphone.push_back(TimedTranscript {
                         transcript,
                         received_at: now,
                     });
-                    Vec::new()
+                    overflow.into_iter().collect()
                 }
             }
             AudioSource::System => {
@@ -100,6 +177,9 @@ impl CrossStreamReconciler {
                     transcript: transcript.clone(),
                     received_at: now,
                 });
+                if self.recent_system.len() > MAX_RECONCILE_HISTORY {
+                    self.recent_system.pop_front();
+                }
                 let mut output = vec![ReconciledTranscript::Emit(transcript)];
                 let mut index = 0;
                 while index < self.pending_microphone.len() {
@@ -160,6 +240,9 @@ fn echo_match(
     if microphone_words.is_empty() {
         return None;
     }
+    if microphone_words.len() > MAX_TRANSCRIPT_WORDS * 2 {
+        return None;
+    }
     let candidates = system
         .iter()
         .filter(|candidate| {
@@ -181,6 +264,7 @@ fn echo_match(
     let system_words = candidates
         .iter()
         .flat_map(|candidate| normalized_words(&candidate.transcript.text))
+        .take(MAX_TRANSCRIPT_WORDS * 4)
         .collect::<Vec<_>>();
     let score = ordered_token_coverage(&microphone_words, &system_words);
     (score >= 0.70).then_some((score, delta_ms))
@@ -210,7 +294,7 @@ fn ordered_token_coverage(left: &[String], right: &[String]) -> f32 {
         }
         previous = current;
     }
-    previous[right.len()] as f32 / left.len().min(right.len()) as f32
+    previous[right.len()] as f32 / left.len() as f32
 }
 
 fn interval_gap_ms(left: &LiveTranscript, right: &LiveTranscript) -> u64 {
@@ -236,6 +320,71 @@ struct PendingTurn {
 pub struct TurnAssembler {
     microphone: Option<PendingTurn>,
     system: Option<PendingTurn>,
+}
+
+/// Drain accepted final segments before a paused/stopped consumer writes history.
+/// A stopped producer gets two seconds to close; late sends then fail on the old receiver.
+pub async fn assemble_transcripts(
+    mut transcript_receiver: tokio::sync::mpsc::Receiver<LiveTranscript>,
+    mut stop: tokio::sync::watch::Receiver<bool>,
+    system_available: bool,
+    mut on_final: impl FnMut(ReconciledTranscript),
+    mut on_interim: impl FnMut(LiveTranscript),
+    mut on_tick: impl FnMut(),
+) {
+    let mut assembler = TurnAssembler::default();
+    let mut reconciler = CrossStreamReconciler::new(system_available);
+    let mut endpoint_timer = tokio::time::interval(std::time::Duration::from_millis(100));
+    let mut stop_deadline = None;
+    loop {
+        if *stop.borrow() && stop_deadline.is_none() {
+            stop_deadline = Some(tokio::time::Instant::now() + std::time::Duration::from_secs(2));
+        }
+        if stop_deadline.is_some_and(|deadline| tokio::time::Instant::now() >= deadline) {
+            // Stop accepting late producer events, then drain the bounded queue.
+            transcript_receiver.close();
+        }
+        let (completed, flush_reconciler) = tokio::select! {
+            event = transcript_receiver.recv() => {
+                let Some(event) = event else { break };
+                if event.kind == TranscriptEventKind::Interim {
+                    on_interim(event);
+                    (Vec::new(), false)
+                } else {
+                    (assembler.push(event).into_iter().collect(), false)
+                }
+            }
+            _ = endpoint_timer.tick() => {
+                (assembler.flush_expired(std::time::Duration::from_millis(900)), true)
+            }
+            _ = stop.changed(), if stop_deadline.is_none() => {
+                stop_deadline = Some(tokio::time::Instant::now() + std::time::Duration::from_secs(2));
+                continue;
+            }
+        };
+        let now = std::time::Instant::now();
+        let mut reconciled = completed
+            .into_iter()
+            .flat_map(|transcript| reconciler.push(transcript, now))
+            .collect::<Vec<_>>();
+        if flush_reconciler {
+            reconciled.extend(reconciler.flush_due(now));
+        }
+        for transcript in reconciled {
+            on_final(transcript);
+        }
+        if flush_reconciler && stop_deadline.is_none() {
+            on_tick();
+        }
+    }
+    for transcript in assembler.flush_expired(std::time::Duration::ZERO) {
+        for reconciled in reconciler.push(transcript, std::time::Instant::now()) {
+            on_final(reconciled);
+        }
+    }
+    for transcript in reconciler.drain_pending() {
+        on_final(transcript);
+    }
 }
 
 impl TurnAssembler {
@@ -270,6 +419,15 @@ impl TurnAssembler {
                 pending.start_ms = pending.start_ms.min(event.start_ms);
                 pending.end_ms = pending.end_ms.max(event.end_ms);
                 pending.updated_at = std::time::Instant::now();
+                let complete = complete
+                    || pending.parts.len() >= 16
+                    || pending.parts.iter().map(String::len).sum::<usize>() >= MAX_TRANSCRIPT_BYTES
+                    || pending
+                        .parts
+                        .iter()
+                        .map(|part| normalized_words(part).len())
+                        .sum::<usize>()
+                        >= MAX_TRANSCRIPT_WORDS;
                 complete.then(|| self.finish(source)).flatten()
             }
         }
@@ -328,8 +486,8 @@ pub async fn stream_transcription(
     language: &str,
     api_key: &str,
     frames: Receiver<AudioFrame>,
-    mut stop: watch::Receiver<bool>,
-    transcripts: UnboundedSender<LiveTranscript>,
+    stop: watch::Receiver<bool>,
+    transcripts: Sender<LiveTranscript>,
     source: AudioSource,
 ) -> Result<(), TranscriptionError> {
     if api_key.trim().is_empty() {
@@ -348,14 +506,43 @@ pub async fn stream_transcription(
         HeaderValue::from_str(&authorization)
             .map_err(|_| TranscriptionError::Failed("invalid API key".into()))?,
     );
-    let (socket, _) =
-        tokio::time::timeout(std::time::Duration::from_secs(10), connect_async(request))
-            .await
-            .map_err(|_| TranscriptionError::Failed("provider connection timed out".into()))?
-            .map_err(|error| {
-                TranscriptionError::Failed(format!("provider connection failed: {error}"))
-            })?;
+    stream_provider_socket(
+        request,
+        provider,
+        language,
+        frames,
+        stop,
+        transcripts,
+        source,
+    )
+    .await
+}
+
+async fn stream_provider_socket(
+    request: tokio_tungstenite::tungstenite::http::Request<()>,
+    provider: StreamingProvider,
+    language: &str,
+    frames: Receiver<AudioFrame>,
+    mut stop: watch::Receiver<bool>,
+    transcripts: Sender<LiveTranscript>,
+    source: AudioSource,
+) -> Result<(), TranscriptionError> {
+    if *stop.borrow() {
+        return Ok(());
+    }
+    while frames.try_recv().is_ok() {}
+    let connection = tokio::select! {
+        result = tokio::time::timeout(Duration::from_secs(10), connect_async_with_config(request, Some(socket_config()), false)) => result,
+        _ = stop.changed() => return Ok(()),
+    };
+    let (socket, _) = connection
+        .map_err(|_| TranscriptionError::Failed("provider connection timed out".into()))?
+        .map_err(|error| {
+            TranscriptionError::Failed(format!("provider connection failed: {error}"))
+        })?;
     let (mut writer, mut reader) = socket.split();
+    let connection_epoch = STREAM_EPOCH.elapsed().as_millis() as u64;
+    let mut incoming = (Instant::now(), 0);
     let mut keepalive = tokio::time::interval(std::time::Duration::from_secs(5));
     keepalive.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     keepalive.tick().await;
@@ -371,8 +558,10 @@ pub async fn stream_transcription(
                     StreamingProvider::Deepgram => r#"{"type":"CloseStream"}"#,
                     StreamingProvider::AssemblyAi => r#"{"type":"Terminate"}"#,
                 };
-                let _ = writer.send(Message::Text(close.into())).await;
-                let _ = writer.close().await;
+                let _ = tokio::time::timeout(Duration::from_millis(500), async {
+                    writer.send(Message::Text(close.into())).await?;
+                    writer.close().await
+                }).await;
                 return Ok(());
             }
             _ = keepalive.tick() => {
@@ -380,30 +569,31 @@ pub async fn stream_transcription(
                     StreamingProvider::Deepgram => Message::Text(r#"{"type":"KeepAlive"}"#.into()),
                     StreamingProvider::AssemblyAi => Message::Ping(Vec::new().into()),
                 };
-                writer.send(keepalive).await
-                    .map_err(|error| TranscriptionError::Failed(format!("provider keepalive failed: {error}")))?;
+                if !write_message(&mut writer, keepalive, &mut stop).await? { return Ok(()); }
             }
             frame = frames.recv_async() => {
                 let frame = frame.map_err(|_| TranscriptionError::Failed("microphone stream ended".into()))?;
-                audio_buffer.extend(frame_to_pcm16(&frame));
+                let pcm = frame_to_pcm16(&frame);
+                if pcm.len() > 32_000 { continue; }
+                if audio_buffer.len() + pcm.len() > 32_000 { audio_buffer.clear(); }
+                audio_buffer.extend(pcm);
                 while let Some(chunk) = take_streaming_chunk(&mut audio_buffer) {
-                    writer.send(Message::Binary(chunk.into())).await
-                        .map_err(|error| TranscriptionError::Failed(format!("provider audio send failed: {error}")))?;
+                    if !write_message(&mut writer, Message::Binary(chunk.into()), &mut stop).await? { return Ok(()); }
                 }
             }
             message = reader.next() => {
+                if message.is_some() { incoming_message(&mut incoming)?; }
                 match message {
                     Some(Ok(Message::Text(text))) => {
                         if let Some(error) = parse_provider_error(text.as_ref()) {
                             return Err(TranscriptionError::Failed(error));
                         }
                         if let Some(transcript) = parse_provider_message(provider, text.as_ref(), language, source) {
-                            let _ = transcripts.send(transcript);
+                            if !deliver_transcript(&transcripts, transcript, connection_epoch, &mut stop).await? { return Ok(()); }
                         }
                     }
                     Some(Ok(Message::Ping(payload))) => {
-                        writer.send(Message::Pong(payload)).await
-                            .map_err(|error| TranscriptionError::Failed(format!("provider keepalive failed: {error}")))?;
+                        if !write_message(&mut writer, Message::Pong(payload), &mut stop).await? { return Ok(()); }
                     }
                     Some(Ok(Message::Close(_))) | None => {
                         return Err(TranscriptionError::Failed("provider connection closed".into()));
@@ -416,6 +606,139 @@ pub async fn stream_transcription(
             }
         }
     }
+}
+
+/// Managed transcription: the same PCM stream goes to Savvy's relay instead of
+/// a provider socket, and the relay forwards provider transcript JSON back
+/// unchanged, so the existing parser, assembler, and reconciler are reused.
+/// Returns the relay's control reason when the server ends the stream (for
+/// example `quota_exhausted`), so the desktop can show the right message.
+#[allow(clippy::too_many_arguments)]
+pub async fn stream_managed_transcription(
+    service_url: &str,
+    session_id: &str,
+    access_token: &str,
+    language: &str,
+    lease_version: u64,
+    frames: Receiver<AudioFrame>,
+    mut stop: watch::Receiver<bool>,
+    transcripts: Sender<LiveTranscript>,
+    source: AudioSource,
+) -> Result<(), TranscriptionError> {
+    let source_name = match source {
+        AudioSource::Microphone => "microphone",
+        AudioSource::System => "system",
+    };
+    let url = format!(
+        "{}/v1/sessions/{session_id}/audio/{source_name}?language={language}&leaseVersion={lease_version}",
+        service_url.trim_end_matches('/').replacen("http", "ws", 1)
+    );
+    let mut request = url
+        .into_client_request()
+        .map_err(|_| TranscriptionError::Failed("invalid Savvy service endpoint".into()))?;
+    request.headers_mut().insert(
+        "Authorization",
+        HeaderValue::from_str(&format!("Bearer {access_token}"))
+            .map_err(|_| TranscriptionError::Failed("invalid account credential".into()))?,
+    );
+    if *stop.borrow() {
+        return Ok(());
+    }
+    while frames.try_recv().is_ok() {}
+    let connection = tokio::select! {
+        result=tokio::time::timeout(Duration::from_secs(10),connect_async_with_config(request, Some(socket_config()), false))=>result,
+        _=stop.changed()=>return Ok(()),
+    };
+    let (socket, _) = connection
+        .map_err(|_| TranscriptionError::Failed("Savvy service connection timed out".into()))?
+        .map_err(|error| {
+            if let tokio_tungstenite::tungstenite::Error::Http(response) = &error {
+                if let Some(body) = response.body() {
+                    if let Ok(value) = serde_json::from_slice::<Value>(body) {
+                        if let Some(code) = value["code"].as_str() {
+                            return TranscriptionError::Failed(code.to_owned());
+                        }
+                    }
+                }
+            }
+            TranscriptionError::Failed("provider_unavailable: Savvy connection failed".into())
+        })?;
+    let (mut writer, mut reader) = socket.split();
+    let connection_epoch = STREAM_EPOCH.elapsed().as_millis() as u64;
+    let mut incoming = (Instant::now(), 0);
+    let mut audio_buffer = Vec::with_capacity(STREAMING_CHUNK_BYTES * 2);
+
+    loop {
+        tokio::select! {
+            changed = stop.changed() => {
+                if changed.is_ok() && !*stop.borrow() {
+                    continue;
+                }
+                let _ = tokio::time::timeout(Duration::from_millis(500),writer.close()).await;
+                return Ok(());
+            }
+            frame = frames.recv_async() => {
+                let frame = frame.map_err(|_| TranscriptionError::Failed("capture stream ended".into()))?;
+                let pcm=frame_to_pcm16(&frame);
+                if pcm.len()>32_000 {continue;}
+                if audio_buffer.len()+pcm.len()>32_000 {audio_buffer.clear();}
+                audio_buffer.extend(pcm);
+                while let Some(chunk) = take_streaming_chunk(&mut audio_buffer) {
+                    tokio::select! {
+                        result=tokio::time::timeout(Duration::from_millis(500),writer.send(Message::Binary(chunk.into())))=>{
+                            if !matches!(result,Ok(Ok(()))) {return Err(TranscriptionError::Failed("provider_unavailable: audio write stalled".into()));}
+                        }
+                        _=stop.changed()=>return Ok(()),
+                    }
+                }
+            }
+            message = reader.next() => {
+                if message.is_some() { incoming_message(&mut incoming)?; }
+                match message {
+                    Some(Ok(Message::Text(text))) => {
+                        if let Some(reason) = parse_control_message(text.as_ref()) {
+                            let _ = tokio::time::timeout(Duration::from_millis(500),writer.close()).await;
+                            return Err(TranscriptionError::Failed(reason));
+                        }
+                        if let Some(error) = parse_provider_error(text.as_ref()) {
+                            return Err(TranscriptionError::Failed(error));
+                        }
+                        if let Some(transcript) = parse_provider_message(
+                            StreamingProvider::Deepgram, text.as_ref(), language, source
+                        ) {
+                            if !deliver_transcript(&transcripts, transcript, connection_epoch, &mut stop).await? { return Ok(()); }
+                        }
+                    }
+                    Some(Ok(Message::Ping(payload))) => {
+                        if !matches!(tokio::time::timeout(Duration::from_millis(500),writer.send(Message::Pong(payload))).await,Ok(Ok(()))) {return Err(TranscriptionError::Failed("provider_unavailable: socket stalled".into()));}
+                    }
+                    Some(Ok(Message::Close(_))) | None => {
+                        return Err(TranscriptionError::Failed(
+                            "Savvy service closed the transcription stream".into(),
+                        ));
+                    }
+                    Some(Err(error)) => {
+                        return Err(TranscriptionError::Failed(
+                            format!("Savvy service receive failed: {error}"),
+                        ));
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+}
+
+/// Relay control frames carry a typed reason such as `quota_exhausted`.
+fn parse_control_message(message: &str) -> Option<String> {
+    let value: Value = serde_json::from_str(message).ok()?;
+    (value.get("type").and_then(Value::as_str) == Some("SavvyControl")).then(|| {
+        value
+            .get("reason")
+            .and_then(Value::as_str)
+            .unwrap_or("provider_unavailable")
+            .to_owned()
+    })
 }
 
 fn take_streaming_chunk(buffer: &mut Vec<u8>) -> Option<Vec<u8>> {
@@ -494,11 +817,20 @@ fn parse_provider_message(
     configured_language: &str,
     source: AudioSource,
 ) -> Option<LiveTranscript> {
+    if message.len() > MAX_PROVIDER_MESSAGE {
+        return None;
+    }
     let value: Value = serde_json::from_str(message).ok()?;
-    match provider {
+    let transcript = match provider {
         StreamingProvider::Deepgram => parse_deepgram(value, configured_language, source),
         StreamingProvider::AssemblyAi => parse_assembly_ai(value, configured_language, source),
-    }
+    }?;
+    (transcript.text.len() <= MAX_TRANSCRIPT_BYTES
+        && transcript.language.len() <= 32
+        && transcript.end_ms >= transcript.start_ms
+        && transcript.end_ms - transcript.start_ms <= 300_000
+        && normalized_words(&transcript.text).len() <= MAX_TRANSCRIPT_WORDS)
+        .then_some(transcript)
 }
 
 fn parse_deepgram(
@@ -554,7 +886,7 @@ fn parse_deepgram(
                 .and_then(Value::as_str),
         ),
         start_ms,
-        end_ms: start_ms + duration_ms,
+        end_ms: start_ms.checked_add(duration_ms)?,
         confidence: alternative
             .get("confidence")
             .and_then(Value::as_f64)
@@ -575,6 +907,9 @@ fn parse_assembly_ai(
         return None;
     }
     let words = value.get("words").and_then(Value::as_array);
+    if words.is_some_and(|words| words.len() > MAX_TRANSCRIPT_WORDS) {
+        return None;
+    }
     let start_ms = words
         .and_then(|words| words.first())
         .and_then(|word| word.get("start"))
@@ -659,7 +994,232 @@ pub fn resample_linear(samples: &[f32], source_rate: u32, target_rate: u32) -> V
 
 #[cfg(test)]
 mod tests {
+
+    #[tokio::test]
+    async fn both_transports_stop_during_stalled_handshakes_and_writes() {
+        for (managed, handshake) in [(false, false), (false, true), (true, false), (true, true)] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+            let server = tokio::spawn(async move {
+                let (stream, _) = listener.accept().await.unwrap();
+                if handshake {
+                    let socket = tokio_tungstenite::accept_async(stream).await.unwrap();
+                    let _ = ready_tx.send(());
+                    std::future::pending::<()>().await;
+                    drop(socket);
+                } else {
+                    let _ = ready_tx.send(());
+                    std::future::pending::<()>().await;
+                    drop(stream);
+                }
+            });
+            let (frames_tx, frames_rx) = flume::bounded(2);
+            let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
+            let (transcripts, _) = tokio::sync::mpsc::channel(64);
+            let task = tokio::spawn(async move {
+                if !managed {
+                    return super::stream_provider_socket(
+                        format!("ws://{address}").into_client_request().unwrap(),
+                        super::StreamingProvider::Deepgram,
+                        "en",
+                        frames_rx,
+                        stop_rx,
+                        transcripts,
+                        super::AudioSource::Microphone,
+                    )
+                    .await;
+                }
+                super::stream_managed_transcription(
+                    &format!("http://{address}"),
+                    "00000000-0000-4000-8000-000000000001",
+                    "synthetic-access-token",
+                    "en",
+                    1,
+                    frames_rx,
+                    stop_rx,
+                    transcripts,
+                    super::AudioSource::Microphone,
+                )
+                .await
+            });
+            ready_rx.await.unwrap();
+            let producer = tokio::spawn(async move {
+                loop {
+                    if frames_tx
+                        .send_async(super::AudioFrame {
+                            source: super::AudioSource::Microphone,
+                            samples: vec![0.0; 16000],
+                            sample_rate: 16000,
+                            channels: 1,
+                            timestamp_ms: 0,
+                        })
+                        .await
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+            });
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            let start = std::time::Instant::now();
+            stop_tx.send(true).unwrap();
+            tokio::time::timeout(std::time::Duration::from_secs(1), task)
+                .await
+                .expect("stop must not wait for a blocked socket")
+                .unwrap()
+                .unwrap();
+            assert!(start.elapsed() < std::time::Duration::from_secs(1));
+            producer.abort();
+            server.abort();
+        }
+    }
     use super::*;
+
+    #[tokio::test]
+    async fn bounded_transcript_delivery_remains_cancellable() {
+        let (sender, _receiver) = tokio::sync::mpsc::channel(1);
+        let item = transcript(AudioSource::Microphone, "speech", 0, 100);
+        sender.send(item.clone()).await.unwrap();
+        let (stop, mut receiver) = watch::channel(false);
+        let task =
+            tokio::spawn(async move { deliver_transcript(&sender, item, 0, &mut receiver).await });
+        stop.send(true).unwrap();
+        assert!(!tokio::time::timeout(Duration::from_millis(100), task)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap());
+    }
+
+    #[tokio::test]
+    async fn provider_sockets_reject_oversized_messages_and_message_floods() {
+        for flood in [false, true] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move {
+                let (stream, _) = listener.accept().await.unwrap();
+                let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
+                for _ in 0..if flood { 65 } else { 1 } {
+                    let payload = if flood {
+                        "{}".to_owned()
+                    } else {
+                        "x".repeat(MAX_PROVIDER_MESSAGE + 1)
+                    };
+                    if socket.send(Message::Text(payload.into())).await.is_err() {
+                        break;
+                    }
+                }
+                std::future::pending::<()>().await;
+                drop(socket);
+            });
+            let (_frames, receiver) = flume::bounded(1);
+            let (_stop, stop) = watch::channel(false);
+            let (transcripts, mut output) = tokio::sync::mpsc::channel(1);
+            let result = tokio::time::timeout(
+                Duration::from_secs(2),
+                stream_provider_socket(
+                    format!("ws://{address}").into_client_request().unwrap(),
+                    StreamingProvider::Deepgram,
+                    "en",
+                    receiver,
+                    stop,
+                    transcripts,
+                    AudioSource::Microphone,
+                ),
+            )
+            .await;
+            server.abort();
+            assert!(result
+                .expect("hostile input must close the stream")
+                .is_err());
+            assert!(output.try_recv().is_err());
+        }
+    }
+
+    #[test]
+    fn rejects_oversized_supplier_fields_and_bounds_event_and_turn_work() {
+        let message = |text: &str| {
+            serde_json::json!({"type":"Turn", "transcript":text, "end_of_turn":true}).to_string()
+        };
+        for text in [
+            "a".repeat(MAX_TRANSCRIPT_BYTES + 1),
+            "word ".repeat(MAX_TRANSCRIPT_WORDS + 1),
+        ] {
+            assert!(parse_provider_message(
+                StreamingProvider::AssemblyAi,
+                &message(&text),
+                "en",
+                AudioSource::Microphone
+            )
+            .is_none());
+        }
+        assert!(parse_provider_message(StreamingProvider::Deepgram,
+            r#"{"type":"Results","start":1e100,"duration":1e100,"channel":{"alternatives":[{"transcript":"test"}]}}"#,
+            "en", AudioSource::Microphone).is_none());
+        let mut window = (Instant::now(), 0);
+        for _ in 0..64 {
+            incoming_message(&mut window).unwrap();
+        }
+        assert!(incoming_message(&mut window).is_err());
+        let mut assembler = TurnAssembler::default();
+        let mut emitted = 0;
+        for i in 0..160 {
+            let mut item = transcript(AudioSource::Microphone, &format!("segment {i}"), i, i + 1);
+            item.kind = TranscriptEventKind::SegmentFinal;
+            emitted += usize::from(assembler.push(item).is_some());
+            assert!(assembler
+                .microphone
+                .as_ref()
+                .is_none_or(|p| p.parts.len() < 16));
+        }
+        assert_eq!(emitted, 10);
+        let now = Instant::now();
+        let mut reconciler = CrossStreamReconciler::new(true);
+        for i in 0..100 {
+            reconciler.push(
+                transcript(AudioSource::System, &format!("remote word {i}"), 0, 100),
+                now,
+            );
+            reconciler.push(
+                transcript(
+                    AudioSource::Microphone,
+                    &format!("local question {i}"),
+                    0,
+                    100,
+                ),
+                now,
+            );
+        }
+        assert_eq!(reconciler.recent_system.len(), MAX_RECONCILE_HISTORY);
+        assert_eq!(reconciler.pending_microphone.len(), MAX_RECONCILE_HISTORY);
+    }
+
+    #[test]
+    fn a_single_reconnected_stream_shares_the_existing_echo_timeline() {
+        let now = Instant::now();
+        let mut reconciler = CrossStreamReconciler::new(true);
+        reconciler.push(
+            rebase_transcript(
+                transcript(
+                    AudioSource::System,
+                    "the same spoken phrase",
+                    100_000,
+                    101_000,
+                ),
+                0,
+            ),
+            now,
+        );
+        let restarted = rebase_transcript(
+            transcript(AudioSource::Microphone, "the same spoken phrase", 0, 1000),
+            100_000,
+        );
+        assert!(matches!(
+            reconciler.push(restarted, now)[0],
+            ReconciledTranscript::Suppressed { .. }
+        ));
+    }
 
     #[test]
     fn prepares_stereo_48khz_for_transcription() {
@@ -764,6 +1324,19 @@ mod tests {
     }
 
     #[test]
+    fn surfaces_relay_control_reasons() {
+        assert_eq!(
+            parse_control_message(r#"{"type":"SavvyControl","reason":"quota_exhausted"}"#)
+                .as_deref(),
+            Some("quota_exhausted")
+        );
+        assert_eq!(
+            parse_control_message(r#"{"type":"Results","is_final":true}"#),
+            None
+        );
+    }
+
+    #[test]
     fn surfaces_provider_error_messages() {
         let message =
             r#"{"type":"Error","error":"Unauthorized Connection: Too many concurrent sessions"}"#;
@@ -780,6 +1353,63 @@ mod tests {
             SpeakerChannel::SelfSpeaker
         );
         assert_eq!(speaker_channel(AudioSource::System), SpeakerChannel::Other);
+    }
+
+    #[tokio::test]
+    async fn assembly_drains_both_tails_before_return_and_rejects_late_events() {
+        for keep_producer_open in [false, true] {
+            let (sender, receiver) = tokio::sync::mpsc::channel(64);
+            let (stop_sender, stop) = tokio::sync::watch::channel(false);
+            for (source, text) in [
+                (AudioSource::Microphone, "My final local sentence"),
+                (AudioSource::System, "Their separate remote proposal"),
+            ] {
+                let mut event = transcript(source, text, 100, 200);
+                event.kind = TranscriptEventKind::SegmentFinal;
+                sender.send(event).await.unwrap();
+            }
+            let sender = if keep_producer_open {
+                stop_sender.send(true).unwrap();
+                Some(sender)
+            } else {
+                drop(sender);
+                None
+            };
+            let mut saved = Vec::new();
+            tokio::time::timeout(
+                Duration::from_secs(4),
+                assemble_transcripts(
+                    receiver,
+                    stop,
+                    true,
+                    |event| {
+                        if let ReconciledTranscript::Emit(turn) = event {
+                            saved.push(turn.text);
+                        }
+                    },
+                    |_| panic!("final segments must not become interim events"),
+                    || {},
+                ),
+            )
+            .await
+            .expect("assembly shutdown is bounded");
+            saved.sort();
+            assert_eq!(
+                saved,
+                ["My final local sentence", "Their separate remote proposal"]
+            );
+            if let Some(sender) = sender {
+                assert!(sender
+                    .send(transcript(
+                        AudioSource::Microphone,
+                        "late old stream",
+                        200,
+                        300
+                    ))
+                    .await
+                    .is_err());
+            }
+        }
     }
 
     #[test]
@@ -891,5 +1521,23 @@ mod tests {
             Instant::now(),
         );
         assert!(matches!(output[0], ReconciledTranscript::Emit(_)));
+    }
+
+    #[test]
+    fn preserves_microphone_speech_containing_a_short_system_phrase() {
+        let now = Instant::now();
+        let mut reconciler = CrossStreamReconciler::new(true);
+        reconciler.push(transcript(AudioSource::System, "yes proceed", 0, 1000), now);
+        let microphone = transcript(
+            AudioSource::Microphone,
+            "yes we should not proceed",
+            0,
+            1000,
+        );
+        assert!(reconciler.push(microphone.clone(), now).is_empty());
+        assert_eq!(
+            reconciler.flush_due(now + MICROPHONE_FINAL_HOLD),
+            vec![ReconciledTranscript::Emit(microphone)]
+        );
     }
 }

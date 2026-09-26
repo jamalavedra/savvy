@@ -35,7 +35,7 @@ The honest cost: Savvy produces guidance for one person, live. It is not a team 
 
 ## Reason four: you want to read the code, or not pay a seat
 
-Granola is a commercial product with per-seat pricing. Savvy is MIT-licensed and free, and you can read every line of how the audio is captured, what leaves the machine, and when a recommendation is triggered. There is no paid tier and no model markup, because Savvy has no model: it calls the Claude Code or Codex CLI already signed in on your Mac.
+Granola is a commercial product with per-seat pricing. Savvy is MIT-licensed and free, and you can read every line of how the audio is captured, what leaves the machine, and when a recommendation is triggered. With your own providers there is no model markup, because Savvy calls the Claude Code or Codex CLI already signed in on your Mac. Managed assistance is an optional paid plan, priced on the [pricing page](/pricing/).
 
 You still pay providers directly. A transcription key from Deepgram or AssemblyAI is billed per audio minute, which for streaming worked out to cents per hour of call at published 2026 rates. See [Deepgram or AssemblyAI](/blog/deepgram-vs-assemblyai-for-meeting-transcription/) for how to pick and what it costs.
 

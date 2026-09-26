@@ -59,6 +59,10 @@ fn tokenize(text: &str) -> HashSet<String> {
         .collect()
 }
 
+// Reasoning uses recent context; durable transcript storage retains every turn.
+const MAX_CONTEXT_TURNS: usize = 256;
+const MAX_CONTEXT_TEXT_BYTES: usize = 262_144;
+
 #[derive(Debug, Clone)]
 pub struct RollingContext {
     window_ms: u64,
@@ -84,6 +88,18 @@ impl RollingContext {
             .unwrap_or_default()
             .saturating_sub(self.window_ms);
         self.turns.retain(|item| item.end_ms >= cutoff);
+        // Keep whole turns and chronological order, even with repeated or delayed timestamps.
+        let mut bytes = 0;
+        let mut keep_from = self.turns.len();
+        for turn in self.turns.iter().rev().take(MAX_CONTEXT_TURNS) {
+            let turn_bytes = turn.text.len().saturating_add(turn.language.len());
+            if turn_bytes > MAX_CONTEXT_TEXT_BYTES - bytes {
+                break;
+            }
+            bytes += turn_bytes;
+            keep_from -= 1;
+        }
+        self.turns.drain(..keep_from);
     }
 
     pub fn turns(&self) -> &[TranscriptTurn] {
@@ -183,8 +199,8 @@ pub fn apply_ledger_updates(
     updates: impl IntoIterator<Item = LedgerItem>,
     allowed_turns: &HashSet<EntityId>,
 ) {
-    for update in updates {
-        if update.source_turn_ids.is_empty()
+    for update in updates.into_iter().take(8) {
+        if !update.is_bounded()
             || update
                 .source_turn_ids
                 .iter()
@@ -211,6 +227,15 @@ pub fn apply_ledger_updates(
             }
         }
         ledger.items.push(update);
+        while ledger
+            .items
+            .iter()
+            .map(LedgerItem::json_size_bound)
+            .sum::<usize>()
+            > 65534
+        {
+            ledger.items.remove(0);
+        }
     }
 }
 
@@ -259,6 +284,59 @@ mod tests {
                 confidence: 1.0,
             });
         }
+        assert_eq!(context.turns().len(), 1);
+    }
+
+    #[test]
+    fn rolling_context_bounds_bursts_without_changing_source_turns() {
+        let source = TranscriptTurn {
+            id: Uuid::new_v4(),
+            session_id: Uuid::new_v4(),
+            channel: SpeakerChannel::Other,
+            text: "é".repeat(4096),
+            language: "en".into(),
+            start_ms: 1_000,
+            end_ms: 2_000,
+            is_final: true,
+            confidence: 1.0,
+        };
+        for text in [String::from("x"), source.text.clone()] {
+            let mut context = RollingContext::new(90_000);
+            for _ in 0..10_000 {
+                let mut turn = source.clone();
+                turn.id = Uuid::new_v4();
+                turn.text = text.clone();
+                let latest_id = turn.id;
+                context.push(turn);
+                assert!(context.turns().len() <= MAX_CONTEXT_TURNS);
+                assert!(
+                    context
+                        .turns()
+                        .iter()
+                        .map(|t| t.text.len() + t.language.len())
+                        .sum::<usize>()
+                        <= MAX_CONTEXT_TEXT_BYTES
+                );
+                assert_eq!(context.turns().last().unwrap().id, latest_id);
+            }
+            let retained = context.turns().to_vec();
+            let mut delayed = source.clone();
+            delayed.start_ms = 0;
+            delayed.end_ms = 500;
+            context.push(delayed);
+            assert_eq!(context.turns().len(), retained.len());
+            assert_eq!(
+                context.turns().last().unwrap().id,
+                retained.last().unwrap().id
+            );
+        }
+        assert_eq!(source.text.len(), 8192);
+        let mut context = RollingContext::new(90_000);
+        let mut oversized = source.clone();
+        oversized.text = "x".repeat(MAX_CONTEXT_TEXT_BYTES + 1);
+        context.push(oversized);
+        assert!(context.turns().is_empty());
+        context.push(source);
         assert_eq!(context.turns().len(), 1);
     }
 
@@ -333,5 +411,48 @@ mod tests {
         assert!(!coordinator.finish_generation(scan));
         assert!(coordinator.accepts(question));
         assert_eq!(coordinator.active_trigger(), Some(Trigger::Question));
+    }
+    #[test]
+    fn repeated_ledger_updates_keep_a_bounded_recent_history() {
+        let turn = Uuid::new_v4();
+        let allowed = HashSet::from([turn]);
+        let mut ledger = MeetingLedger::default();
+        for index in 0..1000 {
+            apply_ledger_updates(
+                &mut ledger,
+                [LedgerItem {
+                    kind: savvy_domain::LedgerKind::Decision,
+                    text: format!("{index}:{}", "😀".repeat(500)),
+                    source_turn_ids: vec![turn],
+                }],
+                &allowed,
+            );
+            assert!(
+                ledger
+                    .items
+                    .iter()
+                    .map(LedgerItem::json_size_bound)
+                    .sum::<usize>()
+                    <= 65534
+            );
+            assert!(ledger.items.len() <= 12);
+        }
+        assert!(ledger.items.last().unwrap().text.starts_with("999:"));
+        let before = ledger.clone();
+        for item in [
+            LedgerItem {
+                kind: savvy_domain::LedgerKind::Decision,
+                text: "x".repeat(2049),
+                source_turn_ids: vec![turn],
+            },
+            LedgerItem {
+                kind: savvy_domain::LedgerKind::Decision,
+                text: "duplicate".into(),
+                source_turn_ids: vec![turn, turn],
+            },
+        ] {
+            apply_ledger_updates(&mut ledger, [item], &allowed);
+        }
+        assert_eq!(ledger, before);
     }
 }

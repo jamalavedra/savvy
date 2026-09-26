@@ -79,6 +79,8 @@ pub struct MicrophoneCapture {
 #[cfg(target_os = "macos")]
 pub struct SystemAudioCapture {
     stream: Option<SCStream>,
+    last_error: Arc<Mutex<Option<String>>>,
+    level: Arc<AtomicU32>,
     sender: Sender<AudioFrame>,
     receiver: Receiver<AudioFrame>,
 }
@@ -104,9 +106,33 @@ impl SystemAudioCapture {
         let (sender, receiver) = flume::bounded(64);
         Self {
             stream: None,
+            last_error: Arc::new(Mutex::new(None)),
+            level: Arc::new(AtomicU32::new(0)),
             sender,
             receiver,
         }
+    }
+
+    pub fn level(&self) -> Result<f32, AudioError> {
+        let error = self
+            .last_error
+            .lock()
+            .map_err(|_| AudioError::Capture("system audio error lock poisoned".into()))?;
+        if let Some(error) = error.as_ref() {
+            return Err(AudioError::Capture(format!(
+                "System audio capture stopped: {error}. Stop capture and start again to reconnect."
+            )));
+        }
+        Ok(f32::from_bits(self.level.load(Ordering::Relaxed)))
+    }
+
+    fn error_handler(&self) -> impl SCStreamDelegateTrait {
+        let errors = self.last_error.clone();
+        screencapturekit::stream::delegate_trait::ErrorHandler::new(move |error| {
+            if let Ok(mut slot) = errors.lock() {
+                *slot = Some(error.to_string());
+            }
+        })
     }
 
     pub fn frames(&self) -> Receiver<AudioFrame> {
@@ -537,7 +563,7 @@ fn send_input_frame(
     let _ = senders.0.try_send(frame);
 }
 
-fn rms_level(samples: &[f32]) -> f32 {
+pub fn rms_level(samples: &[f32]) -> f32 {
     if samples.is_empty() {
         return 0.0;
     }
@@ -639,6 +665,7 @@ impl AudioCapture for MicrophoneCapture {
 #[cfg(target_os = "macos")]
 impl AudioCapture for SystemAudioCapture {
     fn start(&mut self) -> Result<(), AudioError> {
+        self.level()?;
         if self.stream.is_some() {
             return Ok(());
         }
@@ -658,37 +685,47 @@ impl AudioCapture for SystemAudioCapture {
             .with_excludes_current_process_audio(true)
             .with_sample_rate(48_000)
             .with_channel_count(1);
+        self.level = Arc::new(AtomicU32::new(0));
+        let level = self.level.clone();
         let sender = self.sender.clone();
         let started = Instant::now();
-        let mut stream = SCStream::new(&filter, &configuration);
-        stream.add_output_handler(
-            move |sample: CMSampleBuffer, output_type: SCStreamOutputType| {
-                if output_type != SCStreamOutputType::Audio {
-                    return;
-                }
-                let Some(buffers) = sample.audio_buffer_list() else {
-                    return;
-                };
-                for buffer in &buffers {
-                    let samples = buffer
-                        .data()
-                        .chunks_exact(std::mem::size_of::<f32>())
-                        .map(|bytes| f32::from_le_bytes(bytes.try_into().expect("four-byte chunk")))
-                        .collect::<Vec<_>>();
-                    if samples.is_empty() {
-                        continue;
+        let mut stream = SCStream::new_with_delegate(&filter, &configuration, self.error_handler());
+        stream
+            .add_output_handler(
+                move |sample: CMSampleBuffer, output_type: SCStreamOutputType| {
+                    if output_type != SCStreamOutputType::Audio {
+                        return;
                     }
-                    let _ = sender.try_send(AudioFrame {
-                        source: AudioSource::System,
-                        samples,
-                        sample_rate: 48_000,
-                        channels: buffer.number_channels.max(1) as u16,
-                        timestamp_ms: started.elapsed().as_millis() as u64,
-                    });
-                }
-            },
-            SCStreamOutputType::Audio,
-        );
+                    let Some(buffers) = sample.audio_buffer_list() else {
+                        return;
+                    };
+                    for buffer in &buffers {
+                        let samples = buffer
+                            .data()
+                            .chunks_exact(std::mem::size_of::<f32>())
+                            .map(|bytes| {
+                                f32::from_le_bytes(bytes.try_into().expect("four-byte chunk"))
+                            })
+                            .collect::<Vec<_>>();
+                        if samples.is_empty() {
+                            continue;
+                        }
+                        publish_system_frame(
+                            &sender,
+                            &level,
+                            AudioFrame {
+                                source: AudioSource::System,
+                                samples,
+                                sample_rate: 48_000,
+                                channels: buffer.number_channels.max(1) as u16,
+                                timestamp_ms: started.elapsed().as_millis() as u64,
+                            },
+                        );
+                    }
+                },
+                SCStreamOutputType::Audio,
+            )
+            .ok_or_else(|| AudioError::Capture("system audio output registration failed".into()))?;
         stream
             .start_capture()
             .map_err(|error| AudioError::Capture(error.to_string()))?;
@@ -705,6 +742,7 @@ impl AudioCapture for SystemAudioCapture {
     }
 
     fn resume(&mut self) -> Result<(), AudioError> {
+        self.level()?;
         self.stream
             .as_mut()
             .ok_or_else(|| AudioError::Capture("system audio is not running".into()))?
@@ -713,6 +751,8 @@ impl AudioCapture for SystemAudioCapture {
     }
 
     fn stop(&mut self) -> Result<(), AudioError> {
+        self.last_error = Arc::new(Mutex::new(None));
+        self.level = Arc::new(AtomicU32::new(0));
         let Some(stream) = self.stream.take() else {
             return Ok(());
         };
@@ -722,8 +762,14 @@ impl AudioCapture for SystemAudioCapture {
     }
 
     fn is_running(&self) -> bool {
-        self.stream.is_some()
+        self.stream.is_some() && self.level().is_ok()
     }
+}
+
+#[cfg(target_os = "macos")]
+fn publish_system_frame(sender: &Sender<AudioFrame>, level: &AtomicU32, frame: AudioFrame) {
+    level.store(rms_level(&frame.samples).to_bits(), Ordering::Relaxed);
+    let _ = sender.try_send(frame);
 }
 
 fn write_recording(path: &Path, receiver: Receiver<AudioFrame>) -> Result<(), AudioError> {
@@ -735,38 +781,50 @@ fn write_recording(path: &Path, receiver: Receiver<AudioFrame>) -> Result<(), Au
         .ok_or_else(|| AudioError::Capture("recording directory is unavailable".into()))?;
     fs::create_dir_all(parent).map_err(|error| AudioError::Capture(error.to_string()))?;
     let temporary = path.with_extension("wav.part");
-    let spec = WavSpec {
-        channels: first.channels,
-        sample_rate: first.sample_rate,
-        bits_per_sample: 16,
-        sample_format: hound::SampleFormat::Int,
-    };
-    let mut writer = WavWriter::create(&temporary, spec)
-        .map_err(|error| AudioError::Capture(error.to_string()))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&temporary, fs::Permissions::from_mode(0o600))
+    let result = (|| {
+        let spec = WavSpec {
+            channels: first.channels,
+            sample_rate: first.sample_rate,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut writer = WavWriter::create(&temporary, spec)
             .map_err(|error| AudioError::Capture(error.to_string()))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&temporary, fs::Permissions::from_mode(0o600))
+                .map_err(|error| AudioError::Capture(error.to_string()))?;
+        }
+        let mut sample_count = 0usize;
+        write_recording_frame(&mut writer, &first, spec, &mut sample_count)?;
+        for frame in receiver {
+            write_recording_frame(&mut writer, &frame, spec, &mut sample_count)?;
+        }
+        writer
+            .finalize()
+            .map_err(|error| AudioError::Capture(error.to_string()))?;
+        let actual = WavReader::open(&temporary)
+            .map_err(|error| AudioError::Capture(error.to_string()))?
+            .len() as usize;
+        if actual != sample_count {
+            return Err(AudioError::Capture(format!(
+                "recording verification failed: expected {sample_count} samples, found {actual}"
+            )));
+        }
+        fs::rename(&temporary, path).map_err(|error| AudioError::Capture(error.to_string()))?;
+        Ok(())
+    })();
+    if let Err(error) = &result {
+        if let Err(cleanup) = fs::remove_file(&temporary) {
+            if cleanup.kind() != std::io::ErrorKind::NotFound {
+                return Err(AudioError::Capture(format!(
+                    "{error}; partial recording cleanup failed: {cleanup}"
+                )));
+            }
+        }
     }
-    let mut sample_count = 0usize;
-    write_recording_frame(&mut writer, &first, spec, &mut sample_count)?;
-    for frame in receiver {
-        write_recording_frame(&mut writer, &frame, spec, &mut sample_count)?;
-    }
-    writer
-        .finalize()
-        .map_err(|error| AudioError::Capture(error.to_string()))?;
-    let actual = WavReader::open(&temporary)
-        .map_err(|error| AudioError::Capture(error.to_string()))?
-        .len() as usize;
-    if actual != sample_count {
-        return Err(AudioError::Capture(format!(
-            "recording verification failed: expected {sample_count} samples, found {actual}"
-        )));
-    }
-    fs::rename(temporary, path).map_err(|error| AudioError::Capture(error.to_string()))?;
-    Ok(())
+    result
 }
 
 fn write_recording_frame(
@@ -815,6 +873,58 @@ pub fn downmix_to_mono(frame: &AudioFrame) -> Vec<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn system_meter_does_not_consume_transcription_frames() {
+        let mut capture = SystemAudioCapture::new();
+        let transcript_frames = capture.frames();
+        publish_system_frame(
+            &capture.sender,
+            &capture.level,
+            AudioFrame {
+                source: AudioSource::System,
+                samples: vec![0.5, -0.5],
+                sample_rate: 48000,
+                channels: 1,
+                timestamp_ms: 1,
+            },
+        );
+        assert_eq!(capture.level().unwrap(), 0.5);
+        assert_eq!(capture.level().unwrap(), 0.5);
+        assert_eq!(
+            transcript_frames.try_recv().unwrap().samples,
+            vec![0.5, -0.5]
+        );
+        assert!(transcript_frames.try_recv().is_err());
+        let old_level = capture.level.clone();
+        capture.stop().unwrap();
+        old_level.store(1.0_f32.to_bits(), Ordering::Relaxed);
+        assert_eq!(capture.level().unwrap(), 0.0);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn system_capture_errors_require_explicit_restart() {
+        let mut capture = SystemAudioCapture::new();
+        let handler = capture.error_handler();
+        handler.did_stop_with_error(screencapturekit::error::SCError::internal_error(
+            "disconnected",
+        ));
+        assert!(capture
+            .level()
+            .unwrap_err()
+            .to_string()
+            .contains("disconnected"));
+        assert!(!capture.is_running());
+        assert!(capture.start().is_err());
+        assert!(capture.resume().is_err());
+        capture.stop().unwrap();
+        handler.did_stop_with_error(screencapturekit::error::SCError::internal_error(
+            "late error",
+        ));
+        assert_eq!(capture.level().unwrap(), 0.0);
+    }
 
     #[test]
     fn missing_microphone_falls_back_but_output_selection_stays_explicit() {
@@ -867,6 +977,60 @@ mod tests {
     fn microphone_level_is_rms() {
         assert_eq!(rms_level(&[1.0, -1.0]), 1.0);
         assert_eq!(rms_level(&[]), 0.0);
+    }
+
+    #[test]
+    fn failed_recordings_remove_partial_audio() {
+        let root = std::env::temp_dir().join(format!(
+            "savvy-recording-failure-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        for rename_failure in [false, true] {
+            let path = root.join(if rename_failure {
+                "blocked.wav"
+            } else {
+                "format.wav"
+            });
+            if rename_failure {
+                fs::create_dir(&path).unwrap();
+            }
+            let (sender, receiver) = flume::unbounded();
+            for sample_rate in if rename_failure {
+                vec![16000]
+            } else {
+                vec![16000, 48000]
+            } {
+                sender
+                    .send(AudioFrame {
+                        source: AudioSource::Microphone,
+                        samples: vec![0.5; 100],
+                        sample_rate,
+                        channels: 1,
+                        timestamp_ms: 0,
+                    })
+                    .unwrap();
+            }
+            drop(sender);
+            let error = write_recording(&path, receiver).unwrap_err();
+            if !rename_failure {
+                assert!(error.to_string().contains("format changed"));
+            }
+            assert!(
+                !path.with_extension("wav.part").exists(),
+                "partial audio retained after {error}"
+            );
+            if rename_failure {
+                assert!(path.is_dir());
+            } else {
+                assert!(!path.exists());
+            }
+        }
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

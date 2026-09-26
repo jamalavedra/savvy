@@ -14,10 +14,12 @@ export function DataFootnote() {
           >
             MIT license
           </a>{" "}
-          by Alamas Labs. Live transcription streams meeting audio to the transcription provider you
-          configure. Recommendations send selected document excerpts, the brief and recent
-          transcript turns to the model provider your CLI is signed in to, under your own account
-          and its terms. Check the rules of your meeting before using AI assistance.
+          by Alamas Labs. With personal providers, live transcription streams meeting audio to the
+          transcription provider you configure. Recommendations send selected document excerpts, the
+          brief and recent transcript turns to the model provider your CLI is signed in to, under
+          your own account and its terms. Check the rules of your meeting before using AI
+          assistance. With managed assistance, Savvy relays audio to Deepgram and selected context
+          to Claude. Documents and history remain on your Mac.
         </p>
       </div>
     </section>

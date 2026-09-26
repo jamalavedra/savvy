@@ -2,6 +2,14 @@
 
 Savvy is a macOS meeting assistant. It prepares a brief from your own source documents, then offers source-grounded guidance during a live conversation. Preparation can be scoped to a specific client or kept general.
 
+## Choose your setup
+
+Use personal providers or optional Savvy managed assistance in the same MIT-licensed desktop app. Personal setup connects your transcription account and signed-in model CLI. Managed setup uses browser sign-in with Google or an emailed code. Rust handles PKCE and stores refresh credentials in macOS Keychain. Checkout and billing management are Stripe-hosted.
+
+Managed offer amounts, allowances and expiry rules live in [the shared catalog](config/managed-catalog.json). The account screen shows server-provided offers, remaining usage and pending purchases. A browser return never confirms payment. Adding allowance requires you to explicitly resume an exhausted meeting. Signing out or switching to personal providers does not cancel a subscription.
+
+Managed audio passes through Savvy to Deepgram; selected brief evidence and meeting context pass through Savvy to Claude. Documents and history remain on your Mac. The provider descriptions below describe personal-provider setup. See the [backend guide](backend/README.md) and [local release handoff](deploy/README.md) for managed operation and launch inputs.
+
 ## Where your data goes
 
 Savvy keeps your documents and history on your Mac, but live transcription is not local. Read this before pointing it at anything confidential.
@@ -47,13 +55,14 @@ Prerequisites:
 
 ```bash
 pnpm install --frozen-lockfile
+pnpm --dir backend install --frozen-lockfile
 pnpm verify        # format, typecheck, lint, tests, build, clippy
 pnpm tauri dev
 ```
 
-On first launch the app asks for microphone and screen-recording permission, then for a Deepgram or AssemblyAI API key. Only the microphone is required to get past setup — but without system audio Savvy hears only you, and without a key nothing is transcribed at all.
+On first launch, choose account creation, sign-in or personal providers. Audio setup requests microphone and system-audio access when needed, and can be completed later. Microphone-only mode captures your side of the conversation. Signal meters and a successful transcription test are separate checks.
 
-To use the recommendation features you also need `codex` or `claude` on your `PATH` and signed in; Savvy reports provider status in Settings.
+Personal-provider recommendations require `codex` or `claude` on your `PATH` and signed in; Savvy reports provider status in Settings. Managed recommendations use the configured backend supplier.
 
 Completed setup survives application updates. Microphone access is checked when you start a meeting. If macOS already lists Savvy as allowed but setup disagrees, use **Check again** to verify system-audio access through ScreenCaptureKit. If it still waits after you press Allow, choose **Reopen Savvy**. Savvy does not require Accessibility permission. Development-signed and release-signed builds can have different macOS permission identities.
 
@@ -65,6 +74,9 @@ CI runs the full test suite on macOS and `cargo check` on Linux and Windows. The
 
 ## Repository layout
 
+- `backend/` — one Node service for Better Auth, billing, meetings, transcription relay and AI requests. It owns two SQLite files in one state directory.
+- `backend-migration/` — load and packaging tests for the backend, and their fixtures.
+- `www/` — statically exported marketing and pricing website.
 - `src/` — React interface.
 - `src-tauri/` — desktop shell and Tauri commands.
 - `crates/domain/` — stable application contracts.

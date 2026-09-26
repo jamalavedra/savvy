@@ -118,13 +118,14 @@ export function YourModel() {
 
         <FadeInUp delay={0.15}>
           <p className="text-sm leading-relaxed text-muted">
-            The open-source app uses Claude Code or Codex CLI for guidance. Sign in on your Mac and
-            use your existing provider account. Savvy sends selected excerpts, the whole brief, and
-            recent transcript turns to that provider.
+            Personal-provider setup uses Claude Code or Codex CLI for guidance. Sign in on your Mac
+            and use your existing provider account. Savvy sends selected excerpts, the whole brief,
+            and recent transcript turns to that provider.
           </p>
           <p className="mt-4 text-sm leading-relaxed text-muted">
             Transcription uses your Deepgram or AssemblyAI API key, stored in the macOS Keychain.
-            Your providers bill for usage.
+            Your providers bill for usage. Or choose Savvy managed in the same app for hosted
+            transcription and Claude access. See pricing for included allowance.
           </p>
           <StatList
             items={[

@@ -295,6 +295,23 @@ impl Storage {
         )
     }
 
+    /// Bounded history pages; the export path still reads the complete transcript.
+    pub fn transcript_page(
+        &self,
+        session_id: EntityId,
+        offset: u32,
+    ) -> Result<Vec<TranscriptTurn>, StorageError> {
+        let mut statement = self.connection.prepare(
+            "SELECT CASE WHEN length(CAST(body AS BLOB)) <= 65536 THEN body
+             ELSE 'oversized stored transcript' END FROM transcript_turns
+             WHERE session_id = ?1 ORDER BY start_ms, id LIMIT 51 OFFSET ?2",
+        )?;
+        let rows = statement.query_map(params![session_id.to_string(), offset], |row| {
+            row.get::<_, String>(0)
+        })?;
+        rows.map(|row| Ok(serde_json::from_str(&row?)?)).collect()
+    }
+
     pub fn save_recommendation(&self, recommendation: &Recommendation) -> Result<(), StorageError> {
         self.connection.execute(
             "INSERT INTO recommendations(id, session_id, created_at, body)
@@ -722,6 +739,31 @@ mod tests {
             .list_transcript_turns(session_id)
             .expect("list turns");
         assert_eq!(turns[0].start_ms, 500);
+        for index in 0..60 {
+            let mut turn = turns[0].clone();
+            turn.id = Uuid::new_v4();
+            turn.start_ms = 3_000 + index;
+            storage.save_transcript_turn(&turn).unwrap();
+        }
+        let first = storage.transcript_page(session_id, 0).unwrap();
+        let last = storage.transcript_page(session_id, 50).unwrap();
+        assert_eq!(first.len(), 51); // 50 displayed plus one lookahead.
+        assert_eq!(last.len(), 12);
+        assert!(first[..50]
+            .iter()
+            .all(|turn| !last.iter().any(|other| other.id == turn.id)));
+        assert!(storage
+            .transcript_page(Uuid::new_v4(), 0)
+            .unwrap()
+            .is_empty());
+        storage
+            .connection
+            .execute(
+                "UPDATE transcript_turns SET body = ?1 WHERE id = ?2",
+                params!["x".repeat(70_000), turns[0].id.to_string()],
+            )
+            .unwrap();
+        assert!(storage.transcript_page(session_id, 0).is_err());
         storage
             .connection
             .execute(

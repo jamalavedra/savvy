@@ -9,7 +9,7 @@ use std::{
 use thiserror::Error;
 use zip::ZipArchive;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ExtractedSection {
     pub text: String,
     pub locator: SourceLocator,
@@ -17,6 +17,8 @@ pub struct ExtractedSection {
 
 #[derive(Debug, Error)]
 pub enum ExtractionError {
+    #[error("document extraction limit exceeded: {0}")]
+    Limit(PathBuf),
     #[error("could not read {path}: {message}")]
     Read { path: PathBuf, message: String },
     #[error("document is encrypted or malformed: {0}")]
@@ -29,6 +31,128 @@ pub fn extract_document(
     path: &Path,
     kind: DocumentKind,
 ) -> Result<Vec<ExtractedSection>, ExtractionError> {
+    extract_verified(path, kind, None)
+}
+
+pub fn extract_verified(
+    path: &Path,
+    kind: DocumentKind,
+    expected_hash: Option<&str>,
+) -> Result<Vec<ExtractedSection>, ExtractionError> {
+    use sha2::{Digest, Sha256};
+    let mut original = crate::open_verified(path)
+        .map_err(|e| read_error(path, e))?
+        .take(100 * 1024 * 1024 + 1);
+    let directory = tempfile::tempdir().map_err(|e| read_error(path, e))?;
+    let snapshot = directory.path().join(
+        path.file_name()
+            .ok_or_else(|| ExtractionError::Malformed(path.into()))?,
+    );
+    let mut output = File::create(&snapshot).map_err(|e| read_error(path, e))?;
+    let size = std::io::copy(&mut original, &mut output).map_err(|e| read_error(path, e))?;
+    if size > 100 * 1024 * 1024 {
+        return Err(ExtractionError::Limit(path.into()));
+    }
+    drop(output);
+    if let Some(expected) = expected_hash {
+        let mut file = File::open(&snapshot).map_err(|e| read_error(path, e))?;
+        let mut digest = Sha256::new();
+        std::io::copy(&mut file, &mut digest).map_err(|e| read_error(path, e))?;
+        if hex::encode(digest.finalize()) != expected {
+            return Err(read_error(path, "document changed; refresh sources"));
+        }
+    }
+    if !matches!(
+        kind,
+        DocumentKind::Text | DocumentKind::Markdown | DocumentKind::Csv
+    ) && !cfg!(test)
+    {
+        return extract_isolated(&snapshot, path);
+    }
+    extract_raw(&snapshot, kind)
+}
+
+fn extract_isolated(
+    snapshot: &Path,
+    original: &Path,
+) -> Result<Vec<ExtractedSection>, ExtractionError> {
+    use std::{
+        process::{Command, Stdio},
+        time::{Duration, Instant},
+    };
+    let output = tempfile::tempfile().map_err(|e| read_error(original, e))?;
+    let mut child = Command::new(std::env::current_exe().map_err(|e| read_error(original, e))?)
+        .arg("--savvy-extract")
+        .arg(snapshot)
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .stdout(output.try_clone().map_err(|e| read_error(original, e))?)
+        .spawn()
+        .map_err(|e| read_error(original, e))?;
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        let memory = Command::new("/bin/ps")
+            .args(["-o", "rss=", "-p", &child.id().to_string()])
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .and_then(|s| s.trim().parse::<u64>().ok())
+            .unwrap_or(0);
+        if Instant::now() >= deadline
+            || memory > 512 * 1024
+            || output
+                .metadata()
+                .map(|m| m.len() > 8 * 1024 * 1024)
+                .unwrap_or(true)
+        {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(ExtractionError::Limit(original.into()));
+        }
+        if let Some(status) = child.try_wait().map_err(|e| read_error(original, e))? {
+            if !status.success() {
+                return Err(ExtractionError::Malformed(original.into()));
+            }
+            use std::io::{Seek, SeekFrom};
+            let mut output = output;
+            output
+                .seek(SeekFrom::Start(0))
+                .map_err(|e| read_error(original, e))?;
+            return serde_json::from_reader(output.take(8 * 1024 * 1024))
+                .map_err(|e| read_error(original, e));
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+}
+
+/// Called before native app initialization, in an isolated child process.
+pub fn extraction_worker() -> Option<i32> {
+    let mut args = std::env::args_os();
+    args.next();
+    if args.next().as_deref() != Some(std::ffi::OsStr::new("--savvy-extract")) {
+        return None;
+    }
+    let result = (|| {
+        let path = PathBuf::from(args.next().ok_or(())?);
+        let kind = crate::document_kind(&path).ok_or(())?;
+        let sections = extract_raw(&path, kind).map_err(|_| ())?;
+        serde_json::to_writer(std::io::stdout(), &sections).map_err(|_| ())
+    })();
+    Some(if result.is_ok() { 0 } else { 1 })
+}
+
+fn extract_raw(path: &Path, kind: DocumentKind) -> Result<Vec<ExtractedSection>, ExtractionError> {
+    if matches!(kind, DocumentKind::Xlsx) {
+        open_zip(path)?;
+    }
+    if fs::metadata(path).map_err(|e| read_error(path, e))?.len() > 8 * 1024 * 1024
+        && matches!(
+            kind,
+            DocumentKind::Text | DocumentKind::Markdown | DocumentKind::Csv
+        )
+    {
+        return Err(ExtractionError::Limit(path.into()));
+    }
     let sections = match kind {
         DocumentKind::Text | DocumentKind::Markdown => extract_plain_text(path)?,
         DocumentKind::Csv => extract_csv(path)?,
@@ -57,6 +181,22 @@ fn extract_plain_text(path: &Path) -> Result<Vec<ExtractedSection>, ExtractionEr
     Ok(vec![ExtractedSection { text, locator }])
 }
 
+const MAX_CSV_RECORD_BYTES: usize = 64 * 1024;
+const MAX_CSV_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
+const MAX_CSV_ROWS: usize = 100_000;
+
+fn csv_record_text(record: &csv::StringRecord, path: &Path) -> Result<String, ExtractionError> {
+    let bytes = record
+        .iter()
+        .map(str::len)
+        .sum::<usize>()
+        .saturating_add(record.len().saturating_sub(1).saturating_mul(3));
+    if bytes > MAX_CSV_RECORD_BYTES {
+        return Err(ExtractionError::Limit(path.into()));
+    }
+    Ok(record.iter().collect::<Vec<_>>().join(" | "))
+}
+
 fn extract_csv(path: &Path) -> Result<Vec<ExtractedSection>, ExtractionError> {
     let mut reader = csv::ReaderBuilder::new()
         .flexible(true)
@@ -65,24 +205,32 @@ fn extract_csv(path: &Path) -> Result<Vec<ExtractedSection>, ExtractionError> {
             path: path.to_path_buf(),
             message: error.to_string(),
         })?;
-    let headers = reader
-        .headers()
-        .map_err(|error| ExtractionError::Read {
-            path: path.to_path_buf(),
-            message: error.to_string(),
-        })?
-        .iter()
-        .collect::<Vec<_>>()
-        .join(" | ");
+    let headers = csv_record_text(
+        reader.headers().map_err(|error| read_error(path, error))?,
+        path,
+    )?;
+    let mut output_bytes = 0_usize;
     let mut sections = Vec::new();
     let mut rows = Vec::new();
     let mut row_start = 2_u32;
     for (index, record) in reader.records().enumerate() {
+        if index >= MAX_CSV_ROWS {
+            return Err(ExtractionError::Limit(path.into()));
+        }
         let record = record.map_err(|error| ExtractionError::Read {
             path: path.to_path_buf(),
             message: error.to_string(),
         })?;
-        rows.push(record.iter().collect::<Vec<_>>().join(" | "));
+        let row = csv_record_text(&record, path)?;
+        // Charge repeated headers before constructing or retaining each section.
+        output_bytes = output_bytes.saturating_add(row.len() + 1);
+        if rows.is_empty() {
+            output_bytes = output_bytes.saturating_add(headers.len() + 1);
+        }
+        if output_bytes > MAX_CSV_OUTPUT_BYTES {
+            return Err(ExtractionError::Limit(path.into()));
+        }
+        rows.push(row);
         if rows.len() == 50 {
             sections.push(tabular_section(
                 "CSV",
@@ -166,7 +314,9 @@ fn extract_pdf(path: &Path) -> Result<Vec<ExtractedSection>, ExtractionError> {
     })?;
     let mut sections = Vec::new();
     for page in document.get_pages().keys().copied() {
-        let text = document.extract_text(&[page]).unwrap_or_default();
+        let text = document
+            .extract_text(&[page])
+            .map_err(|_| ExtractionError::Malformed(path.into()))?;
         if text.trim().is_empty() {
             continue;
         }
@@ -181,7 +331,7 @@ fn extract_docx(path: &Path) -> Result<Vec<ExtractedSection>, ExtractionError> {
     let mut archive = open_zip(path)?;
     let xml = read_zip_entry(path, &mut archive, "word/document.xml")?;
     Ok(vec![ExtractedSection {
-        text: extract_markup_text(&xml),
+        text: extract_markup_text(&xml, path)?,
         locator: SourceLocator::document("Document body"),
     }])
 }
@@ -199,7 +349,7 @@ fn extract_pptx(path: &Path) -> Result<Vec<ExtractedSection>, ExtractionError> {
         let mut locator = SourceLocator::document(format!("Slide {number}"));
         locator.slide = Some(number);
         sections.push(ExtractedSection {
-            text: extract_markup_text(&xml),
+            text: extract_markup_text(&xml, path)?,
             locator,
         });
     }
@@ -229,7 +379,7 @@ fn extract_epub(path: &Path) -> Result<Vec<ExtractedSection>, ExtractionError> {
         let mut locator = SourceLocator::document(chapter.clone());
         locator.chapter = Some(chapter.clone());
         sections.push(ExtractedSection {
-            text: extract_markup_text(&markup),
+            text: extract_markup_text(&markup, path)?,
             locator,
         });
     }
@@ -238,7 +388,25 @@ fn extract_epub(path: &Path) -> Result<Vec<ExtractedSection>, ExtractionError> {
 
 fn open_zip(path: &Path) -> Result<ZipArchive<File>, ExtractionError> {
     let file = File::open(path).map_err(|error| read_error(path, error))?;
-    ZipArchive::new(file).map_err(|_| ExtractionError::Malformed(path.to_path_buf()))
+    let mut archive =
+        ZipArchive::new(file).map_err(|_| ExtractionError::Malformed(path.to_path_buf()))?;
+    if archive.len() > 1000 {
+        return Err(ExtractionError::Limit(path.into()));
+    }
+    let mut total = 0;
+    for i in 0..archive.len() {
+        let entry = archive
+            .by_index(i)
+            .map_err(|_| ExtractionError::Malformed(path.into()))?;
+        let limit = (entry.compressed_size().saturating_mul(100)).min(8 * 1024 * 1024);
+        let actual = std::io::copy(&mut entry.take(limit + 1), &mut std::io::sink())
+            .map_err(|e| read_error(path, e))?;
+        total += actual;
+        if actual > limit || total > 32 * 1024 * 1024 {
+            return Err(ExtractionError::Limit(path.into()));
+        }
+    }
+    Ok(archive)
 }
 
 fn read_zip_entry(
@@ -246,34 +414,49 @@ fn read_zip_entry(
     archive: &mut ZipArchive<File>,
     name: &str,
 ) -> Result<String, ExtractionError> {
-    let mut file = archive
+    let file = archive
         .by_name(name)
         .map_err(|_| ExtractionError::Malformed(path.to_path_buf()))?;
     let mut content = String::new();
-    file.read_to_string(&mut content)
+    file.take(8 * 1024 * 1024 + 1)
+        .read_to_string(&mut content)
         .map_err(|error| read_error(path, error))?;
+    if content.len() > 8 * 1024 * 1024 {
+        return Err(ExtractionError::Limit(path.into()));
+    }
     Ok(content)
 }
 
-fn extract_markup_text(markup: &str) -> String {
+fn extract_markup_text(markup: &str, path: &Path) -> Result<String, ExtractionError> {
     let mut reader = XmlReader::from_str(markup);
     reader.config_mut().trim_text(true);
     let mut pieces = Vec::new();
+    let mut depth = 0usize;
     loop {
-        match reader.read_event() {
-            Ok(Event::Text(text)) => {
-                if let Ok(decoded) = text.decode() {
-                    let value = decoded.trim();
-                    if !value.is_empty() {
-                        pieces.push(value.to_owned());
-                    }
+        match reader
+            .read_event()
+            .map_err(|_| ExtractionError::Malformed(path.into()))?
+        {
+            Event::Start(_) => depth += 1,
+            Event::End(_) => {
+                depth = depth
+                    .checked_sub(1)
+                    .ok_or_else(|| ExtractionError::Malformed(path.into()))?
+            }
+            Event::Text(text) => {
+                let decoded = text
+                    .decode()
+                    .map_err(|_| ExtractionError::Malformed(path.into()))?;
+                if !decoded.trim().is_empty() {
+                    pieces.push(decoded.trim().to_owned());
                 }
             }
-            Ok(Event::Eof) | Err(_) => break,
+            Event::Eof if depth == 0 => break,
+            Event::Eof => return Err(ExtractionError::Malformed(path.into())),
             _ => {}
         }
     }
-    pieces.join(" ")
+    Ok(pieces.join(" "))
 }
 
 fn read_error(path: &Path, error: impl ToString) -> ExtractionError {
@@ -288,6 +471,74 @@ mod tests {
     use super::*;
     use std::io::Write;
     use zip::write::SimpleFileOptions;
+
+    #[test]
+    fn csv_rejects_header_amplification_before_collecting_large_output() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("repeated-header.csv");
+        let content = format!("{}\n{}", "h".repeat(32 * 1024), "x\n".repeat(30_000));
+        assert!(content.len() < 100_000);
+        fs::write(&path, content).unwrap();
+        assert!(matches!(
+            extract_document(&path, DocumentKind::Csv),
+            Err(ExtractionError::Limit(_))
+        ));
+    }
+
+    #[test]
+    fn csv_bounds_records_and_rows_without_changing_normal_locators() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("table.csv");
+        for content in [
+            format!("{}\nx\n", "h".repeat(64 * 1024 + 1)),
+            format!("h\n{}\n", "x".repeat(64 * 1024 + 1)),
+            format!("h\n{}", "x\n".repeat(100_001)),
+        ] {
+            fs::write(&path, content).unwrap();
+            assert!(matches!(
+                extract_document(&path, DocumentKind::Csv),
+                Err(ExtractionError::Limit(_))
+            ));
+        }
+        fs::write(&path, format!("name,value\n{}", "item,2\n".repeat(51))).unwrap();
+        let sections = extract_document(&path, DocumentKind::Csv).unwrap();
+        assert_eq!(sections.len(), 2);
+        assert_eq!(sections[0].locator.row_start, Some(2));
+        assert_eq!(sections[0].locator.row_end, Some(51));
+        assert_eq!(sections[1].locator.row_start, Some(52));
+        assert_eq!(sections[1].locator.row_end, Some(52));
+        assert_eq!(sections[1].text, "name | value\nitem | 2");
+    }
+
+    #[test]
+    fn malformed_markup_never_returns_partial_text() {
+        for xml in ["<body>valid prefix<broken>", "<body>valid prefix</wrong>"] {
+            assert!(extract_markup_text(xml, Path::new("bad.docx")).is_err());
+        }
+        assert_eq!(
+            extract_markup_text("<body>complete</body>", Path::new("good.docx")).unwrap(),
+            "complete"
+        );
+    }
+
+    #[test]
+    fn rejects_zip_expansion_bombs() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("bomb.docx");
+        let mut archive = zip::ZipWriter::new(File::create(&path).unwrap());
+        archive
+            .start_file(
+                "word/document.xml",
+                SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated),
+            )
+            .unwrap();
+        archive.write_all(&vec![b'x'; 1024 * 1024]).unwrap();
+        archive.finish().unwrap();
+        assert!(matches!(
+            extract_document(&path, DocumentKind::Docx),
+            Err(ExtractionError::Limit(_))
+        ));
+    }
 
     #[test]
     fn markdown_retains_line_locator() {

@@ -6,9 +6,12 @@ pub const DEFAULT_BRIEF_GENERATION_PROMPT: &str = "Create a concise, source-grou
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AppSettings {
+    /// "byok" (bring your own provider keys/CLIs) or "managed" (Savvy account).
+    pub service_mode: String,
     pub start_listening_shortcut: String,
     pub selected_microphone: Option<String>,
     pub selected_channel: Option<u16>,
+    pub microphone_only: bool,
     pub audio_feedback: bool,
     pub selected_output_device: Option<String>,
     pub audio_feedback_volume: f32,
@@ -35,9 +38,11 @@ pub struct AppSettings {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
+            service_mode: "byok".into(),
             start_listening_shortcut: "Command+Shift+M".into(),
             selected_microphone: None,
             selected_channel: None,
+            microphone_only: false,
             audio_feedback: false,
             selected_output_device: None,
             audio_feedback_volume: 0.5,
@@ -95,6 +100,9 @@ pub fn load(path: &Path) -> AppSettings {
 }
 
 fn normalize(mut settings: AppSettings) -> AppSettings {
+    if !["byok", "managed"].contains(&settings.service_mode.as_str()) {
+        settings.service_mode = "byok".into();
+    }
     if settings.transcription_provider == "assemblyAi"
         && settings.transcription_model == "universal-3-5-pro"
     {
@@ -124,6 +132,7 @@ mod tests {
     #[test]
     fn old_settings_receive_transcription_defaults() {
         let settings: AppSettings = serde_json::from_str("{}").unwrap();
+        assert_eq!(settings.service_mode, "byok");
         assert_eq!(settings.transcription_provider, "deepgram");
         assert_eq!(settings.transcription_model, "nova-3");
         assert_eq!(settings.transcription_language, "multi");
@@ -160,6 +169,7 @@ mod tests {
         fs::write(&path, stored).unwrap();
         let settings = load(&path);
         assert!(settings.onboarding_completed);
+        assert_eq!(settings.service_mode, "byok");
         assert_eq!(settings.theme, "dark");
         assert_eq!(settings.selected_microphone.as_deref(), Some("USB mic"));
         assert_eq!(settings.audio_feedback_volume, 0.5);
@@ -171,6 +181,35 @@ mod tests {
             fs::write(&path, invalid).unwrap();
             assert!(!load(&path).onboarding_completed);
         }
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn service_mode_round_trips_and_recovers_from_invalid_values() {
+        let directory =
+            std::env::temp_dir().join(format!("savvy-settings-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("settings.json");
+        save(
+            &path,
+            &AppSettings {
+                service_mode: "managed".into(),
+                ..AppSettings::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(load(&path).service_mode, "managed");
+
+        // An invalid stored mode falls back to BYOK without resetting other fields.
+        fs::write(
+            &path,
+            br#"{"serviceMode":42,"theme":"dark","onboardingCompleted":true}"#,
+        )
+        .unwrap();
+        let recovered = load(&path);
+        assert_eq!(recovered.service_mode, "byok");
+        assert_eq!(recovered.theme, "dark");
+        assert!(recovered.onboarding_completed);
         fs::remove_dir_all(directory).unwrap();
     }
 

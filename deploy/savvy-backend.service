@@ -1,0 +1,31 @@
+[Unit]
+Description=Savvy authentication and managed backend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=savvy
+Group=savvy
+WorkingDirectory=/opt/savvy/current/backend
+EnvironmentFile=/etc/savvy/backend.env
+Environment=SAVVY_AUTH_DATABASE=/var/lib/savvy/auth.sqlite
+Environment=SAVVY_DB_PATH=/var/lib/savvy/service.sqlite
+Environment=SAVVY_HOST=127.0.0.1
+Environment=PORT=8788
+ExecStart=/usr/bin/node build/server.js
+KillSignal=SIGINT
+TimeoutStopSec=150
+Restart=on-failure
+RestartSec=5
+StateDirectory=savvy
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/savvy
+
+[Install]
+WantedBy=multi-user.target

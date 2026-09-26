@@ -6,6 +6,9 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+libc = "0.2"
+serde.workspace = true
+tempfile = "3"
 calamine = "0.36"
 savvy-domain = { path = "../domain" }
 csv = "1"
@@ -18,6 +21,3 @@ thiserror.workspace = true
 uuid.workspace = true
 walkdir = "2"
 zip = { version = "6", default-features = false, features = ["deflate"] }
-
-[dev-dependencies]
-tempfile = "3"

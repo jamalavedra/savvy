@@ -1,4 +1,22 @@
-import { useCallback, useEffect, useState } from "react";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { transcriptionModels } from "./lib/transcriptionModels";
+import { invoke } from "@tauri-apps/api/core";
+import ManagedAccount from "./ManagedAccount";
+import AudioCheck from "./AudioCheck";
+import {
+  managedSignInBegin,
+  managedSignInFinish,
+  managedSignInCancel,
+} from "./lib/api";
+import { getAppSettings, updateAppSettings } from "./lib/api";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { Check, FileText, Mic, MonitorPlay, X } from "lucide-react";
 import {
   getAppStatus,
@@ -6,10 +24,18 @@ import {
   reopenApp,
   probeSystemAudioPermission,
   setTranscriptionApiKey,
+  getRecommendationProviderStatus,
 } from "./lib/api";
-import type { TranscriptionKeyStatus } from "./types";
+import type { ProviderHealth, TranscriptionKeyStatus } from "./types";
 
-type Step = "permissions" | "transcription";
+type Step =
+  | "permissions"
+  | "path"
+  | "managed"
+  | "transcription"
+  | "ai"
+  | "waiting"
+  | "check";
 
 type PermissionStatus = "checking" | "needed" | "waiting" | "granted";
 
@@ -67,17 +93,31 @@ async function readPermissions(
 
 /** First-run setup. Permission repair for existing installs happens at meeting start. */
 export default function Onboarding({ onComplete }: { onComplete: () => void }) {
-  const [step, setStep] = useState<Step>("permissions");
+  const signInGeneration = useRef(0);
+  useEffect(
+    () => () => {
+      signInGeneration.current += 1;
+      void managedSignInCancel().catch(() => undefined);
+    },
+    [],
+  );
+  const [step, setStep] = useState<Step>("path");
   const [isMacos, setIsMacos] = useState(false);
   const [microphone, setMicrophone] = useState<PermissionStatus>("checking");
   const [screen, setScreen] = useState<PermissionStatus>("checking");
   const [provider, setProvider] = useState<ProviderId>("deepgram");
   const [apiKey, setApiKey] = useState("");
+  const [checkedProvider, setCheckedProvider] = useState<ProviderId | null>(
+    null,
+  );
   const [keyStatus, setKeyStatus] = useState<TranscriptionKeyStatus>({
     deepgram: false,
     assemblyAi: false,
   });
+  const [microphoneOnly, setMicrophoneOnly] = useState(false);
+  const [managed, setManaged] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [keyCheckPending, setKeyCheckPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const applyPermissions = useCallback((reading: PermissionReading | null) => {
@@ -104,10 +144,11 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
   }, [applyPermissions, reportCheckFailure]);
 
   useEffect(() => {
+    if (step !== "permissions") return;
     void readPermissions().then((reading) => {
       if (!applyPermissions(reading)) reportCheckFailure();
     });
-  }, [applyPermissions, reportCheckFailure]);
+  }, [applyPermissions, reportCheckFailure, step]);
 
   const settled = microphone === "granted" && screen === "granted";
 
@@ -177,17 +218,47 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
     }
   }
 
-  async function saveKey() {
-    if (!apiKey.trim()) return;
+  async function configureTranscriptionProvider() {
+    const settings = await getAppSettings();
+    if (settings.transcriptionProvider === provider) return;
+    const model = transcriptionModels[provider][0];
+    await updateAppSettings({
+      ...settings,
+      transcriptionProvider: provider,
+      transcriptionModel: model.value,
+      transcriptionLanguage: model.languages[0],
+    });
+  }
+
+  async function continueTranscriptionSetup() {
     setBusy(true);
     setError(null);
     try {
-      setKeyStatus(await setTranscriptionApiKey(provider, apiKey.trim()));
-      setApiKey("");
+      if (keyStatus[provider]) await configureTranscriptionProvider();
+      setStep("ai");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function saveKey() {
+    if (!apiKey.trim()) return;
+    setBusy(true);
+    setKeyCheckPending(true);
+    setError(null);
+    try {
+      const status = await setTranscriptionApiKey(provider, apiKey.trim());
+      setApiKey("");
+      await configureTranscriptionProvider();
+      setKeyStatus(status);
+      setCheckedProvider(provider);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setBusy(false);
+      setKeyCheckPending(false);
     }
   }
 
@@ -203,18 +274,67 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
     }
   }
 
-  const hasAnyKey = keyStatus.deepgram || keyStatus.assemblyAi;
+  async function choosePersonalProviders() {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const settings = await getAppSettings();
+      setProvider(settings.transcriptionProvider);
+      setManaged(false);
+      setStep("transcription");
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const hasSelectedKey = keyStatus[provider];
 
   if (step === "permissions") {
     return (
       <OnboardingShell subtitle="To get started, let Savvy hear the meeting.">
+        {managed && (
+          <p>
+            When transcription starts, audio passes through Savvy to Deepgram
+            and uses your managed allowance. Permission alone does not start
+            transcription.
+          </p>
+        )}
+        {isMacos && (
+          <div className="onboarding-actions">
+            <button
+              className="button secondary"
+              disabled={busy}
+              onClick={() =>
+                void invoke("open_audio_settings", { system: false }).catch(
+                  (reason) => setError(String(reason)),
+                )
+              }
+            >
+              Microphone settings
+            </button>
+            <button
+              className="button secondary"
+              disabled={busy}
+              onClick={() =>
+                void invoke("open_audio_settings", { system: true }).catch(
+                  (reason) => setError(String(reason)),
+                )
+              }
+            >
+              System audio settings
+            </button>
+          </div>
+        )}
         <PermissionRow
           icon={Mic}
           title="Microphone"
           detail="Transcribes your side of the meeting."
           status={microphone}
           onGrant={grantMicrophone}
-          disabled={!isMacos}
+          disabled={!isMacos || busy}
         />
         <PermissionRow
           icon={MonitorPlay}
@@ -222,7 +342,7 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
           detail="Transcribes everyone else in an online meeting."
           status={screen}
           onGrant={grantScreenRecording}
-          disabled={!isMacos}
+          disabled={!isMacos || busy}
         />
         {microphone === "waiting" && (
           <p className="onboarding-note">
@@ -250,20 +370,49 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
             </button>
           </p>
         )}
+        <label>
+          <input
+            type="checkbox"
+            disabled={busy}
+            checked={microphoneOnly}
+            onChange={(event) => setMicrophoneOnly(event.target.checked)}
+          />{" "}
+          Use microphone only
+        </label>
         <ErrorNotice message={error} onDismiss={() => setError(null)} />
+        <button
+          className="button secondary"
+          disabled={busy}
+          onClick={onComplete}
+        >
+          Set up later
+        </button>
         <div className="onboarding-actions">
           <button
             className="button secondary"
+            disabled={busy}
             onClick={() => void refreshPermissions()}
           >
             Check again
           </button>
           <button
             className="button"
-            disabled={microphone !== "granted"}
+            disabled={
+              busy ||
+              microphone !== "granted" ||
+              (screen !== "granted" && !microphoneOnly)
+            }
             onClick={() => {
+              if (busy) return;
+              setBusy(true);
               setError(null);
-              setStep("transcription");
+              void getAppSettings()
+                .then((settings) =>
+                  updateAppSettings({ ...settings, microphoneOnly }),
+                )
+                .then(() => setStep("check"))
+                .catch((reason) => setError(String(reason)))
+                .finally(() => setBusy(false));
             }}
           >
             Continue
@@ -276,13 +425,144 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
         )}
         {screen !== "granted" && microphone === "granted" && (
           <p className="onboarding-note">
-            Without screen &amp; system audio, Savvy only hears you — not the
-            people you are meeting.
+            With microphone only, Savvy only hears you. Allow system audio or
+            select Use microphone only to continue.
           </p>
         )}
       </OnboardingShell>
     );
   }
+
+  async function signIn(createAccount: boolean) {
+    if (busy) return;
+    const generation = ++signInGeneration.current;
+    setBusy(true);
+    setError(null);
+    setStep("waiting");
+    try {
+      const authorization = await managedSignInBegin(createAccount);
+      if (generation !== signInGeneration.current) return;
+      await managedSignInFinish(authorization);
+      if (generation !== signInGeneration.current) return;
+      const settings = await getAppSettings();
+      if (generation !== signInGeneration.current) return;
+      await updateAppSettings({ ...settings, serviceMode: "managed" });
+      if (generation !== signInGeneration.current) return;
+      setManaged(true);
+      setStep("permissions");
+    } catch (reason) {
+      if (generation === signInGeneration.current) {
+        setError(String(reason));
+        setStep("path");
+      }
+    } finally {
+      if (generation === signInGeneration.current) setBusy(false);
+    }
+  }
+  if (step === "waiting")
+    return (
+      <OnboardingShell subtitle="Finish signing in">
+        <p role="status">
+          Continue in your browser. Savvy will verify your account before
+          continuing.
+        </p>
+        <button
+          className="button secondary"
+          onClick={() =>
+            void managedSignInCancel()
+              .then(() => {
+                signInGeneration.current += 1;
+                setStep("path");
+                setBusy(false);
+              })
+              .catch((reason) => setError(String(reason)))
+          }
+        >
+          Cancel sign-in
+        </button>
+        <ErrorNotice message={error} onDismiss={() => setError(null)} />
+      </OnboardingShell>
+    );
+  if (step === "check")
+    return (
+      <OnboardingShell subtitle="Audio setup" className="onboarding-audio">
+        <AudioCheck
+          configureInput
+          managed={managed}
+          microphoneOnly={microphoneOnly}
+          onComplete={onComplete}
+        />
+      </OnboardingShell>
+    );
+  if (step === "ai")
+    return (
+      <PersonalAISetup
+        onBack={() => setStep("transcription")}
+        onContinue={(personal) => {
+          setManaged(!personal);
+          setStep("permissions");
+        }}
+      />
+    );
+  if (step === "path")
+    return (
+      <OnboardingShell
+        subtitle="Welcome to Savvy"
+        className="onboarding-welcome"
+        footer="Your meeting history stays on this Mac."
+      >
+        <h2>Your next meeting, prepared.</h2>
+        <p>Savvy handles transcription and AI setup.</p>
+        <button
+          className="button primary"
+          disabled={busy}
+          onClick={() => void signIn(true)}
+        >
+          Create account
+        </button>
+        <button
+          className="button secondary"
+          disabled={busy}
+          onClick={() => void signIn(false)}
+        >
+          Sign in
+        </button>
+        <div className="onboarding-browser-note">
+          <p>Opens your browser. No purchase required.</p>
+          <button
+            className="onboarding-pricing-link"
+            disabled={busy}
+            onClick={() => setStep("managed")}
+          >
+            View pricing
+          </button>
+        </div>
+        <hr />
+        <button
+          className="button secondary"
+          disabled={busy}
+          onClick={() => void choosePersonalProviders()}
+        >
+          Use your own providers
+        </button>
+        <p>Connect your tools. No Savvy account needed.</p>
+        <ErrorNotice message={error} onDismiss={() => setError(null)} />
+      </OnboardingShell>
+    );
+  if (step === "managed")
+    return (
+      <OnboardingShell subtitle="Plans and pricing">
+        <ManagedAccount pricingOnly />
+        <div className="onboarding-actions">
+          <button className="button" onClick={onComplete}>
+            Explore Savvy
+          </button>
+          <button className="button secondary" onClick={() => setStep("path")}>
+            Back to provider paths
+          </button>
+        </div>
+      </OnboardingShell>
+    );
 
   return (
     <OnboardingShell subtitle="Add a transcription key so Savvy can turn speech into text.">
@@ -293,7 +573,13 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
             type="button"
             className={`onboarding-provider ${provider === option.id ? "selected" : ""}`}
             aria-pressed={provider === option.id}
-            onClick={() => setProvider(option.id)}
+            disabled={busy}
+            onClick={() => {
+              if (provider === option.id) return;
+              setApiKey("");
+              setError(null);
+              setProvider(option.id);
+            }}
           >
             <strong>{option.label}</strong>
             {keyStatus[option.id] && (
@@ -314,32 +600,195 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
           onChange={(event) => setApiKey(event.target.value)}
         />
       </label>
+      <a
+        href={PROVIDERS.find((option) => option.id === provider)?.keyUrl}
+        target="_blank"
+        rel="noreferrer"
+        onClick={(event) => {
+          if (!window.__TAURI_INTERNALS__) return;
+          event.preventDefault();
+          const url = PROVIDERS.find(
+            (option) => option.id === provider,
+          )!.keyUrl;
+          void openUrl(url).catch(() =>
+            setError("The provider console could not be opened. Try again."),
+          );
+        }}
+      >
+        Get your {PROVIDERS.find((option) => option.id === provider)?.label} API
+        key
+      </a>
       <p className="onboarding-note">
-        <FileText /> Stored in the macOS Keychain, never in settings or logs.
+        <FileText /> Savvy checks the key directly with your provider before
+        saving it in macOS Keychain. This does not capture or send audio.
       </p>
+      {!window.__TAURI_INTERNALS__ && (
+        <p className="onboarding-note">
+          Browser demo: keys are simulated and are not sent to a provider.
+        </p>
+      )}
+      {checkedProvider === provider && (
+        <p className="onboarding-note" role="status">
+          Key saved. Run the audio check to confirm transcription works.
+        </p>
+      )}
       <ErrorNotice message={error} onDismiss={() => setError(null)} />
       <div className="onboarding-actions">
         <button
           className="button secondary"
           disabled={busy}
-          onClick={onComplete}
+          onClick={() => void continueTranscriptionSetup()}
         >
-          {hasAnyKey ? "Done" : "Skip for now"}
+          {hasSelectedKey ? "Done" : "Skip for now"}
         </button>
         <button
           className="button"
           disabled={busy || !apiKey.trim()}
           onClick={() => void saveKey()}
         >
-          Save key
+          {keyCheckPending ? "Checking key…" : "Save key"}
         </button>
       </div>
-      {!hasAnyKey && (
+      {!hasSelectedKey && (
         <p className="onboarding-note">
           You can add this later under Models, but meetings cannot be
           transcribed until you do.
         </p>
       )}
+    </OnboardingShell>
+  );
+}
+
+function PersonalAISetup({
+  onBack,
+  onContinue,
+}: {
+  onBack: () => void;
+  onContinue: (personal: boolean) => void;
+}) {
+  const [provider, setProvider] = useState<ProviderHealth["provider"] | null>(
+    null,
+  );
+  const [health, setHealth] = useState<ProviderHealth[] | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.all([getAppSettings(), getRecommendationProviderStatus(true)])
+      .then(([settings, status]) => {
+        if (cancelled) return;
+        setProvider((selected) => selected ?? settings.recommendationProvider);
+        setHealth(status);
+      })
+      .catch((reason) => {
+        if (cancelled) return;
+        setHealth([]);
+        setError(String(reason));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [attempt]);
+  const selected = health?.find((entry) => entry.provider === provider);
+  const ready = Boolean(selected?.available && selected.credentialPresent);
+  async function continueSetup(skip = false) {
+    if (saving || (!skip && (!provider || !ready))) return;
+    setSaving(true);
+    setError(null);
+    try {
+      let settings = await getAppSettings();
+      if (!skip && provider) {
+        settings = await updateAppSettings({
+          ...settings,
+          recommendationProvider: provider,
+          serviceMode: "byok",
+        });
+      }
+      onContinue(settings.serviceMode === "byok");
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <OnboardingShell subtitle="Connect your AI">
+      <p>
+        Choose the account you use for meeting guidance. Savvy checks
+        installation and sign-in on this Mac.
+      </p>
+      <div
+        className="onboarding-providers"
+        role="group"
+        aria-label="AI provider"
+      >
+        {(["codex", "claude"] as const).map((id) => {
+          const status = health?.find((entry) => entry.provider === id);
+          return (
+            <button
+              key={id}
+              className={`onboarding-provider ${provider === id ? "selected" : ""}`}
+              aria-pressed={provider === id}
+              disabled={saving}
+              onClick={() => setProvider(id)}
+            >
+              <strong>{id === "codex" ? "Codex CLI" : "Claude Code"}</strong>
+              <span>
+                {health === null
+                  ? "Checking…"
+                  : (status?.message ?? "Status unavailable")}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <p role="status">
+        {health === null
+          ? "Checking installation and sign-in…"
+          : ready
+            ? "Connected. Continue when you are ready."
+            : !selected
+              ? "Provider status is unavailable. Check again or finish setup later."
+              : selected.available
+                ? "Open your selected AI tool in Terminal and finish signing in, then check again."
+                : "Install your selected AI tool and sign in, then reopen Savvy and check again."}
+      </p>
+      <ErrorNotice message={error} onDismiss={() => setError(null)} />
+      <div className="onboarding-actions">
+        <button className="button secondary" disabled={saving} onClick={onBack}>
+          Back
+        </button>
+        <button
+          className="button secondary"
+          disabled={saving || health === null}
+          onClick={() => {
+            setHealth(null);
+            setError(null);
+            setAttempt((value) => value + 1);
+          }}
+        >
+          Check again
+        </button>
+        <button
+          className="button"
+          disabled={saving || !ready}
+          onClick={() => void continueSetup()}
+        >
+          Continue
+        </button>
+      </div>
+      <button
+        className="button secondary"
+        disabled={saving}
+        onClick={() => void continueSetup(true)}
+      >
+        Set up later
+      </button>
+      <p>
+        Skipping keeps your current provider path and leaves AI readiness
+        unverified. You can finish setup in Models.
+      </p>
     </OnboardingShell>
   );
 }
@@ -371,17 +820,34 @@ function ErrorNotice({
 function OnboardingShell({
   subtitle,
   children,
+  className = "",
+  footer,
 }: {
   subtitle: string;
   children: React.ReactNode;
+  className?: string;
+  footer?: React.ReactNode;
 }) {
+  const titleId = useId();
+  const title = useRef<HTMLHeadingElement>(null);
+  useLayoutEffect(() => {
+    title.current?.focus();
+  }, [subtitle]);
   return (
-    <div className="onboarding" role="dialog" aria-label="Set up Savvy">
+    <div
+      className={`onboarding ${className}`}
+      role="dialog"
+      aria-label="Set up Savvy"
+      aria-describedby={titleId}
+    >
       <div className="onboarding-header">
         <strong className="savvy-wordmark">savvy</strong>
-        <p>{subtitle}</p>
+        <h1 id={titleId} ref={title} tabIndex={-1}>
+          {subtitle}
+        </h1>
       </div>
       <div className="onboarding-card">{children}</div>
+      {footer && <p className="onboarding-footer">{footer}</p>}
     </div>
   );
 }

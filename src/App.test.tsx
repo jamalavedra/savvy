@@ -5,6 +5,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App, { MeetingOverlay } from "./App";
@@ -23,6 +24,68 @@ vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 import { requestPermissionDecision } from "./lib/permissions";
 import type { TranscriptTurn } from "./types";
 
+it("shows native provider validation errors without losing their message", async () => {
+  const invoke = vi.fn().mockRejectedValueOnce({
+    code: "invalid_key",
+    message: "The provider rejected this API key.",
+  });
+  window.__TAURI_INTERNALS__ = { invoke };
+  try {
+    await expect(
+      api.setTranscriptionApiKey("assemblyAi", "synthetic-key"),
+    ).rejects.toThrow("The provider rejected this API key.");
+    expect(invoke).toHaveBeenCalledWith(
+      "set_transcription_api_key",
+      {
+        provider: "assemblyAi",
+        apiKey: "synthetic-key",
+      },
+      undefined,
+    );
+  } finally {
+    delete window.__TAURI_INTERNALS__;
+  }
+});
+
+it("sends the reviewed content hash through the native start command and rejects missing review", async () => {
+  const invoke = vi.fn().mockResolvedValue({ id: "test-session" });
+  window.__TAURI_INTERNALS__ = { invoke };
+  const expected =
+    "01b76b0399cd35e10d594373c72656a3ff97533a26798293fb689aab604ff9b7";
+  const digest = vi
+    .fn()
+    .mockResolvedValue(
+      Uint8Array.from(expected.match(/../g)!, (value) =>
+        Number.parseInt(value, 16),
+      ).buffer,
+    );
+  vi.stubGlobal("crypto", { subtle: { digest } });
+  try {
+    const reviewed = "Reviewed brief\nNo discount\nCatalà";
+    await api.startMeeting("client", "brief", reviewed);
+    expect(invoke).toHaveBeenCalledWith(
+      "start_meeting",
+      {
+        clientId: "client",
+        briefId: "brief",
+        expectedBriefHash: expected,
+      },
+      undefined,
+    );
+    expect(digest).toHaveBeenCalledWith(
+      "SHA-256",
+      new TextEncoder().encode(reviewed),
+    );
+    await expect(api.startMeeting("client", "brief")).rejects.toThrow(
+      "Review the brief",
+    );
+    expect(invoke).toHaveBeenCalledTimes(1);
+  } finally {
+    delete window.__TAURI_INTERNALS__;
+    vi.unstubAllGlobals();
+  }
+});
+
 describe("App", () => {
   beforeEach(() => {
     resetBrowserDemoState();
@@ -33,6 +96,511 @@ describe("App", () => {
     vi.useRealTimers();
     delete window.__TAURI_INTERNALS__;
     window.history.replaceState({}, "", "/");
+  });
+
+  it.each([false, true])(
+    "recovers dashboard initialization in overlay=%s",
+    async (overlay) => {
+      const snapshot = await api.getDashboard();
+      if (overlay) {
+        snapshot.activeSession = await api.startMeeting(null, null);
+        window.history.replaceState({}, "", "/?overlay=1");
+      }
+      let resolve!: (value: typeof snapshot) => void;
+      const load = vi
+        .spyOn(api, "getDashboard")
+        .mockRejectedValueOnce(new Error("Storage temporarily unavailable"))
+        .mockRejectedValueOnce(new Error("Still unavailable"))
+        .mockImplementationOnce(
+          () =>
+            new Promise((yes) => {
+              resolve = yes;
+            }),
+        );
+      render(<App />);
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        "Storage temporarily unavailable",
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Retry loading" }));
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        "Still unavailable",
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Retry loading" }));
+      expect(
+        screen.queryByRole("button", { name: "Retry loading" }),
+      ).not.toBeInTheDocument();
+      expect(screen.getByLabelText("Loading")).toBeVisible();
+      await act(async () => resolve(snapshot));
+      expect(load).toHaveBeenCalledTimes(3);
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      if (overlay)
+        expect(
+          await screen.findByRole("button", {
+            name: "Keep recommendation open",
+          }),
+        ).toBeVisible();
+      else
+        expect(
+          await screen.findByRole("button", { name: "Regenerate" }),
+        ).toBeVisible();
+    },
+  );
+
+  it.each(["cancelled", "completed"] as const)(
+    "keeps the brief busy until native cleanup and handles %s",
+    async (outcome) => {
+      const completed = await api.generateBriefDraft(null, "Completed request");
+      let resolve!: (brief: typeof completed) => void;
+      let reject!: (error: Error) => void;
+      const generation = vi.spyOn(api, "generateBriefDraft").mockImplementation(
+        () =>
+          new Promise((yes, no) => {
+            resolve = yes;
+            reject = no;
+          }),
+      );
+      const cancel = vi.spyOn(api, "cancelBriefDraft").mockResolvedValue();
+      const progress = vi
+        .spyOn(api, "getBriefProgress")
+        .mockResolvedValue("reading");
+      render(<App />);
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Regenerate" }),
+      );
+      const button = await screen.findByRole("button", {
+        name: "Cancel brief generation",
+      });
+      expect(
+        screen.queryByText("Complete", { exact: true }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.getByRole("heading", { name: "Preparing your brief" }),
+      ).toHaveFocus();
+      progress.mockResolvedValue("drafting");
+      await screen.findByText("Complete", { exact: true });
+      fireEvent.click(button);
+      await waitFor(() => expect(cancel).toHaveBeenCalledTimes(1));
+      const [clientId, , requestId] = generation.mock.calls[0];
+      expect(requestId).toEqual(expect.any(String));
+      expect(cancel).toHaveBeenCalledWith(clientId, requestId);
+      expect(button).toBeDisabled();
+      expect(
+        screen.getByRole("button", { name: "Regenerate", hidden: true }),
+      ).toBeDisabled();
+      await act(async () => {
+        if (outcome === "cancelled")
+          reject(new Error("brief_cancelled: Brief generation was cancelled."));
+        else resolve(completed);
+      });
+      await waitFor(() =>
+        expect(
+          screen.queryByRole("button", { name: "Cancel brief generation" }),
+        ).not.toBeInTheDocument(),
+      );
+      if (outcome === "completed") {
+        expect(
+          screen.getByRole("heading", { name: "Your meeting brief" }),
+        ).toHaveFocus();
+        fireEvent.click(screen.getByRole("button", { name: "Edit context" }));
+      }
+      expect(screen.getByRole("button", { name: "Regenerate" })).toBeEnabled();
+      if (outcome === "cancelled")
+        expect(screen.getByRole("alert")).toHaveTextContent(
+          "Brief generation was cancelled.",
+        );
+      else expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    },
+  );
+
+  it("reviews refreshed source, retains it after file failure and never starts from review", async () => {
+    const snapshot = await api.getDashboard();
+    const brief = snapshot.activeBrief;
+    if (!brief) throw new Error("Expected demo brief");
+    const refresh = vi
+      .spyOn(api, "refreshBriefFromDocument")
+      .mockResolvedValue({
+        ...brief,
+        id: `${brief.id}-refreshed`,
+        objective: "Obsolete structured objective",
+        documentContent:
+          "## Objective\nCurrent file objective\n## Questions to ask\n- Current question?\n## Risks\n- Current guardrail",
+      });
+    const start = vi.spyOn(api, "startMeeting");
+    const open = vi
+      .spyOn(api, "openBriefDocument")
+      .mockRejectedValue(new Error("File is missing"));
+    render(<App />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Review brief" }),
+    );
+    expect(
+      screen.getByRole("heading", { name: "Your meeting brief" }),
+    ).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh from file" }));
+    const content = () =>
+      within(screen.getByRole("region", { name: "Meeting brief" }));
+    await waitFor(() =>
+      expect(content().getByText("Current file objective")).toBeVisible(),
+    );
+    expect(content().getByText("Current question?")).toBeVisible();
+    expect(content().getByText("Current guardrail")).toBeVisible();
+    expect(
+      content().queryByText("Obsolete structured objective"),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Open full brief" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "File is missing",
+    );
+    expect(open).toHaveBeenCalledWith(`${brief.id}-refreshed`);
+    refresh.mockRejectedValue(new Error("Cannot read file"));
+    fireEvent.click(screen.getByRole("button", { name: "Refresh from file" }));
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent("Cannot read file"),
+    );
+    expect(content().getByText("Current file objective")).toBeVisible();
+    expect(start).not.toHaveBeenCalled();
+    screen.getByRole("button", { name: "Check readiness" }).focus();
+    fireEvent.click(screen.getByRole("button", { name: "Check readiness" }));
+    await screen.findByRole("button", { name: "Start meeting" });
+    expect(start).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Check readiness" }),
+      ).toHaveFocus(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Edit context" }));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("heading", { name: "Prepare for your meeting" }),
+      ).toHaveFocus(),
+    );
+  });
+
+  it("uses the meeting objective for this brief without changing the reusable prompt", async () => {
+    const settings = await api.getAppSettings();
+    const generate = vi
+      .spyOn(api, "generateBriefDraft")
+      .mockRejectedValue(new Error("Supplier unavailable"));
+    const start = vi.spyOn(api, "startMeeting");
+    render(<App />);
+    const objective = await screen.findByLabelText("Meeting objective");
+    fireEvent.change(objective, {
+      target: { value: "Agree on renewal dates" },
+    });
+    const prepare = screen.getByRole("button", {
+      name: "Prepare brief",
+    });
+    await waitFor(() => expect(prepare).toBeEnabled());
+    fireEvent.click(prepare);
+    await waitFor(() => expect(generate).toHaveBeenCalledTimes(1));
+    expect(generate.mock.calls[0][1]).toBe(
+      `${settings.briefGenerationPrompt}\n\nMeeting objective: Agree on renewal dates`,
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText("Meeting objective")).toHaveValue(
+        "Agree on renewal dates",
+      ),
+    );
+    expect((await api.getAppSettings()).briefGenerationPrompt).toBe(
+      settings.briefGenerationPrompt,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Prepare brief" }));
+    await waitFor(() => expect(generate).toHaveBeenCalledTimes(2));
+    expect(generate.mock.calls[1][1]).toBe(generate.mock.calls[0][1]);
+    expect(start).not.toHaveBeenCalled();
+  });
+
+  it("announces document read failure and retries without losing keyboard focus", async () => {
+    const dashboard = await api.getDashboard();
+    const documents = await api.listClientDocuments(dashboard.clients[0].id);
+    let finish!: (value: typeof documents) => void;
+    const read = vi
+      .spyOn(api, "listClientDocuments")
+      .mockRejectedValueOnce(new Error("Folder temporarily unreadable"))
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      );
+    const save = vi.spyOn(api, "setClientDocumentSelection");
+    render(<App />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Show documents" }),
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Folder temporarily unreadable",
+    );
+    const retry = screen.getByRole("button", {
+      name: "Retry reading documents",
+    });
+    retry.focus();
+    fireEvent.click(retry);
+    await waitFor(() => expect(read).toHaveBeenCalledTimes(2));
+    expect(screen.getByText("Reading folder…")).toHaveAttribute(
+      "role",
+      "status",
+    );
+    expect(retry).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(retry);
+    expect(read).toHaveBeenCalledTimes(2);
+    await act(async () => finish(documents));
+    expect(
+      screen.queryByText("Folder temporarily unreadable"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Refresh documents" })).toBe(
+      retry,
+    );
+    expect(retry).toHaveFocus();
+    expect(
+      screen.getByRole("checkbox", { name: /msa-2024-signed\.pdf/ }),
+    ).toBeChecked();
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it("keeps confirmed exclusions while a refreshed document list is delayed or stale", async () => {
+    const dashboard = await api.getDashboard();
+    const documents = await api.listClientDocuments(dashboard.clients[0].id);
+    let finish!: (value: typeof documents) => void;
+    const read = vi
+      .spyOn(api, "listClientDocuments")
+      .mockResolvedValueOnce(documents)
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      );
+    render(<App />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Show documents" }),
+    );
+    const selection = await screen.findByRole("checkbox", {
+      name: /q2-usage-export\.csv/,
+    });
+    fireEvent.click(selection);
+    await waitFor(() => expect(selection).not.toBeChecked());
+    fireEvent.click(screen.getByRole("button", { name: "Refresh documents" }));
+    await waitFor(() => expect(read).toHaveBeenCalledTimes(2));
+    expect(selection).not.toBeChecked();
+    await act(async () => finish(documents));
+    expect(
+      screen.getByRole("checkbox", { name: /q2-usage-export\.csv/ }),
+    ).not.toBeChecked();
+  });
+
+  it("blocks assistance across navigation while context selection is pending or failed, then retries", async () => {
+    const saveOriginal = api.setClientDocumentSelection;
+    let reject!: (reason: Error) => void;
+    const save = vi
+      .spyOn(api, "setClientDocumentSelection")
+      .mockImplementationOnce(
+        () =>
+          new Promise((_, no) => {
+            reject = no;
+          }),
+      );
+    const generate = vi.spyOn(api, "generateBriefDraft");
+    const start = vi.spyOn(api, "startMeeting");
+    render(<App />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Show documents" }),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Select none" }));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(
+      screen.getByRole("button", { name: "Prepare brief" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Check readiness" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("checkbox", { name: /msa-2024-signed\.pdf/ }),
+    ).toBeChecked();
+    await act(async () => reject(new Error("Selection could not be saved")));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Selection could not be saved",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
+    fireEvent.keyDown(window, { key: "m", metaKey: true, shiftKey: true });
+    expect(
+      screen.queryByRole("button", { name: "Start meeting" }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Prepare" }));
+    expect(
+      screen.getByRole("button", { name: "Prepare brief" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Check readiness" }),
+    ).toBeDisabled();
+    save.mockImplementation(saveOriginal);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Retry context selection" }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Prepare brief" }),
+      ).toBeEnabled(),
+    );
+    expect(save.mock.calls[1]).toEqual(save.mock.calls[0]);
+    expect(
+      screen.queryByRole("button", { name: "Retry context selection" }),
+    ).not.toBeInTheDocument();
+    expect(generate).not.toHaveBeenCalled();
+    expect(start).not.toHaveBeenCalled();
+  });
+
+  it("ignores a stale preparation read after confirming a new document selection", async () => {
+    const dashboard = await api.getDashboard();
+    const snapshot = await api.getPreparationSnapshot(dashboard.clients[0].id);
+    let resolveOld!: (value: typeof snapshot) => void;
+    vi.spyOn(api, "getPreparationSnapshot")
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveOld = resolve;
+          }),
+      )
+      .mockResolvedValue(snapshot);
+    render(<App />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Show documents" }),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Select none" }));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Prepare brief" }),
+      ).toBeEnabled(),
+    );
+    expect(screen.getByRole("button", { name: "Review brief" })).toBeVisible();
+    await act(async () => resolveOld({ ...snapshot, brief: null }));
+    expect(screen.getByRole("button", { name: "Review brief" })).toBeVisible();
+  });
+
+  it("does not open readiness or drop the selected brief while preparation is loading", async () => {
+    const snapshot = await api.getDashboard();
+    const preparation = await api.getPreparationSnapshot(
+      snapshot.clients[0].id,
+    );
+    let finish!: (value: typeof preparation) => void;
+    vi.spyOn(api, "getPreparationSnapshot").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const start = vi.spyOn(api, "startMeeting");
+    render(<App />);
+    const button = await screen.findByRole("button", {
+      name: "Check readiness",
+    });
+    expect(button).toBeDisabled();
+    fireEvent.keyDown(window, { key: "m", metaKey: true, shiftKey: true });
+    expect(
+      screen.queryByRole("button", { name: "Start meeting" }),
+    ).not.toBeInTheDocument();
+    expect(start).not.toHaveBeenCalled();
+    await act(async () => finish(preparation));
+    await waitFor(() => expect(button).toBeEnabled());
+    expect(start).not.toHaveBeenCalled();
+  });
+
+  it("requires every source page and resets approval when the file changes", async () => {
+    const snapshot = await api.getDashboard();
+    const preparation = await api.getPreparationSnapshot(
+      snapshot.clients[0].id,
+    );
+    if (!preparation.brief) throw new Error("Expected fixture brief");
+    const brief = {
+      ...preparation.brief,
+      documentContent: "x".repeat(12000) + "Unseen tail instruction",
+    };
+    vi.spyOn(api, "getPreparationSnapshot").mockResolvedValue({
+      ...preparation,
+      brief,
+    });
+    vi.spyOn(api, "refreshBriefFromDocument").mockResolvedValue({
+      ...brief,
+      documentContent: brief.documentContent + " changed",
+    });
+    const start = vi.spyOn(api, "startMeeting");
+    render(<App />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Review brief" }),
+    );
+    const readiness = () =>
+      screen.getByRole("button", { name: "Check readiness" });
+    expect(readiness()).toBeDisabled();
+    expect(
+      screen.queryByText("Unseen tail instruction"),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+    expect(screen.getByText("Unseen tail instruction")).toBeVisible();
+    expect(screen.getByRole("region", { name: "Meeting brief" })).toHaveFocus();
+    expect(readiness()).toBeEnabled();
+    fireEvent.click(readiness());
+    await screen.findByRole("button", { name: "Start meeting" });
+    expect(start).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    fireEvent.click(screen.getByRole("button", { name: "Refresh from file" }));
+    await waitFor(() => expect(readiness()).toBeDisabled());
+    fireEvent.click(screen.getByRole("button", { name: "Edit context" }));
+    fireEvent.keyDown(window, { key: "m", metaKey: true, shiftKey: true });
+    await screen.findByRole("heading", { name: "Your meeting brief" });
+    expect(
+      screen.queryByRole("button", { name: "Start meeting" }),
+    ).not.toBeInTheDocument();
+    expect(readiness()).toBeDisabled();
+    expect(start).not.toHaveBeenCalled();
+  });
+
+  it("pins the brief at readiness even if preparation refreshes before start", async () => {
+    const snapshot = await api.getDashboard();
+    const client = snapshot.clients[0];
+    const preparation = await api.getPreparationSnapshot(client.id);
+    if (!preparation.brief) throw new Error("Expected fixture brief");
+    const read = vi
+      .spyOn(api, "getPreparationSnapshot")
+      .mockResolvedValue(preparation);
+    const dashboard = vi.spyOn(api, "getDashboard").mockResolvedValue(snapshot);
+    const start = vi.spyOn(api, "startMeeting");
+    render(<App />);
+    await screen.findByRole("button", { name: "Review brief" });
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Check readiness" }),
+      ).toBeEnabled(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Check readiness" }));
+    await screen.findByRole("heading", { name: "Your meeting brief" });
+    expect(
+      screen.queryByRole("button", { name: "Start meeting" }),
+    ).not.toBeInTheDocument();
+    expect(start).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Check readiness" }));
+    await screen.findByRole("button", { name: "Start meeting" });
+    read.mockResolvedValue({
+      ...preparation,
+      brief: {
+        ...preparation.brief,
+        documentContent: "Changed after readiness",
+      },
+    });
+    dashboard.mockResolvedValue({
+      ...snapshot,
+      clients: [...snapshot.clients, { ...client, id: "another-client" }],
+    });
+    fireEvent(window, new Event("focus"));
+    await waitFor(() => expect(read).toHaveBeenCalledTimes(2));
+    fireEvent.click(screen.getByRole("button", { name: "Start meeting" }));
+    await waitFor(() =>
+      expect(start).toHaveBeenCalledWith(
+        client.id,
+        preparation.brief?.id,
+        preparation.brief?.documentContent,
+      ),
+    );
   });
 
   it("keeps an idle overlay unmounted and applies saved settings from the main window", async () => {
@@ -125,6 +693,12 @@ describe("App", () => {
     const calls = meter.mock.calls.length;
     await act(() => vi.advanceTimersByTimeAsync(1000));
     expect(meter).toHaveBeenCalledTimes(calls);
+    view.rerender(<MeetingOverlay {...props} stopped />);
+    expect(screen.getByText("Meeting stopped")).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Unmute microphone" }),
+    ).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Stop meeting" })).toBeEnabled();
     view.unmount();
     await act(() => vi.advanceTimersByTimeAsync(1000));
     expect(meter).toHaveBeenCalledTimes(calls);
@@ -292,6 +866,49 @@ describe("App", () => {
     expect(turns.map(({ text }) => text)).toEqual(["hello", "how are you"]);
   });
 
+  it("bounds live transcript history by count and UTF-8 bytes while retaining recent turns", () => {
+    const turn = (index: number, text = "word"): TranscriptTurn => ({
+      id: String(index),
+      sessionId: "meeting",
+      channel: "unknown",
+      text,
+      language: "en",
+      startMs: index,
+      endMs: index + 1,
+      isFinal: true,
+      confidence: 1,
+    });
+    let turns: TranscriptTurn[] = [];
+    for (let index = 0; index < 1000; index++) {
+      turns = mergeTranscriptTurn(turns, turn(index));
+    }
+    expect(turns).toHaveLength(256);
+    expect(turns[0].id).toBe("744");
+    expect(turns[turns.length - 1]?.id).toBe("999");
+    turns = [];
+    for (let index = 0; index < 100; index++) {
+      turns = mergeTranscriptTurn(turns, turn(index, "語".repeat(2000)));
+    }
+    expect(
+      turns.reduce(
+        (bytes, item) => bytes + new TextEncoder().encode(item.text).length,
+        0,
+      ),
+    ).toBeLessThanOrEqual(256 * 1024);
+    expect(turns[turns.length - 1]?.id).toBe("99");
+    expect(turns[0].id).not.toBe("0");
+    expect(mergeTranscriptTurn(turns, turn(100, "語".repeat(3000)))).toEqual(
+      turns,
+    );
+    const longSpeech = "word ".repeat(1000);
+    expect(
+      mergeTranscriptTurn(
+        [{ ...turn(1, longSpeech), channel: "selfSpeaker" }],
+        { ...turn(2, longSpeech + "different"), channel: "other" },
+      ),
+    ).toHaveLength(2);
+  });
+
   it("keeps system audio and removes its microphone echo", () => {
     const turn = (
       id: string,
@@ -410,7 +1027,7 @@ describe("App", () => {
     expect(
       await screen.findByText("23 of 24 documents selected"),
     ).toBeVisible();
-    expect(finance).not.toBeChecked();
+    await waitFor(() => expect(finance).not.toBeChecked());
     expect(screen.getByText("0 of 1")).toBeVisible();
     fireEvent.click(finance);
     expect(await screen.findByText("24 source documents")).toBeVisible();
@@ -436,7 +1053,18 @@ describe("App", () => {
     expect(
       await screen.findByRole("heading", { name: "Prepare for your meeting" }),
     ).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Start listening" }));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Check readiness" }),
+      ).toBeEnabled(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Check readiness" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Check readiness" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Start meeting" }),
+    );
     expect(
       await screen.findByRole("heading", { name: "Live transcript" }),
     ).toBeVisible();
@@ -546,7 +1174,15 @@ describe("App", () => {
       screen.getByRole("option", { name: /General guidelines only/ }),
     );
     expect(await screen.findByText("General guidelines only")).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Start listening" }));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Check readiness" }),
+      ).toBeEnabled(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Check readiness" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Start meeting" }),
+    );
     expect(await screen.findByText("Savvy is listening")).toBeVisible();
   });
 
@@ -605,6 +1241,58 @@ describe("App", () => {
     window.history.replaceState({}, "", "/");
   });
 
+  it("keeps history and its modal available after local file or deletion failure", async () => {
+    vi.spyOn(api, "openMeetingTranscript").mockRejectedValue(
+      new Error("Transcript file is missing"),
+    );
+    vi.spyOn(api, "openRecordingsFolder").mockRejectedValue(
+      new Error("Recordings folder is unavailable"),
+    );
+    let rejectDeletion!: (error: Error) => void;
+    const remove = vi.spyOn(api, "deleteMeeting").mockImplementation(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectDeletion = reject;
+        }),
+    );
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "History" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Show transcript file" }),
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Transcript file is missing",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Open recordings" }));
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "Recordings folder is unavailable",
+      ),
+    );
+    const trigger = screen.getByRole("button", { name: "Delete meeting" });
+    trigger.focus();
+    fireEvent.click(trigger);
+    expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "Delete permanently" }));
+    const modal = screen.getByRole("dialog", { name: "Delete meeting?" });
+    expect(screen.getByRole("button", { name: "Deleting…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
+    fireEvent(modal, new Event("cancel", { cancelable: true }));
+    expect(modal).toBeVisible();
+    await act(async () =>
+      rejectDeletion(new Error("Could not remove recording")),
+    );
+    expect(await within(modal).findByRole("alert")).toHaveTextContent(
+      "Could not remove recording",
+    );
+    expect(remove).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(trigger).toHaveFocus();
+    expect(
+      screen.getByRole("button", { name: "Show transcript file" }),
+    ).toBeVisible();
+  });
+
   it("keeps meeting history compact and can delete the whole meeting", async () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "History" }));
@@ -651,12 +1339,22 @@ describe("App", () => {
       screen.queryByRole("heading", { name: "Prepare for your meeting" }),
     ).not.toBeInTheDocument();
 
-    // Off macOS there is nothing to grant, so the step is already satisfied.
-    fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Use your own providers" }),
+    );
     expect(
       await screen.findByRole("button", { name: "Skip for now" }),
     ).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Set up later" }),
+    );
+    await screen.findByRole("heading", {
+      name: "To get started, let Savvy hear the meeting.",
+    });
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Set up later" }),
+    );
 
     expect(
       await screen.findByRole("heading", { name: "Prepare for your meeting" }),
@@ -699,6 +1397,33 @@ describe("App", () => {
     }
   }, 15_000);
 
+  it.each([false, true])(
+    "restores shortcut registration across unmount, resolved=%s",
+    async (resolved) => {
+      let activate!: () => void;
+      const capture = vi
+        .spyOn(api, "setShortcutRecording")
+        .mockImplementation((active) =>
+          active
+            ? new Promise<void>((done) => {
+                activate = done;
+              })
+            : Promise.resolve(),
+        );
+      const view = render(<App />);
+      fireEvent.click(await screen.findByRole("button", { name: "General" }));
+      fireEvent.click(
+        await screen.findByRole("button", {
+          name: "Change start listening shortcut",
+        }),
+      );
+      if (resolved) await act(async () => activate());
+      view.unmount();
+      if (!resolved) await act(async () => activate());
+      expect(capture.mock.calls.filter(([active]) => !active)).toHaveLength(1);
+    },
+  );
+
   it("groups the general settings into labelled sections", async () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "General" }));
@@ -711,9 +1436,11 @@ describe("App", () => {
       screen.getByRole("button", { name: "Change start listening shortcut" }),
     ).toHaveTextContent("⌘ ⇧ M");
     expect(screen.queryByText("Push To Talk")).not.toBeInTheDocument();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Change start listening shortcut" }),
-    );
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "Change start listening shortcut" }),
+      );
+    });
     await waitFor(() =>
       expect(
         screen.getByRole("button", {
@@ -866,12 +1593,13 @@ describe("App", () => {
       screen.queryByRole("button", { name: "Approve" }),
     ).not.toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Start listening" }),
+      screen.getByRole("button", { name: "Check readiness" }),
     ).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
     expect((await screen.findAllByText(/Version 4/)).length).toBeGreaterThan(0);
-    expect(screen.getByText("SAVVY READS")).toBeVisible();
-    expect(screen.getByText("SAVVY USES")).toBeVisible();
+    expect(screen.getByText("CONTEXT")).toBeVisible();
+    fireEvent.click(screen.getByText("Meeting options"));
+    expect(screen.getByText("BRIEF AND LANGUAGE")).toBeVisible();
     const customize = screen.getByRole("button", { name: /Brief prompt/ });
     fireEvent.click(customize);
     expect(customize).toHaveAttribute("aria-controls", "brief-prompt-panel");
@@ -907,6 +1635,6 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Check for updates" }));
     expect(
       await screen.findByRole("button", { name: "Up to date" }),
-    ).toBeDisabled();
+    ).toHaveAttribute("aria-disabled", "true");
   }, 15_000);
 });

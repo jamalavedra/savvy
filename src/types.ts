@@ -196,9 +196,11 @@ export type AppStatus = {
 };
 
 export type AppSettings = {
+  serviceMode: "byok" | "managed";
   startListeningShortcut: string;
   selectedMicrophone: string | null;
   selectedChannel: number | null;
+  microphoneOnly: boolean;
   audioFeedback: boolean;
   selectedOutputDevice: string | null;
   audioFeedbackVolume: number;
@@ -243,4 +245,53 @@ export type AudioDevice = {
   name: string;
   isDefault: boolean;
   channels: number;
+};
+
+export type ManagedAccount = {
+  identity?: {
+    issuer: string;
+    subject: string;
+    name: string | null;
+    email: string | null;
+    emailVerified: boolean;
+  };
+  allowances?: Record<
+    "monthly" | "pack",
+    {
+      meetingMsAvailable: number;
+      meetingMsReserved: number;
+      briefsAvailable: number;
+    }
+  >;
+  latestConfirmedPurchase?: {
+    product: string;
+    attemptId: string;
+    status: "complete" | "failed" | "expired";
+  } | null;
+  purchaseAvailability?: { monthly: boolean; pack: boolean };
+  catalog?: typeof import("../config/managed-catalog.json");
+  pendingPurchases?: {
+    product: "monthly" | "pack";
+    attemptId: string;
+    status: string;
+  }[];
+  paymentPending?: boolean;
+  accountIdentity?: string;
+  nowMs: number;
+  meetingMsAvailable: number;
+  meetingMsReserved: number;
+  briefsAvailable: number;
+  monthlyMsTotal: number;
+  monthlyMsUsed: number;
+  periodEndMs: number | null;
+  subscription: {
+    status: string;
+    paidThroughMs: number | null;
+    cancelAtPeriodEnd: boolean;
+  } | null;
+};
+
+export type ManagedAuthorization = {
+  flowId: string;
+  authorizationUrl: string;
 };
