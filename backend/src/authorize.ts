@@ -7,11 +7,15 @@ import {
 import type { IncomingHttpHeaders } from "node:http";
 import type { Db } from "./db.js";
 import { ApiError } from "./errors.js";
+import { insertGrant, MS_PER_HOUR } from "./billing.js";
 
 export function createAuthorizer(
   db: Db,
-  issuer: string,
-  audience: string,
+  {
+    issuer,
+    audience,
+    unmetered,
+  }: { issuer: string; audience: string; unmetered: boolean },
   getKeys: () => Promise<JSONWebKeySet>,
   clock: () => bigint,
 ) {
@@ -100,11 +104,24 @@ export function createAuthorizer(
         db.prepare(
           "INSERT OR IGNORE INTO accounts(issuer,subject,disabled,created_at_ms) VALUES(?,?,0,?)",
         ).run(issuer, claims.sub, clock());
-        return db
+        const account = db
           .prepare<[string, string], { id: bigint; disabled: bigint }>(
             "SELECT id,disabled FROM accounts WHERE issuer=? AND subject=?",
           )
           .get(issuer, claims.sub!)!;
+        // ponytail: one unbounded grant per account; startup revokes it while Stripe is set.
+        if (unmetered)
+          insertGrant(
+            db,
+            account.id,
+            `unmetered:${account.id}`,
+            "unmetered",
+            1_000_000n * MS_PER_HOUR,
+            1_000_000n,
+            clock(),
+            null,
+          );
+        return account;
       })
       .immediate();
     if (row.disabled !== 0n)

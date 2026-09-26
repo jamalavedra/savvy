@@ -747,6 +747,11 @@ export function recoverRestart(state: ServiceState) {
           )
           .run(session.id);
       }
+      state.db
+        .prepare(
+          "UPDATE allowance_grants SET revoked=? WHERE kind='unmetered' AND revoked<>?",
+        )
+        .run(state.config.billing ? 1 : 0, state.config.billing ? 1 : 0);
     })
     .immediate();
   state.sessions.clear();

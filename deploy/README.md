@@ -57,8 +57,11 @@ The example cannot validate certificates or public routing locally.
 Configure Google identity, SMTP, Stripe catalog selectors/webhook secret and the
 transcription/AI suppliers in the protected environment. Do not embed secrets in
 desktop builds. Preserve the accepted $79 monthly/$29 pack catalog and stored
-historical offer identities. Keep development grants disabled outside isolated
-local fixtures. Stripe-hosted return pages trigger refresh and never prove payment.
+historical offer identities. Production requires `SAVVY_STRIPE_SECRET_KEY`,
+`SAVVY_STRIPE_WEBHOOK_SECRET`, `SAVVY_STRIPE_PRICE_MONTHLY` and
+`SAVVY_STRIPE_PRICE_PACK`, and must not set `SAVVY_ALLOW_UNMETERED`. Keep
+development grants disabled outside isolated local fixtures. Stripe-hosted return
+pages trigger refresh and never prove payment.
 
 ## Migration, backup and rollback
 

@@ -43,6 +43,12 @@ export function stripeObject(value: unknown): StripeObject {
     : {};
 }
 
+export function stripeBilling(state: ServiceState) {
+  if (!state.config.billing)
+    throw new Error("Stripe billing is not configured");
+  return state.config.billing;
+}
+
 async function request(
   state: ServiceState,
   path: string,
@@ -64,7 +70,7 @@ async function request(
         {
           method: form ? "POST" : "GET",
           headers: {
-            Authorization: `Bearer ${state.config.stripeKey}`,
+            Authorization: `Bearer ${stripeBilling(state).key}`,
             "Stripe-Version": "2025-06-30.basil",
             ...(key === undefined ? {} : { "Idempotency-Key": key }),
           },
@@ -241,8 +247,8 @@ export async function checkout(
           product,
           state.clock(),
           product === "monthly"
-            ? state.config.stripePriceMonthly
-            : state.config.stripePricePack,
+            ? stripeBilling(state).priceMonthly
+            : stripeBilling(state).pricePack,
           state.config.checkoutReturnUrl,
         );
     }
@@ -836,7 +842,7 @@ export async function webhook(
     )
     .immediate();
   verifySignature(
-    state.config.stripeWebhookSecret,
+    stripeBilling(state).webhookSecret,
     header,
     body,
     state.clock() / 1000n,
@@ -870,6 +876,7 @@ function logRetry(phase: string, error: unknown) {
 }
 
 export async function reconcile(state: ServiceState) {
+  if (!state.config.billing) return;
   for (const phase of [
     reconcilePending,
     reconcileEvents,
@@ -1196,6 +1203,7 @@ async function reconcileSubscriptions(state: ServiceState) {
 }
 
 export async function refreshRenewal(state: ServiceState, account: bigint) {
+  if (!state.config.billing) return;
   let release: () => void;
   try {
     release = acquireBilling(state, account);

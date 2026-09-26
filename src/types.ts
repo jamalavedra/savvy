@@ -269,7 +269,7 @@ export type ManagedAccount = {
     status: "complete" | "failed" | "expired";
   } | null;
   purchaseAvailability?: { monthly: boolean; pack: boolean };
-  catalog?: typeof import("../config/managed-catalog.json");
+  catalog?: typeof import("../config/managed-catalog.json") | null;
   pendingPurchases?: {
     product: "monthly" | "pack";
     attemptId: string;

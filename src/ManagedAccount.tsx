@@ -98,6 +98,7 @@ export default function ManagedAccount({
     }
   }
   const offers = account?.catalog ?? catalog;
+  const unbilled = account?.catalog === null;
   const pending = (product: string) =>
     account?.pendingPurchases?.some((purchase) => purchase.product === product);
   const remaining = account
@@ -240,14 +241,20 @@ export default function ManagedAccount({
                 ? "Loading your account…"
                 : "Sign in to Savvy in Account before using managed assistance.")}
         </p>
-        <button
-          className="button secondary"
-          disabled={busy || !account}
-          onClick={() => void run(() => managedBilling("pack"))}
-        >
-          {pending("pack") ? "Retry pending hours pack" : "Buy hours pack"}
-        </button>
-        <p>After buying, explicitly resume paused assistance.</p>
+        {unbilled ? (
+          <p>This backend has no billing.</p>
+        ) : (
+          <>
+            <button
+              className="button secondary"
+              disabled={busy || !account}
+              onClick={() => void run(() => managedBilling("pack"))}
+            >
+              {pending("pack") ? "Retry pending hours pack" : "Buy hours pack"}
+            </button>
+            <p>After buying, explicitly resume paused assistance.</p>
+          </>
+        )}
       </section>
     );
   return (
@@ -430,7 +437,8 @@ export default function ManagedAccount({
               {warning}
             </p>
           )}
-          {!noPlan && !recoveryVisible && !paymentPending && (
+          {unbilled && <p>This backend has no billing.</p>}
+          {!unbilled && !noPlan && !recoveryVisible && !paymentPending && (
             <>
               {!showUsage && !paymentPending && (
                 <button
@@ -605,13 +613,15 @@ export default function ManagedAccount({
             End your meeting first. Local history stays on this Mac. Signing out
             does not cancel your subscription.
           </p>
-          <button
-            className="button secondary"
-            disabled={busy}
-            onClick={() => void run(() => managedBilling("portal"))}
-          >
-            Manage billing
-          </button>
+          {!unbilled && (
+            <button
+              className="button secondary"
+              disabled={busy}
+              onClick={() => void run(() => managedBilling("portal"))}
+            >
+              Manage billing
+            </button>
+          )}
           {error && <p role="alert">{error}</p>}
         </ConfirmDialog>
       )}

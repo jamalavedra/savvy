@@ -3,12 +3,15 @@ import { test, type TestContext } from "node:test";
 import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import { once } from "node:events";
-import { openServiceDatabase } from "./db.js";
+import { generateKeyPair, exportJWK, SignJWT } from "jose";
+import { openServiceDatabase, type Db } from "./db.js";
+import { createAuthorizer, type Authorizer } from "./authorize.js";
 import { ServiceState } from "./state.js";
 import { configuration } from "./config.js";
 import { ApiError } from "./errors.js";
 import { insertGrant, balance } from "./billing.js";
 import { managedRequest } from "./api.js";
+import { reconcile } from "./stripe.js";
 import { completeRequest } from "./advice.js";
 import {
   createSession,
@@ -106,7 +109,13 @@ const advice = {
   memoryUpdates: [],
   validForMs: 30_000,
 };
-async function fixture(t: TestContext) {
+async function fixture(
+  t: TestContext,
+  options: {
+    env?: NodeJS.ProcessEnv;
+    authorizer?: (db: Db, clock: () => bigint) => Authorizer;
+  } = {},
+) {
   const calls: { path: string; body: Record<string, unknown> }[] = [];
   let output: unknown = brief;
   let status = 200;
@@ -162,25 +171,27 @@ async function fixture(t: TestContext) {
       SAVVY_ANTHROPIC_API_KEY: "synthetic",
       SAVVY_ANTHROPIC_BASE_URL: `http://127.0.0.1:${address.port}`,
       SAVVY_DEEPGRAM_API_KEY: "synthetic",
+      ...options.env,
     }),
     db,
     () => now,
-    async (headers) => {
-      if (!["Bearer a", "Bearer b"].includes(headers.authorization ?? ""))
-        throw new ApiError("sign_in_required", "missing test token");
-      return {
-        accountId: headers.authorization === "Bearer a" ? 1n : 2n,
-        subject: "test",
-        expiresAtMs: now + 60_000n,
-        displayIdentity: {
-          issuer: "issuer",
+    options.authorizer?.(db, () => now) ??
+      (async (headers) => {
+        if (!["Bearer a", "Bearer b"].includes(headers.authorization ?? ""))
+          throw new ApiError("sign_in_required", "missing test token");
+        return {
+          accountId: headers.authorization === "Bearer a" ? 1n : 2n,
           subject: "test",
-          name: null,
-          email: null,
-          emailVerified: false,
-        },
-      };
-    },
+          expiresAtMs: now + 60_000n,
+          displayIdentity: {
+            issuer: "issuer",
+            subject: "test",
+            name: null,
+            email: null,
+            emailVerified: false,
+          },
+        };
+      }),
   );
   const server = createServer((req, res) => {
     void managedRequest(
@@ -1309,4 +1320,111 @@ test("meeting context admission counts full source before capture without chargi
     assert.equal((await h.post(path, body)).status, 200);
   assert.equal((await h.post(path, body)).body.code, "rate_limited");
   assert.equal(h.state.aiInFlight.size, 0);
+});
+
+test("without Stripe, a new account gets an unmetered grant and billing routes refuse", async (t) => {
+  let stripeRequests = 0;
+  const stripe = createServer((_req, res) => {
+    stripeRequests++;
+    res.writeHead(500).end();
+  });
+  stripe.listen(0, "127.0.0.1");
+  await once(stripe, "listening");
+  t.after(() => new Promise<void>((resolve) => stripe.close(() => resolve())));
+  const stripeAddress = stripe.address();
+  assert.ok(stripeAddress && typeof stripeAddress !== "string");
+  const { publicKey, privateKey } = await generateKeyPair("RS256");
+  const keys = {
+    keys: [{ ...(await exportJWK(publicKey)), kid: "one", alg: "RS256" }],
+  };
+  const h = await fixture(t, {
+    env: {
+      SAVVY_STRIPE_SECRET_KEY: "",
+      SAVVY_STRIPE_WEBHOOK_SECRET: "",
+      SAVVY_STRIPE_PRICE_MONTHLY: "",
+      SAVVY_STRIPE_PRICE_PACK: "",
+      SAVVY_STRIPE_BASE_URL: `http://127.0.0.1:${stripeAddress.port}`,
+    },
+    authorizer: (db, clock) =>
+      createAuthorizer(
+        db,
+        { issuer: "issuer", audience: "savvy-tests", unmetered: true },
+        async () => keys,
+        clock,
+      ),
+  });
+  assert.equal(h.state.config.billing, null);
+  const token = await new SignJWT({ sub: "unmetered" })
+    .setProtectedHeader({ alg: "RS256", kid: "one" })
+    .setIssuer("issuer")
+    .setAudience("savvy-tests")
+    .setExpirationTime("5m")
+    .sign(privateKey);
+  const account = await fetch(h.base + "/v1/account", {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  assert.equal(account.status, 200);
+  const summary = await account.json();
+  assert.equal(summary.catalog, null);
+  assert.deepEqual(summary.pendingPurchases, []);
+  assert.equal(summary.latestConfirmedPurchase, null);
+  assert.equal(summary.briefsAvailable, 1_000_000);
+  const brief = await h.post(
+    "/v1/briefs",
+    { idempotencyKey: "unmetered", request },
+    token,
+  );
+  assert.equal(brief.status, 200);
+  const session = await h.post("/v1/sessions", { sessionId: SESSION }, token);
+  assert.equal(session.status, 200);
+  const accountId = BigInt(
+    (
+      h.db
+        .prepare("SELECT id FROM accounts WHERE subject='unmetered'")
+        .get() as { id: bigint }
+    ).id,
+  );
+  const totals = balance(h.db, accountId, h.state.clock());
+  assert.equal(totals.briefsAvailable, 999_999n);
+  assert.ok(totals.meetingMsReserved > 0n);
+  await fetch(h.base + "/v1/account", {
+    headers: { authorization: `Bearer ${token}` },
+  }).then((r) => r.arrayBuffer());
+  assert.deepEqual(
+    h.db
+      .prepare("SELECT COUNT(*) AS n FROM allowance_grants WHERE account_id=?")
+      .get(accountId),
+    { n: 1n },
+  );
+  for (const [path, body] of [
+    ["/v1/billing/checkout", { product: "pack", idempotencyKey: "u" }],
+    ["/v1/billing/portal", {}],
+    ["/v1/billing/webhook", {}],
+  ] as const) {
+    const refused = await h.post(path, body, token);
+    assert.equal(refused.status, 400);
+    assert.deepEqual(refused.body, {
+      code: "invalid_request",
+      message: "billing is not configured on this backend",
+    });
+  }
+  await reconcile(h.state);
+  assert.equal(stripeRequests, 0);
+  h.state.config.billing = {
+    key: "synthetic",
+    webhookSecret: "synthetic",
+    priceMonthly: "price_monthly",
+    pricePack: "price_pack",
+  };
+  recoverRestart(h.state);
+  assert.equal(balance(h.db, accountId, h.state.clock()).briefsAvailable, 0n);
+  assert.deepEqual(
+    h.db
+      .prepare("SELECT revoked FROM allowance_grants WHERE kind='unmetered'")
+      .all(),
+    [{ revoked: 1n }],
+  );
+  h.state.config.billing = null;
+  recoverRestart(h.state);
+  assert.ok(balance(h.db, accountId, h.state.clock()).briefsAvailable > 0n);
 });

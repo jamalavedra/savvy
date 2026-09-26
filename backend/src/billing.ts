@@ -360,7 +360,12 @@ export function balance(db: Db, account: bigint, now: bigint) {
   return totals;
 }
 
-export function accountSummary(db: Db, account: bigint, now: bigint) {
+export function accountSummary(
+  db: Db,
+  account: bigint,
+  now: bigint,
+  billed = true,
+) {
   const totals = balance(db, account, now);
   const subscription = db
     .prepare<
@@ -392,9 +397,9 @@ export function accountSummary(db: Db, account: bigint, now: bigint) {
     )
     .get(account);
   return {
-    catalog: CATALOG,
-    pendingPurchases: pending,
-    latestConfirmedPurchase: latest ?? null,
+    catalog: billed ? CATALOG : null,
+    pendingPurchases: billed ? pending : [],
+    latestConfirmedPurchase: billed ? (latest ?? null) : null,
     allowances: {
       monthly: {
         meetingMsAvailable: totals.monthlyMsAvailable,
@@ -408,7 +413,7 @@ export function accountSummary(db: Db, account: bigint, now: bigint) {
       },
     },
     accountIdentity: subject,
-    paymentPending: pending.length > 0,
+    paymentPending: billed && pending.length > 0,
     policyVersion: POLICY_VERSION,
     nowMs: now,
     meetingMsAvailable: totals.meetingMsAvailable,

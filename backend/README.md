@@ -62,6 +62,16 @@ OTP verification uses six digits, ten-minute expiry and three attempts. Server-s
 resend and delivery limits persist in SQLite. HMAC storage derives its key from
 `BETTER_AUTH_SECRET`. Existing codes require resend when that secret changes.
 
+## Billing
+
+The four `SAVVY_STRIPE_*` selector and secret variables are optional. When all four
+are empty, the backend runs unmetered: billing routes return `invalid_request`, and
+each account receives one allowance of 1,000,000 hours and 1,000,000 briefs.
+A non-loopback `BETTER_AUTH_URL` or `SAVVY_HOST` refuses to start unmetered unless
+`SAVVY_ALLOW_UNMETERED=1` is set. Setting only some of the four variables fails at
+startup. `GET /ready` reports `billing` as `stripe` or `unmetered`. When Stripe is
+configured again, startup revokes every unmetered grant. Removing it again restores them.
+
 ## Checks
 
 ```sh

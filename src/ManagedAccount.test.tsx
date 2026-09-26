@@ -133,6 +133,46 @@ describe("managed account fixtures", () => {
     }
   });
 
+  it("hides purchase actions when the backend has no billing", async () => {
+    const read = vi.spyOn(api, "managedAccount").mockResolvedValue({
+      nowMs: 1,
+      catalog: null,
+      pendingPurchases: [],
+      latestConfirmedPurchase: null,
+      meetingMsAvailable: 3_600_000_000_000,
+      meetingMsReserved: 0,
+      briefsAvailable: 1_000_000,
+      monthlyMsTotal: 0,
+      monthlyMsUsed: 0,
+      periodEndMs: null,
+      subscription: null,
+    });
+    try {
+      const { unmount } = render(<ManagedAccount />);
+      expect(
+        await screen.findByText("This backend has no billing."),
+      ).toBeInTheDocument();
+      for (const name of [
+        "Plan and usage",
+        "Monthly plan",
+        "Buy hours pack",
+        "Manage billing",
+        "View plans and pricing",
+      ])
+        expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+      unmount();
+      render(<ManagedAccount compact />);
+      expect(
+        await screen.findByText("This backend has no billing."),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: "Buy hours pack" }),
+      ).not.toBeInTheDocument();
+    } finally {
+      read.mockRestore();
+    }
+  });
+
   it("shows server-provided monthly and pack balances without replacing historical allowances", async () => {
     const read = vi.spyOn(api, "managedAccount").mockResolvedValue({
       nowMs: 1,

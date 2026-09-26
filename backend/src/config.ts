@@ -21,6 +21,29 @@ export function configuration(env: NodeJS.ProcessEnv = process.env) {
     throw new Error(
       "The backend must retain the configured Better Auth issuer",
     );
+  const stripe = {
+    key: "SAVVY_STRIPE_SECRET_KEY",
+    webhookSecret: "SAVVY_STRIPE_WEBHOOK_SECRET",
+    priceMonthly: "SAVVY_STRIPE_PRICE_MONTHLY",
+    pricePack: "SAVVY_STRIPE_PRICE_PACK",
+  };
+  const billing = Object.values(stripe).some((name) => env[name])
+    ? {
+        key: required(stripe.key),
+        webhookSecret: required(stripe.webhookSecret),
+        priceMonthly: required(stripe.priceMonthly),
+        pricePack: required(stripe.pricePack),
+      }
+    : null;
+  if (
+    !billing &&
+    (!isLoopback(new URL(issuer).hostname) ||
+      !isLoopback(env.SAVVY_HOST ?? "127.0.0.1")) &&
+    env.SAVVY_ALLOW_UNMETERED !== "1"
+  )
+    throw new Error(
+      "Stripe is not configured for a public issuer or listener; set the SAVVY_STRIPE_* variables or SAVVY_ALLOW_UNMETERED=1",
+    );
   const config = {
     issuer,
     audience: env.SAVVY_OIDC_AUDIENCE ?? "https://api.savvy.alamaslabs.com",
@@ -33,10 +56,7 @@ export function configuration(env: NodeJS.ProcessEnv = process.env) {
     deepgramUrl: env.SAVVY_DEEPGRAM_URL ?? "wss://api.deepgram.com/v1/listen",
     deepgramKey: required("SAVVY_DEEPGRAM_API_KEY"),
     stripeBaseUrl: env.SAVVY_STRIPE_BASE_URL ?? "https://api.stripe.com",
-    stripeKey: required("SAVVY_STRIPE_SECRET_KEY"),
-    stripeWebhookSecret: required("SAVVY_STRIPE_WEBHOOK_SECRET"),
-    stripePriceMonthly: required("SAVVY_STRIPE_PRICE_MONTHLY"),
-    stripePricePack: required("SAVVY_STRIPE_PRICE_PACK"),
+    billing,
     checkoutReturnUrl:
       env.SAVVY_CHECKOUT_RETURN_URL ?? "https://savvy.local/checkout-complete",
     fixtures: env.SAVVY_DEV_FIXTURES === "1",

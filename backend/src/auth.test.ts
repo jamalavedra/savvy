@@ -341,8 +341,11 @@ test("real Better Auth: delivered OTP, persistent limits, discovery, PKCE and si
         assert.notEqual(renewedTokens.refresh_token, refreshed.refresh_token);
         const authorize = createAuthorizer(
           restoredLedger,
-          env.BETTER_AUTH_URL,
-          instance.audience,
+          {
+            issuer: env.BETTER_AUTH_URL,
+            audience: instance.audience,
+            unmetered: false,
+          },
           () => restored.auth.api.getJwks(),
           () => now,
         );

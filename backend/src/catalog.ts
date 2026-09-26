@@ -3,7 +3,7 @@ import type { Db } from "./db.js";
 import { ApiError } from "./errors.js";
 import { isDeepStrictEqual } from "node:util";
 import type { ServiceState } from "./state.js";
-import { get, stripeId, stripeObject } from "./stripe.js";
+import { get, stripeBilling, stripeId, stripeObject } from "./stripe.js";
 
 export interface Offer {
   version: string;
@@ -39,8 +39,8 @@ export function historical(db: Db, price: string, product: Product): Offer {
 export async function validatePrice(state: ServiceState, product: Product) {
   const price =
     product === "monthly"
-      ? state.config.stripePriceMonthly
-      : state.config.stripePricePack;
+      ? stripeBilling(state).priceMonthly
+      : stripeBilling(state).pricePack;
   await associatePrice(state, price, product, true);
   return price;
 }

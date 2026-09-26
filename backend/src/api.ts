@@ -116,6 +116,11 @@ export async function managedRequest(
   path: string,
 ) {
   try {
+    if (path.startsWith("/v1/billing/") && !state.config.billing)
+      throw new ApiError(
+        "invalid_request",
+        "billing is not configured on this backend",
+      );
     if (path === "/v1/briefs" && req.method === "POST") {
       const body = briefBody.safeParse(await readObject(req));
       if (!body.success)
@@ -320,7 +325,12 @@ export async function managedRequest(
       await refreshRenewal(state, account.accountId);
       const summary = state.db
         .transaction(() =>
-          accountSummary(state.db, account.accountId, state.clock()),
+          accountSummary(
+            state.db,
+            account.accountId,
+            state.clock(),
+            state.config.billing !== null,
+          ),
         )
         .immediate();
       send(res, {
@@ -351,7 +361,12 @@ export async function managedRequest(
       const summary = state.db
         .transaction(() => {
           grantFixture(state.db, account.accountId, body.kind as string, now);
-          return accountSummary(state.db, account.accountId, now);
+          return accountSummary(
+            state.db,
+            account.accountId,
+            now,
+            state.config.billing !== null,
+          );
         })
         .immediate();
       send(res, summary);

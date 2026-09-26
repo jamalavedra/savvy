@@ -25,8 +25,11 @@ export const state = new ServiceState(
   clock,
   createAuthorizer(
     serviceDb,
-    config.issuer,
-    config.audience,
+    {
+      issuer: config.issuer,
+      audience: config.audience,
+      unmetered: config.billing === null,
+    },
     () => auth.api.getJwks(),
     clock,
   ),
@@ -124,6 +127,7 @@ const server = createServer(async (req, res) => {
             process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET,
           ),
           email: Boolean(process.env.SMTP_HOST && process.env.SMTP_FROM),
+          billing: config.billing ? "stripe" : "unmetered",
         }),
       );
       return;

@@ -56,8 +56,11 @@ test("verified issuer/subject, current signing keys, and disabled accounts defin
   };
   const authorize = createAuthorizer(
     db,
-    "https://auth.savvy.test",
-    "savvy-tests",
+    {
+      issuer: "https://auth.savvy.test",
+      audience: "savvy-tests",
+      unmetered: false,
+    },
     async () => keys,
     systemClock(),
   );
@@ -263,4 +266,45 @@ test("fixture configuration refuses public or deceptive endpoints and issuer cha
     { SAVVY_OIDC_ISSUER: "http://127.0.0.1:8787" },
   ])
     assert.throws(() => configuration({ ...env, ...patch }));
+  assert.throws(
+    () => configuration({ ...env, SAVVY_STRIPE_PRICE_PACK: "" }),
+    /SAVVY_STRIPE_PRICE_PACK/,
+  );
+  const unbilled = {
+    ...env,
+    SAVVY_STRIPE_SECRET_KEY: "",
+    SAVVY_STRIPE_WEBHOOK_SECRET: "",
+    SAVVY_STRIPE_PRICE_MONTHLY: "",
+    SAVVY_STRIPE_PRICE_PACK: "",
+  };
+  assert.equal(configuration(unbilled).billing, null);
+  assert.equal(configuration(env).billing?.pricePack, "price_pack");
+  const hosted = {
+    BETTER_AUTH_URL: "https://auth.savvy.test",
+    SAVVY_DEEPGRAM_API_KEY: "fixture",
+    SAVVY_ANTHROPIC_API_KEY: "fixture",
+  };
+  assert.throws(() => configuration(hosted), /SAVVY_ALLOW_UNMETERED=1/);
+  assert.throws(
+    () =>
+      configuration({
+        SAVVY_HOST: "0.0.0.0",
+        SAVVY_DEEPGRAM_API_KEY: "fixture",
+        SAVVY_ANTHROPIC_API_KEY: "fixture",
+      }),
+    /SAVVY_ALLOW_UNMETERED=1/,
+  );
+  assert.equal(
+    configuration({ ...hosted, SAVVY_ALLOW_UNMETERED: "1" }).billing,
+    null,
+  );
+  assert.throws(
+    () =>
+      configuration({
+        ...hosted,
+        SAVVY_ALLOW_UNMETERED: "1",
+        SAVVY_DEEPGRAM_API_KEY: "",
+      }),
+    /SAVVY_DEEPGRAM_API_KEY/,
+  );
 });
