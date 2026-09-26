@@ -3,11 +3,30 @@ use std::{fs, path::Path};
 
 pub const DEFAULT_BRIEF_GENERATION_PROMPT: &str = "Create a concise, source-grounded meeting brief. Apply the reusable guidance to the client evidence. Identify objectives, positions, priorities, a practical discussion outline, desired outcomes, questions, factual talking points with citations, concessions, red lines, prohibited claims, unauthorized commitments, and risks. Never invent client facts. Prefer concrete language that can guide a live conversation.";
 
+/// Who supplies transcription and AI for meetings and briefs.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ServiceMode {
+    /// The user's own provider keys and CLIs.
+    #[default]
+    Byok,
+    /// A signed-in Savvy account.
+    Managed,
+}
+
+impl ServiceMode {
+    pub fn is_managed(self) -> bool {
+        match self {
+            ServiceMode::Managed => true,
+            ServiceMode::Byok => false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AppSettings {
-    /// "byok" (bring your own provider keys/CLIs) or "managed" (Savvy account).
-    pub service_mode: String,
+    pub service_mode: ServiceMode,
     pub start_listening_shortcut: String,
     pub selected_microphone: Option<String>,
     pub selected_channel: Option<u16>,
@@ -38,7 +57,7 @@ pub struct AppSettings {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
-            service_mode: "byok".into(),
+            service_mode: ServiceMode::Byok,
             start_listening_shortcut: "Command+Shift+M".into(),
             selected_microphone: None,
             selected_channel: None,
@@ -100,9 +119,6 @@ pub fn load(path: &Path) -> AppSettings {
 }
 
 fn normalize(mut settings: AppSettings) -> AppSettings {
-    if !["byok", "managed"].contains(&settings.service_mode.as_str()) {
-        settings.service_mode = "byok".into();
-    }
     if settings.transcription_provider == "assemblyAi"
         && settings.transcription_model == "universal-3-5-pro"
     {
@@ -132,7 +148,7 @@ mod tests {
     #[test]
     fn old_settings_receive_transcription_defaults() {
         let settings: AppSettings = serde_json::from_str("{}").unwrap();
-        assert_eq!(settings.service_mode, "byok");
+        assert_eq!(settings.service_mode, ServiceMode::Byok);
         assert_eq!(settings.transcription_provider, "deepgram");
         assert_eq!(settings.transcription_model, "nova-3");
         assert_eq!(settings.transcription_language, "multi");
@@ -169,7 +185,7 @@ mod tests {
         fs::write(&path, stored).unwrap();
         let settings = load(&path);
         assert!(settings.onboarding_completed);
-        assert_eq!(settings.service_mode, "byok");
+        assert_eq!(settings.service_mode, ServiceMode::Byok);
         assert_eq!(settings.theme, "dark");
         assert_eq!(settings.selected_microphone.as_deref(), Some("USB mic"));
         assert_eq!(settings.audio_feedback_volume, 0.5);
@@ -193,23 +209,23 @@ mod tests {
         save(
             &path,
             &AppSettings {
-                service_mode: "managed".into(),
+                service_mode: ServiceMode::Managed,
                 ..AppSettings::default()
             },
         )
         .unwrap();
-        assert_eq!(load(&path).service_mode, "managed");
+        assert_eq!(load(&path).service_mode, ServiceMode::Managed);
 
         // An invalid stored mode falls back to BYOK without resetting other fields.
-        fs::write(
-            &path,
-            br#"{"serviceMode":42,"theme":"dark","onboardingCompleted":true}"#,
-        )
-        .unwrap();
-        let recovered = load(&path);
-        assert_eq!(recovered.service_mode, "byok");
-        assert_eq!(recovered.theme, "dark");
-        assert!(recovered.onboarding_completed);
+        for invalid in ["42", r#""cloud""#] {
+            let stored =
+                format!(r#"{{"serviceMode":{invalid},"theme":"dark","onboardingCompleted":true}}"#);
+            fs::write(&path, stored).unwrap();
+            let recovered = load(&path);
+            assert_eq!(recovered.service_mode, ServiceMode::Byok);
+            assert_eq!(recovered.theme, "dark");
+            assert!(recovered.onboarding_completed);
+        }
         fs::remove_dir_all(directory).unwrap();
     }
 

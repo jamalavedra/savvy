@@ -1848,7 +1848,7 @@ mod issuer_tests {
                 use tauri::Manager;
                 let state = app.state::<crate::AppState>();
                 let mut settings = state.settings.lock().unwrap();
-                settings.service_mode = "managed".into();
+                settings.service_mode = crate::settings::ServiceMode::Managed;
                 settings.guidance_folder = Some(guidance.to_string_lossy().into_owned());
             }
             let client: Option<String> = None;

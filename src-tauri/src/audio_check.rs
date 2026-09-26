@@ -1,5 +1,8 @@
 //! Explicit, bounded capture checks. No recording or meeting is created locally.
-use crate::{managed, settings::AppSettings};
+use crate::{
+    managed,
+    settings::{AppSettings, ServiceMode},
+};
 use savvy_audio::{AudioCapture, AudioSource, MicrophoneCapture, SystemAudioCapture};
 use serde::Serialize;
 use std::sync::{
@@ -40,10 +43,9 @@ pub fn start(
     key: Option<String>,
     id: uuid::Uuid,
 ) -> Result<String, String> {
-    let account_operation = if transcribe && settings.service_mode == "managed" {
-        Some(managed::ServiceOperation::begin_audio_check()?)
-    } else {
-        None
+    let account_operation = match settings.service_mode {
+        ServiceMode::Managed if transcribe => Some(managed::ServiceOperation::begin_audio_check()?),
+        ServiceMode::Managed | ServiceMode::Byok => None,
     };
     let mut stop_slot = STOP.lock().map_err(|_| "audio check lock")?;
     if ACTIVE.swap(true, Ordering::SeqCst) {
@@ -85,12 +87,13 @@ pub fn start(
             )
             .map_err(|e| e.to_string())?;
             let mut lease = 0;
-            let credentials = if transcribe && settings.service_mode == "managed" {
-                lease = managed::create_session(&worker_id)?.lease_version;
-                managed_started = true;
-                Some(managed::relay_credentials()?)
-            } else {
-                None
+            let credentials = match settings.service_mode {
+                ServiceMode::Managed if transcribe => {
+                    lease = managed::create_session(&worker_id)?.lease_version;
+                    managed_started = true;
+                    Some(managed::relay_credentials()?)
+                }
+                ServiceMode::Managed | ServiceMode::Byok => None,
             };
             if *stopped.borrow() {
                 return Ok(None);

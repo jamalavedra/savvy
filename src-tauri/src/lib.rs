@@ -77,7 +77,7 @@ mod transcription_key;
 #[cfg(target_os = "macos")]
 mod tray;
 
-use settings::AppSettings;
+use settings::{AppSettings, ServiceMode};
 
 #[cfg(not(target_os = "macos"))]
 #[derive(Serialize)]
@@ -578,6 +578,23 @@ fn transcription_api_key(provider: &str) -> Result<String, String> {
     String::from_utf8(bytes).map_err(|_| "stored API key is not valid UTF-8".into())
 }
 
+/// Checks that the selected mode can transcribe a meeting.
+///
+/// Byok needs a stored key for the provider; Managed needs a signed-in
+/// Savvy account, and the hosted service re-checks eligibility when its session starts.
+fn ensure_transcription_ready(mode: ServiceMode, provider: &str) -> Result<(), String> {
+    match mode {
+        ServiceMode::Managed => managed::ensure_signed_in(),
+        #[cfg(target_os = "macos")]
+        ServiceMode::Byok => transcription_api_key(provider).map(|_| ()),
+        #[cfg(not(target_os = "macos"))]
+        ServiceMode::Byok => {
+            let _ = provider;
+            Ok(())
+        }
+    }
+}
+
 #[cfg(any(target_os = "macos", test))]
 fn missing_transcription_key_message(provider: &str) -> String {
     let provider = match provider {
@@ -654,10 +671,11 @@ fn audio_check_start(
             return Err("End the meeting before checking audio.".into());
         }
         let settings = state.settings.lock().map_err(|_| "settings lock")?.clone();
-        let key = if transcribe && settings.service_mode != "managed" {
-            Some(transcription_api_key(&settings.transcription_provider)?)
-        } else {
-            None
+        let key = match settings.service_mode {
+            ServiceMode::Byok if transcribe => {
+                Some(transcription_api_key(&settings.transcription_provider)?)
+            }
+            ServiceMode::Managed | ServiceMode::Byok => None,
         };
         audio_check::start(
             app,
@@ -811,7 +829,9 @@ fn update_settings(
         return Err("stop the active meeting before changing the service mode".into());
     }
     #[cfg(target_os = "macos")]
-    if previous.service_mode == "managed" && settings.service_mode == "byok" {
+    if let (ServiceMode::Managed, ServiceMode::Byok) =
+        (previous.service_mode, settings.service_mode)
+    {
         transcription_api_key(&settings.transcription_provider)?;
         let health = state
             .provider_health
@@ -963,9 +983,6 @@ fn set_overlay_expanded(
 }
 
 fn validate_settings(settings: &AppSettings) -> Result<(), String> {
-    if !["byok", "managed"].contains(&settings.service_mode.as_str()) {
-        return Err("unsupported service mode".into());
-    }
     if !(0.0..=1.0).contains(&settings.audio_feedback_volume) {
         return Err("audio feedback volume must be between 0 and 1".into());
     }
@@ -2072,30 +2089,31 @@ fn generate_brief_from_sources(
         &client_evidence,
     );
     job.drafting()?;
-    let generated = if settings.service_mode == "managed" {
-        managed::generate_brief_for_job(&wire_request, Some(job))?
-    } else {
-        let prompt = savvy_providers::build_brief_prompt(&wire_request)?;
-        let (model, option) = if settings.recommendation_provider == "claude" {
-            (&settings.claude_model, &settings.claude_context_window)
-        } else {
-            (&settings.codex_model, &settings.codex_service_tier)
-        };
-        run_provider_json::<GeneratedBrief>(
-            &settings.recommendation_provider,
-            &prompt,
-            model,
-            option,
-            ProviderRequest {
-                schema: BRIEF_OUTPUT_SCHEMA,
-                result_name: "brief",
-                timeout_seconds: 120,
-                reasoning_effort: "medium",
-                cancellation: Some(job.signal()),
-            },
-        )?
+    let generated = match settings.service_mode {
+        ServiceMode::Managed => managed::generate_brief_for_job(&wire_request, Some(job))?,
+        ServiceMode::Byok => {
+            let prompt = savvy_providers::build_brief_prompt(&wire_request)?;
+            let (model, option) = if settings.recommendation_provider == "claude" {
+                (&settings.claude_model, &settings.claude_context_window)
+            } else {
+                (&settings.codex_model, &settings.codex_service_tier)
+            };
+            run_provider_json::<GeneratedBrief>(
+                &settings.recommendation_provider,
+                &prompt,
+                model,
+                option,
+                ProviderRequest {
+                    schema: BRIEF_OUTPUT_SCHEMA,
+                    result_name: "brief",
+                    timeout_seconds: 120,
+                    reasoning_effort: "medium",
+                    cancellation: Some(job.signal()),
+                },
+            )?
+        }
     };
-    job.commit(settings.service_mode == "managed")?;
+    job.commit(settings.service_mode.is_managed())?;
     let mut brief = map_generated_brief(
         generated,
         client.as_ref().map(|client| client.id),
@@ -2112,8 +2130,9 @@ fn generate_brief_from_sources(
         &pending_path,
         &serde_json::to_string(&brief).map_err(|e| e.to_string())?,
     )?;
-    if settings.service_mode == "managed" {
-        managed::acknowledge_brief(&wire_request);
+    match settings.service_mode {
+        ServiceMode::Managed => managed::acknowledge_brief(&wire_request),
+        ServiceMode::Byok => {}
     }
     save_generated_document(&mut brief, &directory)?;
     Ok(brief)
@@ -2706,27 +2725,6 @@ async fn run_app_command<T: Send + 'static>(
         .map_err(|error| error.to_string())?
 }
 
-/// Meeting-start eligibility check for the selected mode. BYOK requires a
-/// stored transcription key; managed requires a signed-in Savvy account. The
-/// hosted service re-checks eligibility when the managed session starts.
-fn meeting_transcription_preflight(
-    service_mode: &str,
-    transcription_provider: &str,
-) -> Result<(), String> {
-    if service_mode == "managed" {
-        return managed::ensure_signed_in();
-    }
-    #[cfg(target_os = "macos")]
-    {
-        transcription_api_key(transcription_provider).map(|_| ())
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = transcription_provider;
-        Ok(())
-    }
-}
-
 fn start_meeting_inner(
     client_id: Option<String>,
     brief_id: Option<String>,
@@ -2762,10 +2760,10 @@ fn start_meeting_inner(
         (
             settings.transcription_language.clone(),
             settings.transcription_provider.clone(),
-            settings.service_mode.clone(),
+            settings.service_mode,
         )
     };
-    meeting_transcription_preflight(&service_mode, &transcription_provider)?;
+    ensure_transcription_ready(service_mode, &transcription_provider)?;
     let mut brief = if let Some(brief_id) = brief_id {
         let storage = state.storage.lock().map_err(|_| "storage lock poisoned")?;
         brief_document::load_reviewed(
@@ -2783,9 +2781,12 @@ fn start_meeting_inner(
     };
     brief.response_language = recommendation_language(&meeting_language);
     let context_pack = build_context_pack(state, client_id, brief_id, &brief, &meeting_language)?;
-    if service_mode == "managed" {
-        let request = managed::meeting_context_request(session_id, &brief, &context_pack)?;
-        managed::check_meeting_context(&request)?;
+    match service_mode {
+        ServiceMode::Managed => {
+            let request = managed::meeting_context_request(session_id, &brief, &context_pack)?;
+            managed::check_meeting_context(&request)?;
+        }
+        ServiceMode::Byok => {}
     }
     let session = MeetingSession {
         id: session_id,
@@ -3501,18 +3502,19 @@ fn dispatch_generation(
             .map_err(|_| "settings lock poisoned")?;
         (
             settings.recommendation_provider.clone(),
-            settings.service_mode.clone(),
+            settings.service_mode,
         )
     };
-    let managed_mode = service_mode == "managed";
-    let provider = if managed_mode {
-        managed::ensure_signed_in().map(|()| "managed".to_owned())
-    } else {
-        let health = state
-            .provider_health
-            .lock()
-            .map_err(|_| "provider health lock poisoned")?;
-        choose_healthy_provider(&preferred, &health)
+    let managed_mode = service_mode.is_managed();
+    let provider = match service_mode {
+        ServiceMode::Managed => managed::ensure_signed_in().map(|()| "managed".to_owned()),
+        ServiceMode::Byok => {
+            let health = state
+                .provider_health
+                .lock()
+                .map_err(|_| "provider health lock poisoned")?;
+            choose_healthy_provider(&preferred, &health)
+        }
     };
     let provider = match provider {
         Ok(provider) => provider,
@@ -3758,8 +3760,11 @@ fn start_transcription_worker(
         .lock()
         .map_err(|_| "settings lock poisoned")?
         .clone();
-    if settings.service_mode == "managed" {
-        return start_managed_transcription_worker(app, state, session_id, &settings);
+    match settings.service_mode {
+        ServiceMode::Managed => {
+            return start_managed_transcription_worker(app, state, session_id, &settings);
+        }
+        ServiceMode::Byok => {}
     }
     let provider = match settings.transcription_provider.as_str() {
         "deepgram" => StreamingProvider::Deepgram,
@@ -4450,7 +4455,7 @@ fn managed_mode(state: &AppState) -> bool {
     state
         .settings
         .lock()
-        .is_ok_and(|settings| settings.service_mode == "managed")
+        .is_ok_and(|settings| settings.service_mode.is_managed())
 }
 
 fn managed_mode_from(app: &AppHandle) -> bool {
@@ -5110,7 +5115,7 @@ fn prepare_providers(app: &AppHandle, state: &AppState, session_id: Uuid) {
     let settings = state.settings.lock().ok().map(|settings| settings.clone());
     if settings
         .as_ref()
-        .is_some_and(|settings| settings.service_mode == "managed")
+        .is_some_and(|settings| settings.service_mode.is_managed())
     {
         // Managed customers were promised no CLI installation; never shell out
         // to probe or prewarm provider binaries for them.
@@ -6248,10 +6253,9 @@ pub fn run() {
             let settings_path = app_data.join("settings.json");
             let mut settings = settings::load(&settings_path);
             apply_native_theme(app.handle(), &settings.theme);
-            let provider_health = if settings.service_mode == "managed" {
-                Vec::new()
-            } else {
-                recommendation_provider_status()
+            let provider_health = match settings.service_mode {
+                ServiceMode::Managed => Vec::new(),
+                ServiceMode::Byok => recommendation_provider_status(),
             };
             #[cfg(target_os = "macos")]
             if let Ok(provider) =
@@ -6864,7 +6868,7 @@ mod tests {
         // No Savvy account credential exists in this test environment, so the
         // managed preflight must fail with the typed sign-in error and must
         // never mention transcription API keys.
-        let error = meeting_transcription_preflight("managed", "deepgram")
+        let error = ensure_transcription_ready(ServiceMode::Managed, "deepgram")
             .expect_err("managed preflight without an account must fail");
         assert!(error.starts_with("sign_in_required"), "{error}");
         assert!(!error.contains("API key"), "{error}");
@@ -6872,13 +6876,9 @@ mod tests {
 
     #[test]
     fn service_mode_is_validated() {
-        let settings = AppSettings {
-            service_mode: "cloud".into(),
-            ..AppSettings::default()
-        };
-        assert!(validate_settings(&settings).is_err());
+        assert!(serde_json::from_str::<AppSettings>(r#"{"serviceMode":"cloud"}"#).is_err());
         assert!(validate_settings(&AppSettings {
-            service_mode: "managed".into(),
+            service_mode: ServiceMode::Managed,
             ..AppSettings::default()
         })
         .is_ok());
