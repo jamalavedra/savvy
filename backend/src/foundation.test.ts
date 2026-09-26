@@ -191,7 +191,7 @@ test("verified issuer/subject, current signing keys, and disabled accounts defin
 });
 
 test("service migrations preserve exact integers and roll back failed financial writes", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "savvy-db-parity-"));
+  const directory = await mkdtemp(join(tmpdir(), "savvy-db-migrate-"));
   const path = join(directory, "service.sqlite");
   let db = openServiceDatabase(path);
   try {

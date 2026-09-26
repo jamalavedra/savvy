@@ -8,7 +8,7 @@ Use personal providers or optional Savvy managed assistance in the same MIT-lice
 
 Managed offer amounts, allowances and expiry rules live in [the shared catalog](config/managed-catalog.json). Managed prices pay for Deepgram transcription and Claude usage on your behalf, plus Savvy's margin. With personal providers you pay those providers directly and nothing to Savvy. The account screen shows server-provided offers, remaining usage and pending purchases. A browser return never confirms payment. Adding allowance requires you to explicitly resume an exhausted meeting. Signing out or switching to personal providers does not cancel a subscription.
 
-Managed audio passes through Savvy to Deepgram; selected brief evidence and meeting context pass through Savvy to Claude. Documents and history remain on your Mac. The provider descriptions below describe personal-provider setup. See the [backend guide](backend/README.md) and [local release handoff](deploy/README.md) for managed operation and launch inputs.
+Managed audio passes through Savvy to Deepgram; selected brief evidence and meeting context pass through Savvy to Claude. Documents and history remain on your Mac. The provider descriptions below describe personal-provider setup. See the [backend guide](backend/README.md) and [deployment guide](deploy/README.md) for running the managed service.
 
 ## Where your data goes
 
@@ -75,7 +75,6 @@ CI runs the full test suite on macOS and `cargo check` on Linux and Windows. The
 ## Repository layout
 
 - `backend/` — one Node service for Better Auth, billing, meetings, transcription relay and AI requests. It owns two SQLite files in one state directory.
-- `backend-migration/` — load and packaging tests for the backend, and their fixtures.
 - `www/` — statically exported marketing and pricing website.
 - `src/` — React interface.
 - `src-tauri/` — desktop shell and Tauri commands.

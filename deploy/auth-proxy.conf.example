@@ -1,5 +1,5 @@
 # Include this file in nginx's http context. Supply the owned-domain certificate
-# configuration. Retain the existing BETTER_AUTH_URL hostname and issuer.
+# configuration. server_name must match the BETTER_AUTH_URL hostname.
 # Node remains loopback-only: SAVVY_AUTH_TRUSTED_PROXIES=127.0.0.1
 map $http_upgrade $savvy_connection_upgrade {
     default upgrade;

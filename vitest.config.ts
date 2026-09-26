@@ -4,13 +4,7 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   plugins: [react()],
   test: {
-    exclude: [
-      ...configDefaults.exclude,
-      "target/**",
-      "www/**",
-      "backend/**",
-      "backend-migration/**",
-    ],
+    exclude: [...configDefaults.exclude, "target/**", "www/**", "backend/**"],
     environment: "jsdom",
     globals: true,
     setupFiles: ["./src/test/setup.ts"],

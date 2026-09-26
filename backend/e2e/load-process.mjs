@@ -2,7 +2,7 @@
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { writeFileSync } from "node:fs";
 import assert from "node:assert/strict";
-import { state } from "../backend/build/server.js";
+import { state } from "../build/server.js";
 const delay = monitorEventLoopDelay({ resolution: 10 });
 delay.enable();
 const sessions = new Map();

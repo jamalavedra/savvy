@@ -138,16 +138,16 @@ test("attempt admission and last-brief reservation roll back atomically", () => 
   }
 });
 
-test("Node service schema matches the running Rust baseline", () => {
-  const reference = JSON.parse(
+test("service schema matches the recorded schema snapshot", () => {
+  const snapshot = JSON.parse(
     readFileSync(
-      new URL("../../backend-migration/reference-schema.json", import.meta.url),
+      new URL("../e2e/service-schema.json", import.meta.url),
       "utf8",
     ),
   );
   const db = openServiceDatabase(":memory:");
   try {
-    // SQLite metadata is small; ordinary integers make the baseline JSON comparable.
+    // SQLite metadata is small; ordinary integers make the snapshot JSON comparable.
     db.defaultSafeIntegers(false);
     const tables = db
       .prepare<[], { name: string }>(
@@ -173,7 +173,7 @@ test("Node service schema matches the running Rust baseline", () => {
         columns: db.pragma(`index_info('${index}')`),
       })),
     }));
-    assert.deepEqual(schema, reference);
+    assert.deepEqual(schema, snapshot);
   } finally {
     db.close();
   }

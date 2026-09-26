@@ -2,8 +2,8 @@
 
 One Node process serves Better Auth, React sign-in pages, account and billing APIs,
 meeting sessions, transcription WebSockets, briefs and advice. Billing reconciliation
-and session expiry run inside that process. The desktop remains Rust/Tauri and the
-marketing website stays statically exported.
+and session expiry run inside that process. The desktop app is Rust/Tauri and the
+marketing website is statically exported.
 
 The backend has not been deployed. [`deploy/README.md`](../deploy/README.md) lists
 the acceptance checks that remain before it can be.
@@ -19,10 +19,10 @@ pnpm --dir backend build
 ```
 
 Copy `backend/.env.example` to a private environment file, mode 0600, and fill in
-its configuration. For a new isolated test account, provide a random secret of at
-least 32 characters. For existing accounts, retain the issuer, signing secret,
-client ID, resource audience, auth database and service database. Use copied
-databases for migration testing. Create their parent directory before starting;
+its configuration. Provide a random `BETTER_AUTH_SECRET` of at least 32 characters.
+Once accounts exist, keep the issuer, signing secret, client ID, resource audience
+and both databases unchanged; test against copies. Create the database parent
+directory before starting;
 it must belong to the backend user and must not be writable by other users.
 Database files are created with mode 0600 before SQLite opens them. Symlinks,
 hardlinks and foreign-owned database files or sidecars are refused.
@@ -39,12 +39,11 @@ pnpm --dir backend start
 
 The default listener is `127.0.0.1:8788`. Set desktop `SAVVY_SERVICE_URL` and
 `SAVVY_OIDC_ISSUER` to the configured `BETTER_AUTH_URL`. The resource audience is an
-identity value and need not equal that URL. Keep existing audience values.
+identity value and need not equal that URL. Do not change it once accounts exist.
 
 `SAVVY_AUTH_DATABASE` contains users, sessions, OAuth grants and encrypted signing
-keys. `SAVVY_DB_PATH` contains the existing billing ledger, subscriptions, purchases
-and usage. They must be distinct files. Both belong to the one backend. Never run
-the Rust reference and Node as writers against the same service file.
+keys. `SAVVY_DB_PATH` contains the billing ledger, subscriptions, purchases and
+usage. They must be distinct files, and only one backend process may open them.
 
 Configure SMTP and a Google OAuth web client with `/api/auth/callback/google` on
 `BETTER_AUTH_URL`. Google receives identity scopes only. SMTP outside loopback
@@ -55,7 +54,7 @@ endpoint proves external suppliers are working.
 
 The native client uses `com.alamaslabs.savvy:/oauth/callback`, authorization code
 with S256 PKCE, RS256 access tokens and rotating refresh tokens. Registration is
-closed. Migrations preserve existing client/resource rows. Billing identity remains
+closed. Auth migrations keep the registered client and resource rows. Billing identity remains
 verified issuer plus subject; matching email addresses never merge accounts.
 
 OTP verification uses six digits, ten-minute expiry and three attempts. Server-side
@@ -129,5 +128,4 @@ state and verifies its access token against the restored service account. It als
 compares balances, usage, pending purchases and durable attempt limits.
 
 See [`deploy/README.md`](../deploy/README.md) for the single-process deployment
-layout. No production configuration, migration or deployment is performed by these
-local checks.
+layout. These local checks do not touch any production configuration or data.

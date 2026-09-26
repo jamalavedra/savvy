@@ -47,7 +47,7 @@ docs/
 .deepsec/
 
 # Written by the backend load test.
-backend-migration/load-results.json
+backend/e2e/load-results.json
 
 # Editor directories and files
 .vscode/*

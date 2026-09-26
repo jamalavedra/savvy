@@ -15,8 +15,8 @@
     "build:server": "tsc -p tsconfig.server.json && node scripts/copy-assets.mjs",
     "build:ui": "vite build",
     "test:native-auth": "pnpm build && cargo test -p savvy --lib local_stripe_sandbox_desktop_transport --locked --no-run && SAVVY_NATIVE_CHECK=1 tsx --test src/browser.check.ts",
-    "test:load": "pnpm build:server && node --test ../backend-migration/load.test.mjs",
-    "test:package": "pnpm build && node --test ../backend-migration/package.test.mjs",
+    "test:load": "pnpm build:server && node --test e2e/load.test.mjs",
+    "test:package": "pnpm build && node --test e2e/package.test.mjs",
     "test:web-return": "tsx --test src/return.check.ts"
   },
   "dependencies": {

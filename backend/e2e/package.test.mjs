@@ -10,11 +10,11 @@ import { spawn, execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { randomBytes, createHash } from "node:crypto";
 
-const root = fileURLToPath(new URL("../", import.meta.url));
+const root = fileURLToPath(new URL("../../", import.meta.url));
 const run = promisify(execFile);
 
 test(
-  "compiled release migrates, serves both APIs, drains and backs up without Rust or TypeScript source",
+  "compiled release migrates, serves both APIs, drains and backs up without TypeScript source",
   { timeout: 30000 },
   async () => {
     const directory = await mkdtemp(join(tmpdir(), "savvy-release-"));
@@ -31,7 +31,7 @@ test(
         join(root, "config/managed-catalog.json"),
         join(directory, "config/managed-catalog.json"),
       );
-      // Reuse this host's installed native dependencies; no source or Rust binary is copied.
+      // Reuse this host's installed native dependencies; no source is copied.
       await symlink(
         join(root, "backend/node_modules"),
         join(backend, "node_modules"),

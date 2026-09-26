@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Launch the unified backend with real Better Auth and Stripe TEST webhooks.
+"""Launch the backend with real Better Auth and Stripe TEST webhooks.
 
 Load private backend configuration first. Authentication uses the normal browser
 PKCE flow and configured SMTP/Google. No synthetic issuer, supplier responses,
@@ -52,8 +52,6 @@ def main():
     output.mkdir(parents=True, exist_ok=True, mode=0o700)
     output.chmod(0o700)
     state_path = output / "state.json"
-    if state_path.exists() and json.loads(state_path.read_text()).get("authentication") != "better-auth-pkce":
-        raise ValueError("Use a fresh E2E directory; legacy synthetic identities are not migrated by email")
     cli_env = os.environ | {"STRIPE_API_KEY": selectors["SAVVY_STRIPE_SECRET_KEY"]}
     webhook_secret = subprocess.check_output(
         ["stripe", "listen", "--print-secret", "--skip-update"], env=cli_env,
@@ -101,7 +99,7 @@ def main():
                 "audience": env["SAVVY_OIDC_AUDIENCE"], "authentication": "better-auth-pkce",
                 "mode": "stripe-test", "pids": {"backend": service.pid, "stripeListener": listener.pid},
             }, indent=2) + "\n")
-            print("Unified backend ready. Sign in through Savvy using the configured SMTP/Google. Stripe TEST webhooks are forwarded; no payment has been made.", flush=True)
+            print("Backend ready. Sign in through Savvy using the configured SMTP/Google. Stripe TEST webhooks are forwarded; no payment has been made.", flush=True)
             while service.poll() is None and listener.poll() is None:
                 time.sleep(1)
     finally:

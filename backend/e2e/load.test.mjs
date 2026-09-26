@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { createPrivateKey, sign, randomUUID, randomBytes } from "node:crypto";
-const root = fileURLToPath(new URL("../", import.meta.url));
+const root = fileURLToPath(new URL("../../", import.meta.url));
 const require = createRequire(join(root, "backend/package.json"));
 const { WebSocket, WebSocketServer } = require("ws");
 const { SMTPServer } = require("smtp-server");
@@ -103,14 +103,14 @@ test(
         SMTP_FROM: "load@example.test",
         SAVVY_LOAD_METRICS: join(directory, "metrics.json"),
       };
-      await run(
-        process.execPath,
-        ["--import", "tsx", "src/reference.seed.ts"],
-        { cwd: join(root, "backend"), env, timeout: 15000 },
-      );
+      await run(process.execPath, ["--import", "tsx", "src/fixture.seed.ts"], {
+        cwd: join(root, "backend"),
+        env,
+        timeout: 15000,
+      });
       child = spawn(
         process.execPath,
-        [join(root, "backend-migration/load-process.mjs")],
+        [join(root, "backend/e2e/load-process.mjs")],
         { env, stdio: ["ignore", "pipe", "pipe"] },
       );
       let output = "";
@@ -130,14 +130,12 @@ test(
       }
       const jwks = JSON.parse(
         await readFile(
-          join(root, "backend-migration/fixtures/test-issuer-jwks.json"),
+          join(root, "backend/e2e/fixtures/test-issuer-jwks.json"),
           "utf8",
         ),
       );
       const key = createPrivateKey(
-        await readFile(
-          join(root, "backend-migration/fixtures/test-issuer-rsa.pem"),
-        ),
+        await readFile(join(root, "backend/e2e/fixtures/test-issuer-rsa.pem")),
       );
       function token(index) {
         const encode = (v) =>
@@ -339,7 +337,7 @@ test(
       };
       await writeFile(
         process.env.SAVVY_LOAD_RESULTS ??
-          join(root, "backend-migration/load-results.json"),
+          join(root, "backend/e2e/load-results.json"),
         JSON.stringify(result, null, 2) + "\n",
       );
       child = spawn(process.execPath, [join(root, "backend/build/server.js")], {
@@ -379,7 +377,7 @@ test(
       result.shutdownDuringDelayedCheckout = true;
       await writeFile(
         process.env.SAVVY_LOAD_RESULTS ??
-          join(root, "backend-migration/load-results.json"),
+          join(root, "backend/e2e/load-results.json"),
         JSON.stringify(result, null, 2) + "\n",
       );
       assert.ok(result.accountP95Ms < 1000);

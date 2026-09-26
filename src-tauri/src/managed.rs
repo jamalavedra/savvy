@@ -33,7 +33,7 @@ pub fn sign_in_required_error() -> String {
 }
 
 /// Service and issuer endpoints. Environment variables exist for local
-/// development against a locally run savvy-service and fake issuer; release
+/// development against a locally run backend and fake issuer; release
 /// builds fall back to the production constants.
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ManagedConfig {

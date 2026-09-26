@@ -597,7 +597,7 @@ test("stale, sparse and disconnected audio cannot dispatch paid advice", async (
   assert.equal(h.calls.length, 0);
 });
 
-test("wire schemas and prompt assets retain the baseline contract and forbid absolute evidence paths", async (t) => {
+test("wire schemas and prompt assets match the recorded contract and forbid absolute evidence paths", async (t) => {
   const h = await fixture(t);
   assert.equal(
     (
