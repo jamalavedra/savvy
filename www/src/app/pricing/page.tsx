@@ -19,10 +19,15 @@ export default function Pricing() {
       <h2>Personal providers</h2>
       <p>
         The desktop app is free and open source under the MIT license. Connect your transcription
-        account and signed-in Claude Code or Codex CLI. You pay those providers directly.
+        account and signed-in Claude Code or Codex CLI. You pay those providers directly and nothing
+        to Savvy.
       </p>
       <h2>Savvy managed</h2>
       <p>Sign in from the same desktop app. Savvy handles transcription and model access.</p>
+      <p>
+        Managed prices pay for Deepgram transcription and Claude usage on your behalf, plus
+        Savvy&apos;s margin.
+      </p>
       {Object.entries(catalog).map(([product, offer]) => (
         <section key={product} aria-label={product === "monthly" ? "Monthly plan" : "Hours pack"}>
           <h2>

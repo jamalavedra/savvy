@@ -22,7 +22,7 @@ export const faqItems = [
   {
     question: "Is Savvy free?",
     answer:
-      "The open-source app is free under the MIT license. You can pay your own transcription and model providers, or choose optional managed assistance in the same app. See the pricing page for managed offers.",
+      "The open-source app is free under the MIT license. You can pay your own transcription and model providers and nothing to Savvy, or choose optional managed assistance in the same app. See the pricing page for managed offers.",
   },
   {
     question: "Where does my data go?",

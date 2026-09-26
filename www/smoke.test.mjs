@@ -103,6 +103,7 @@ test("managed pricing uses the shared catalog and return page only requests refr
     assert.ok(text.includes(`${offer.hours} meeting hours and ${offer.briefs} briefs`));
   }
   assert.match(pricing, /Personal providers/);
+  assert.match(pricing, /nothing to Savvy/);
   assert.match(pricing, /No scheduled expiry/);
   assert.match(pricing, /paid period end/);
   assert.match(returned, /This page does not confirm payment/);

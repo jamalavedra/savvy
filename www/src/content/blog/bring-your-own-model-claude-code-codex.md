@@ -15,7 +15,7 @@ If no CLI is signed in, Savvy never thinks. It shows one notice instead of faili
 
 ## What it costs
 
-Savvy itself is free and MIT-licensed, with no paid tier. Your CLI provider bills recommendations under your account. If you already pay for Claude Code or Codex for coding, meetings ride on that plan.
+Savvy itself is free and MIT-licensed. Managed assistance is an optional paid plan, priced on the [pricing page](/pricing/). With your own CLI, your provider bills recommendations under your account. If you already pay for Claude Code or Codex for coding, meetings ride on that plan.
 
 How many requests does a meeting generate? One per trigger, plus a background scan that runs at most once every 30 seconds and only when the other side has said something substantive. A 45-minute negotiation may generate a few dozen requests, depending on questions and scans. Each one is capped at 30 seconds of provider time.
 
