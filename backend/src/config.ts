@@ -46,7 +46,7 @@ export function configuration(env: NodeJS.ProcessEnv = process.env) {
     );
   const config = {
     issuer,
-    audience: env.SAVVY_OIDC_AUDIENCE ?? "https://api.savvy.alamaslabs.com",
+    audience: env.SAVVY_OIDC_AUDIENCE ?? "https://api.savvycopilot.com",
     serviceDatabase: env.SAVVY_DB_PATH ?? "savvy-service.sqlite",
     bind: env.SAVVY_HOST ?? "127.0.0.1",
     port: Number(env.PORT ?? 8788),
@@ -58,7 +58,8 @@ export function configuration(env: NodeJS.ProcessEnv = process.env) {
     stripeBaseUrl: env.SAVVY_STRIPE_BASE_URL ?? "https://api.stripe.com",
     billing,
     checkoutReturnUrl:
-      env.SAVVY_CHECKOUT_RETURN_URL ?? "https://savvy.local/checkout-complete",
+      env.SAVVY_CHECKOUT_RETURN_URL ??
+      "https://www.savvycopilot.com/checkout-complete/",
     fixtures: env.SAVVY_DEV_FIXTURES === "1",
   };
   if (

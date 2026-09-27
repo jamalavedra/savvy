@@ -44,10 +44,12 @@ purchases and sign-in never resume listening automatically.
 ## Ingress and configuration
 
 Desktop auth, managed HTTP and audio WebSockets use one public origin, which is
-`BETTER_AUTH_URL`. Choose it, the signing secret, the native client ID and the
-resource audience before the first sign-in. Never change them afterwards: installed
-desktops, refresh tokens and account identities depend on them. Any alias hostname
-must terminate at this same backend.
+`BETTER_AUTH_URL`. In production that is `https://api.savvycopilot.com`, with no
+trailing slash, and `SAVVY_OIDC_AUDIENCE` has the same value. Release desktop builds
+default to exactly these values, so the issuer check fails on any difference. Set
+the signing secret and the native client ID before the first sign-in. Never change
+any of these afterwards: installed desktops, refresh tokens and account identities
+depend on them. Any alias hostname must terminate at this same backend.
 
 `deploy/auth-proxy.conf.example` has one loopback upstream. It preserves the raw
 webhook body and Authorization header, supports WebSocket upgrades and applies a

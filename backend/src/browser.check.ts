@@ -107,7 +107,7 @@ test(
             service: env.BETTER_AUTH_URL,
             issuer: env.BETTER_AUTH_URL,
             clientId: "savvy-desktop",
-            audience: "https://api.savvy.alamaslabs.com",
+            audience: "https://api.savvycopilot.com",
           }),
           { mode: 0o600 },
         );
@@ -277,7 +277,7 @@ test(
           response_type: "code",
           redirect_uri: "com.alamaslabs.savvy:/oauth/callback",
           scope: "openid email profile offline_access",
-          resource: "https://api.savvy.alamaslabs.com",
+          resource: "https://api.savvycopilot.com",
           state: "browser-state",
           code_challenge_method: "S256",
           code_challenge: createHash("sha256")

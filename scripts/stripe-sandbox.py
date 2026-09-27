@@ -63,7 +63,7 @@ def main():
         "BETTER_AUTH_URL": origin,
         "SAVVY_OIDC_ISSUER": origin,
         "SAVVY_OIDC_CLIENT_ID": os.environ.get("SAVVY_OIDC_CLIENT_ID", "savvy-desktop"),
-        "SAVVY_OIDC_AUDIENCE": os.environ.get("SAVVY_OIDC_AUDIENCE", "https://api.savvy.alamaslabs.com"),
+        "SAVVY_OIDC_AUDIENCE": os.environ.get("SAVVY_OIDC_AUDIENCE", "https://api.savvycopilot.com"),
         "SAVVY_AUTH_DATABASE": str(output / "auth.sqlite"),
         "SAVVY_DB_PATH": str(output / "service.sqlite"),
         "SAVVY_HOST": "127.0.0.1", "PORT": str(url.port),

@@ -70,10 +70,10 @@ pub fn config() -> Result<ManagedConfig, String> {
             .unwrap_or_else(|| default.to_owned())
     };
     let config = ManagedConfig {
-        service_url: value("SAVVY_SERVICE_URL", "https://api.savvy.alamaslabs.com"),
-        issuer_url: value("SAVVY_OIDC_ISSUER", "https://auth.savvy.alamaslabs.com"),
+        service_url: value("SAVVY_SERVICE_URL", "https://api.savvycopilot.com"),
+        issuer_url: value("SAVVY_OIDC_ISSUER", "https://api.savvycopilot.com"),
         client_id: value("SAVVY_OIDC_CLIENT_ID", "savvy-desktop"),
-        audience: value("SAVVY_OIDC_AUDIENCE", "https://api.savvy.alamaslabs.com"),
+        audience: value("SAVVY_OIDC_AUDIENCE", "https://api.savvycopilot.com"),
     };
     for url in [&config.service_url, &config.issuer_url] {
         require_trusted_url(url)?;
@@ -2636,7 +2636,7 @@ mod tests {
 
     #[test]
     fn production_urls_must_be_https_but_loopback_dev_is_allowed() {
-        assert!(require_trusted_url("https://api.savvy.alamaslabs.com").is_ok());
+        assert!(require_trusted_url("https://api.savvycopilot.com").is_ok());
         assert!(require_trusted_url("http://127.0.0.1:8787").is_ok());
         assert!(require_trusted_url("http://localhost:8787").is_ok());
         for url in [

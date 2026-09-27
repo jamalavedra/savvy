@@ -146,7 +146,7 @@ test(
           "." +
           encode({
             iss: origin,
-            aud: "https://api.savvy.alamaslabs.com",
+            aud: "https://api.savvycopilot.com",
             sub: `load-${index}`,
             iat: now,
             exp: now + 600,

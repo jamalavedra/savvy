@@ -73,8 +73,7 @@ export function createAuth(env: NodeJS.ProcessEnv = process.env) {
       ? { auth: { user: env.SMTP_USER, pass: env.SMTP_PASSWORD } }
       : {}),
   });
-  const audience =
-    env.SAVVY_OIDC_AUDIENCE ?? "https://api.savvy.alamaslabs.com";
+  const audience = env.SAVVY_OIDC_AUDIENCE ?? "https://api.savvycopilot.com";
   const clientId = env.SAVVY_OIDC_CLIENT_ID ?? "savvy-desktop";
   const hashToken = (token: string) =>
     createHash("sha256").update(token).digest("base64url");

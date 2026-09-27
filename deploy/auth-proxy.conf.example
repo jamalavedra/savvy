@@ -7,7 +7,7 @@ map $http_upgrade $savvy_connection_upgrade {
 }
 server {
     listen 443 ssl;
-    server_name auth.example.com;
+    server_name api.savvycopilot.com;
     client_max_body_size 64k;
     proxy_http_version 1.1;
     proxy_set_header Host $host;

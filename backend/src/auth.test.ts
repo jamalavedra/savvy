@@ -182,7 +182,7 @@ test("real Better Auth: delivered OTP, persistent limits, discovery, PKCE and si
       response_type: "code",
       redirect_uri: "com.alamaslabs.savvy:/oauth/callback",
       scope: "openid email profile offline_access",
-      resource: "https://api.savvy.alamaslabs.com",
+      resource: "https://api.savvycopilot.com",
       state: "native-state",
       code_challenge_method: "S256",
       code_challenge: createHash("sha256").update(verifier).digest("base64url"),
@@ -227,7 +227,7 @@ test("real Better Auth: delivered OTP, persistent limits, discovery, PKCE and si
     const [header, payload, signature] = tokens.access_token.split(".");
     const claims = JSON.parse(Buffer.from(payload, "base64url").toString());
     assert.equal(claims.iss, metadata.issuer);
-    assert.ok([claims.aud].flat().includes("https://api.savvy.alamaslabs.com"));
+    assert.ok([claims.aud].flat().includes("https://api.savvycopilot.com"));
     const publicKeys = await (await request("/jwks")).json();
     assert.ok(
       verify(
