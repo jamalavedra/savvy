@@ -72,7 +72,7 @@ export function MascotNote({
   return (
     <div className={`flex items-center gap-3 ${className}`}>
       <Image
-        src={`/images/mascot/savvy-${state}.png`}
+        src={`/images/mascot/savvy-${state}.webp`}
         alt=""
         width={112}
         height={112}

@@ -1,7 +1,7 @@
 import { FadeInUp } from "@/components/animations/FadeInUp";
 import { TwoLineHeading } from "@/components/sections/primitives";
 import { faqItems } from "@/content/faq";
-import { LINKS } from "@/lib/constants";
+import { LINKS, REQUIREMENTS } from "@/lib/constants";
 
 export function FAQ() {
   return (
@@ -9,6 +9,7 @@ export function FAQ() {
       <div className="page-column grid gap-10 lg:grid-cols-[1fr_1.4fr]">
         <FadeInUp>
           <TwoLineHeading line1="Questions about Savvy" />
+          <p className="mt-4 text-sm text-muted">{REQUIREMENTS}</p>
           <a
             href={LINKS.readme}
             className="focus-ring mt-6 inline-flex rounded-full bg-foreground px-5 py-2.5 text-sm font-semibold text-background"
@@ -25,7 +26,7 @@ export function FAQ() {
               className="group px-6 py-1.5 open:bg-background-alt"
             >
               <summary className="focus-ring cursor-pointer py-3.5 text-[15px] font-medium">
-                {item.question}
+                <h3 className="inline">{item.question}</h3>
               </summary>
               <p className="pb-4 text-sm leading-relaxed text-muted">{item.answer}</p>
             </details>

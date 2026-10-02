@@ -9,7 +9,7 @@ import "./hero.css";
 // Footage: Mixkit clip 10457, Mixkit License, re-encoded as a loop.
 // See public/videos/SOURCE.md. Swap these files to change the call.
 const CALL = { mp4: "/videos/hero-call.mp4", webm: "/videos/hero-call.webm" };
-const POSTER = "/videos/hero-call.jpg";
+const POSTER = "/videos/hero-call.webp";
 
 function ControlBar() {
   return (

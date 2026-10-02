@@ -49,7 +49,7 @@ export default function BlogIndex() {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
       <Rail active="/blog" />
-      <main className="overflow-x-clip">
+      <main id="main" className="overflow-x-clip">
         <section className="py-20 lg:py-28">
           <div className="page-column">
             <FadeInUp>

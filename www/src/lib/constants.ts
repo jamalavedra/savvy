@@ -1,7 +1,9 @@
 export const COMPANY_NAME = "Alamas Labs";
+export const CONTACT_EMAIL = "hello@savvycopilot.com";
 export const SITE_URL = "https://www.savvycopilot.com";
 
 export const REPO_URL = "https://github.com/jamalavedra/savvy";
+export const X_URL = "https://x.com/jamalavedra";
 
 export const LINKS = {
   download: `${REPO_URL}/releases/latest`,
