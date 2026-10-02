@@ -41,6 +41,12 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
+      # The backend and website keep their own lockfiles; verify runs their checks too.
+      - name: Install backend and website dependencies
+        run: |
+          pnpm --dir backend install --frozen-lockfile
+          pnpm --dir www install --frozen-lockfile
+
       # Same gate developers run locally: prettier, tsc, eslint, vitest, cargo test,
       # vite build, and clippy with warnings denied.
       - name: Verify

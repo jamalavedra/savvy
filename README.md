@@ -56,6 +56,7 @@ Prerequisites:
 ```bash
 pnpm install --frozen-lockfile
 pnpm --dir backend install --frozen-lockfile
+pnpm --dir www install --frozen-lockfile
 pnpm verify        # format, typecheck, lint, tests, build, clippy
 pnpm tauri dev
 ```
