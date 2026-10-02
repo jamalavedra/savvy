@@ -124,7 +124,7 @@ export function YourModel() {
           </p>
           <p className="mt-4 text-sm leading-relaxed text-muted">
             Transcription uses your Deepgram or AssemblyAI API key, stored in the macOS Keychain.
-            Your providers bill for usage.
+            Savvy costs $0; your providers bill for usage.
           </p>
           <StatList
             items={[

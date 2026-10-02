@@ -38,8 +38,8 @@ export function Reasons() {
             offers advice when you ask for it.
           </p>
           <p className="mt-4 text-sm leading-relaxed text-muted">
-            It also reviews recent conversation for relevant changes. A "Savvy noticed" card appears
-            when it finds something concrete.
+            It also re-reads your brief against the last 60 seconds of conversation. A "Savvy
+            noticed" card appears when it finds something concrete.
           </p>
           <StatList
             items={[

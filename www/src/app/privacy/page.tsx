@@ -13,7 +13,10 @@ export const metadata: Metadata = {
 
 export default function PrivacyPolicy() {
   return (
-    <main className="mx-auto max-w-3xl px-6 py-12 text-sm leading-relaxed sm:py-20 [&_h2]:mt-10 [&_h2]:mb-3 [&_h2]:text-xl [&_h2]:font-medium [&_p]:mt-3 [&_a]:underline [&_a]:underline-offset-4">
+    <main
+      id="main"
+      className="mx-auto max-w-3xl px-6 py-12 text-sm leading-relaxed sm:py-20 [&_h2]:mt-10 [&_h2]:mb-3 [&_h2]:text-xl [&_h2]:font-medium [&_p]:mt-3 [&_a]:underline [&_a]:underline-offset-4"
+    >
       <a href="/" className="focus-ring">
         Back to Savvy
       </a>

@@ -71,11 +71,12 @@ function Mascot({ state }: { state: MascotState }) {
   return (
     <Image
       className={`mascot-state ${state}`}
-      src={`/images/mascot/savvy-${state}.png`}
+      src={`/images/mascot/savvy-${state}.webp`}
       alt=""
       width={26}
       height={26}
       draggable={false}
+      loading="eager"
     />
   );
 }

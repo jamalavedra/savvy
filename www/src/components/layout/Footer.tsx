@@ -1,6 +1,6 @@
 import Image from "next/image";
 import { Divider } from "@/components/sections/primitives";
-import { COMPANY_NAME, LINKS, NAV, REPO_URL } from "@/lib/constants";
+import { COMPANY_NAME, CONTACT_EMAIL, LINKS, NAV, REPO_URL, X_URL } from "@/lib/constants";
 import "./footer.css";
 
 type FooterLink = { label: string; href: string; external?: boolean };
@@ -14,6 +14,7 @@ const COLUMNS: { heading: string; links: FooterLink[] }[] = [
     heading: "Project",
     links: [
       { label: "GitHub", href: REPO_URL, external: true },
+      { label: "X", href: X_URL, external: true },
       { label: "Latest release", href: LINKS.download, external: true },
       { label: "All releases", href: LINKS.releases, external: true },
       { label: "Contributing", href: LINKS.contributing, external: true },
@@ -24,6 +25,7 @@ const COLUMNS: { heading: string; links: FooterLink[] }[] = [
   {
     heading: "Support",
     links: [
+      { label: "Contact", href: `mailto:${CONTACT_EMAIL}` },
       { label: "Privacy policy", href: "/privacy/" },
       { label: "Report an issue", href: LINKS.issues, external: true },
       { label: "README", href: LINKS.readme, external: true },
@@ -68,14 +70,14 @@ export function Footer() {
         <div className="ft-cat">
           <Image
             className="ft-cat-listening"
-            src="/images/mascot/savvy-listening.png"
+            src="/images/mascot/savvy-listening.webp"
             alt=""
             width={192}
             height={192}
           />
           <Image
             className="ft-cat-thinking"
-            src="/images/mascot/savvy-thinking.png"
+            src="/images/mascot/savvy-thinking.webp"
             alt=""
             width={192}
             height={192}

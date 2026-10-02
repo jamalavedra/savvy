@@ -10,11 +10,28 @@ import { Reasons } from "@/components/sections/Reasons";
 import { SourceBand } from "@/components/sections/SourceBand";
 import { YourModel } from "@/components/sections/YourModel";
 import { faqItems } from "@/content/faq";
-import { COMPANY_NAME, LINKS, REPO_URL, SITE_URL } from "@/lib/constants";
+import { COMPANY_NAME, CONTACT_EMAIL, LINKS, REPO_URL, SITE_URL, X_URL } from "@/lib/constants";
+
+const ORG_ID = `${SITE_URL}/#organization`;
 
 const jsonLd = {
   "@context": "https://schema.org",
   "@graph": [
+    {
+      "@type": "Organization",
+      "@id": ORG_ID,
+      name: COMPANY_NAME,
+      legalName: "Alamas Labs, Inc.",
+      url: SITE_URL,
+      logo: `${SITE_URL}/images/logo/icon.png`,
+      email: CONTACT_EMAIL,
+      sameAs: [X_URL, REPO_URL],
+      contactPoint: {
+        "@type": "ContactPoint",
+        contactType: "customer support",
+        email: CONTACT_EMAIL,
+      },
+    },
     {
       "@type": "SoftwareApplication",
       name: "Savvy",
@@ -28,7 +45,8 @@ const jsonLd = {
       license: LINKS.license,
       isAccessibleForFree: true,
       offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
-      author: { "@type": "Organization", name: COMPANY_NAME },
+      author: { "@id": ORG_ID },
+      publisher: { "@id": ORG_ID },
       sameAs: [REPO_URL],
     },
     {
@@ -36,6 +54,7 @@ const jsonLd = {
       url: SITE_URL,
       name: "Savvy",
       inLanguage: "en",
+      publisher: { "@id": ORG_ID },
     },
     {
       "@type": "FAQPage",
@@ -58,7 +77,7 @@ export default function Home() {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
       <Rail />
-      <main className="overflow-x-clip">
+      <main id="main" className="overflow-x-clip">
         <Hero />
         <Divider />
         <Reasons />

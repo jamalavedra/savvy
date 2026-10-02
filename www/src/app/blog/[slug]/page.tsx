@@ -77,7 +77,7 @@ export default async function BlogPost({ params }: Params) {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
       <Rail active="/blog" />
-      <main className="overflow-x-clip">
+      <main id="main" className="overflow-x-clip">
         <article className="py-16 lg:py-24">
           <div className="page-column">
             <div className="max-w-2xl">

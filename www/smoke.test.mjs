@@ -12,7 +12,10 @@ test("static export has metadata, FAQ answers and referenced assets", async () =
   assert.equal([...html.matchAll(/<details[ >]/g)].length, 11);
   assert.match(html, /<button[^>]*disabled=""[^>]*>.*?Windows coming soon<\/button>/);
   assert.equal([...html.matchAll(/Reads your files first\.<br\//g)].length, 1);
-  assert.match(html, /<summary[^>]*>Where does my data go\?/);
+  assert.match(html, /<summary[^>]*><h3[^>]*>Where does my data go\?<\/h3>/);
+  assert.match(html, /href="#main"[^>]*>Skip to content</);
+  assert.match(html, /<main id="main"/);
+  assert.match(html, /"@type":"Organization"[^}]*"email":"hello@savvycopilot\.com"/);
   for (const [, asset] of html.matchAll(/(?:src|poster)="(\/[^"?]+)"/g)) {
     await access(`out${asset}`);
   }
@@ -89,4 +92,7 @@ test("worker redirects the apex domain to www with a 308", async () => {
   assert.equal(apex.headers.get("location"), `${SITE_URL}/blog/?x=1`);
   const www = await worker.fetch(new Request(`${SITE_URL}/`), env);
   assert.equal(await www.text(), "asset");
+  for (const response of [apex, www]) {
+    assert.match(response.headers.get("strict-transport-security"), /max-age=31536000/);
+  }
 });
