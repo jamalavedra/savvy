@@ -142,8 +142,8 @@ export default function PrivacyPolicy() {
         Savvy processes managed audio and model context in memory. Its account and billing databases
         store session timing, usage and supplier-request metadata, rather than raw audio, transcript
         text or document excerpts. Local copies remain subject to the desktop storage rules above.
-        Stopping a meeting closes the audio relay to Deepgram; signing out does not delete local history
-        or cancel a subscription.
+        Stopping a meeting closes the audio relay to Deepgram; signing out does not delete local
+        history or cancel a subscription.
       </p>
       <p>
         Suppliers have their own retention and security terms. Local deletion and sign-out do not

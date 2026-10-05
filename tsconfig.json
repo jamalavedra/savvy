@@ -21,5 +21,8 @@
     "noFallthroughCasesInSwitch": true
   },
   "include": ["src"],
+  // Renders www's Markdown, which needs www's dependencies (next); vitest runs it
+  // in the verify job, where those are installed.
+  "exclude": ["src/markdown.test.tsx"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }
