@@ -9,7 +9,12 @@ import { tmpdir, cpus, totalmem } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
-import { createPrivateKey, sign, randomUUID, randomBytes } from "node:crypto";
+import {
+  generateKeyPairSync,
+  sign,
+  randomUUID,
+  randomBytes,
+} from "node:crypto";
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const require = createRequire(join(root, "backend/package.json"));
 const { WebSocket, WebSocketServer } = require("ws");
@@ -102,7 +107,16 @@ test(
         SMTP_PORT: String(smtp.server.address().port),
         SMTP_FROM: "load@example.test",
         SAVVY_LOAD_METRICS: join(directory, "metrics.json"),
+        SAVVY_FIXTURE_KEY: join(directory, "issuer.pem"),
       };
+      const { privateKey: key } = generateKeyPairSync("rsa", {
+        modulusLength: 2048,
+      });
+      await writeFile(
+        env.SAVVY_FIXTURE_KEY,
+        key.export({ type: "pkcs8", format: "pem" }),
+        { mode: 0o600 },
+      );
       await run(process.execPath, ["--import", "tsx", "src/fixture.seed.ts"], {
         cwd: join(root, "backend"),
         env,
@@ -128,21 +142,12 @@ test(
           break;
         await sleep(50);
       }
-      const jwks = JSON.parse(
-        await readFile(
-          join(root, "backend/e2e/fixtures/test-issuer-jwks.json"),
-          "utf8",
-        ),
-      );
-      const key = createPrivateKey(
-        await readFile(join(root, "backend/e2e/fixtures/test-issuer-rsa.pem")),
-      );
       function token(index) {
         const encode = (v) =>
           Buffer.from(JSON.stringify(v)).toString("base64url");
         const now = Math.floor(Date.now() / 1000);
         const unsigned =
-          encode({ alg: "RS256", kid: jwks.keys[0].kid }) +
+          encode({ alg: "RS256", kid: "savvy-test-key-1" }) +
           "." +
           encode({
             iss: origin,
