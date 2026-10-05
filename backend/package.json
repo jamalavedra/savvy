@@ -25,7 +25,7 @@
     "better-call": "1.4.0",
     "better-sqlite3": "13.0.3",
     "jose": "6.2.12",
-    "nodemailer": "10.0.3",
+    "nodemailer": "10.0.9",
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "ws": "8.21.3",
