@@ -1063,6 +1063,7 @@ pub fn sign_out() -> Result<(), String> {
 }
 
 fn cache_access_token(access_token: String, expires_in_seconds: u64) -> Result<(), String> {
+    // Expire 30 s early (half the lifetime for tokens under 60 s) to avoid expiry races.
     let expires_at = Instant::now()
         .checked_add(Duration::from_secs(
             expires_in_seconds.saturating_sub(expires_in_seconds.min(60) / 2),
@@ -1071,7 +1072,6 @@ fn cache_access_token(access_token: String, expires_in_seconds: u64) -> Result<(
     let mut cached = ACCESS_TOKEN.lock().map_err(|_| "access-token lock")?;
     *cached = Some(CachedToken {
         access_token,
-        // Refresh up to thirty seconds early to reduce expiry races.
         expires_at,
     });
     Ok(())
@@ -1203,8 +1203,6 @@ fn read_service_response(
     Err(typed_error(code, message))
 }
 
-/// Generates a brief through the hosted service. The response is mapped back
-/// through the same `map_generated_brief` validation as BYOK output.
 static BRIEF_GENERATION: Mutex<()> = Mutex::new(());
 static BRIEF_RETRY: LazyLock<Mutex<HashMap<String, String>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -1225,6 +1223,8 @@ pub fn generate_brief(
     generate_brief_for_job(request, None)
 }
 
+/// Generates a brief through the hosted service. The response is mapped back
+/// through the same `map_generated_brief` validation as BYOK output.
 pub fn generate_brief_for_job(
     request: &savvy_providers::BriefWireRequest,
     job: Option<&crate::BriefJob>,
@@ -1413,8 +1413,8 @@ pub fn resume_session(session_id: &str) -> Result<SessionView, String> {
     session_action(session_id, "resume")
 }
 
-/// Stop is fire-and-forget from the caller's point of view: local stop must
-/// never wait on the network. Settlement is reconciled on the next connection.
+/// Blocks on two service round-trips (reattach, then stop); callers on the UI
+/// path must spawn it. A failed stop is settled by the service's lease expiry.
 pub fn stop_session(session_id: &str) -> Result<SessionView, String> {
     discard_prepared(session_id);
     if let Ok(mut views) = SESSION_VIEWS.lock() {

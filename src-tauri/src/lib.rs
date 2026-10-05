@@ -724,13 +724,13 @@ async fn managed_sign_in_finish(
     .map_err(|error| error.to_string())?
 }
 
-/// Signing out removes the account credential only; billing, keys, documents,
-/// and history are untouched, and cancellation happens in the billing portal.
 #[tauri::command]
 fn managed_sign_in_cancel() -> Result<(), String> {
     managed::cancel_sign_in()
 }
 
+/// Signing out removes the account credential only; billing, keys, documents,
+/// and history are untouched, and cancellation happens in the billing portal.
 #[tauri::command]
 fn managed_sign_out(state: State<'_, AppState>) -> Result<(), String> {
     let _operation = state.app_operation.lock().map_err(|_| "operation lock")?;
@@ -3920,7 +3920,6 @@ fn start_managed_transcription_worker(
         session.lease_version,
         session.meeting_ms_available
     );
-    // The UI shows remaining time and any low-balance warning from this event.
     if let Err(error) = app.emit("managed://session", &session) {
         log::warn!("could not publish managed session status: {error}");
     }
@@ -6223,22 +6222,18 @@ pub fn run() {
                             let _ = handle.emit("managed://refresh", ());
                             return;
                         }
-                        let status = if managed::finish_browser_callback(
-                            url.as_str(),
-                            handle
-                                .state::<AppState>()
-                                .live_meeting
-                                .lock()
-                                .map(|m| m.is_some())
-                                .unwrap_or(true),
-                        )
-                        .is_ok()
+                        let meeting_active = handle
+                            .state::<AppState>()
+                            .live_meeting
+                            .lock()
+                            .map(|m| m.is_some())
+                            .unwrap_or(true);
+                        if let Err(error) =
+                            managed::finish_browser_callback(url.as_str(), meeting_active)
                         {
-                            "authenticated"
-                        } else {
-                            "rejected"
-                        };
-                        let _ = handle.emit("auth://status", status);
+                            log::warn!("ignored sign-in callback: {error}");
+                            return;
+                        }
                         if let Some(window) = handle.get_webview_window("main") {
                             let _ = window.show();
                             let _ = window.set_focus();

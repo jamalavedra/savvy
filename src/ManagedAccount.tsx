@@ -71,7 +71,7 @@ export default function ManagedAccount({
     const onFocus = () => void refresh();
     const initial = window.setTimeout(onFocus, 0);
     window.addEventListener("focus", onFocus);
-    const timer = window.setInterval(onFocus, 5000);
+    const timer = window.setInterval(onFocus, compact ? 5000 : 60_000);
     return () => {
       window.clearTimeout(initial);
       refreshGeneration.current += 1;
@@ -79,7 +79,7 @@ export default function ManagedAccount({
       window.removeEventListener("focus", onFocus);
       window.clearInterval(timer);
     };
-  }, [refresh]);
+  }, [refresh, compact]);
   async function run(action: () => Promise<void>) {
     if (operationPending.current) return;
     operationPending.current = true;
@@ -647,14 +647,11 @@ export default function ManagedAccount({
             Claude. Documents and history stay on this Mac.
           </p>
           <p>
-            ${offers.monthly.amountCents / 100} monthly includes{" "}
-            {offers.monthly.hours}
-            meeting hours and {offers.monthly.briefs} briefs. $
-            {offers.pack.amountCents / 100}
-            once includes {offers.pack.hours} hours and {offers.pack.briefs}{" "}
-            briefs with no scheduled expiry. Included usage expires at the paid
-            period end. Two audio sources count as one meeting clock. Pause
-            stops usage. No automatic overages.
+            {`$${offers.monthly.amountCents / 100} monthly includes ${offers.monthly.hours} meeting hours and ${offers.monthly.briefs} briefs. `}
+            {`$${offers.pack.amountCents / 100} once includes ${offers.pack.hours} hours and ${offers.pack.briefs} briefs with no scheduled expiry. `}
+            Included usage expires at the paid period end. Two audio sources
+            count as one meeting clock. Pause stops usage. No automatic
+            overages.
           </p>
         </details>
       )}
