@@ -24,8 +24,8 @@ importers:
         specifier: 6.2.12
         version: 6.2.12
       nodemailer:
-        specifier: 10.0.3
-        version: 10.0.3
+        specifier: 10.0.9
+        version: 10.0.9
       react:
         specifier: 19.1.0
         version: 19.1.0
@@ -944,6 +944,10 @@ packages:
     resolution: {integrity: sha512-h5c8ypcMoOIh44bIcVROvTDbjRdOJX8AXTkxMht2C92HlSjkG+/8kjoqmNPypfjQaVNaUHWyZ3tqs5I3K91F3g==}
     engines: {node: '>=20.0.0'}
 
+  nodemailer@10.0.9:
+    resolution: {integrity: sha512-BF0qcyplCwp+jMk6HCjFykBz/YhhZSsxrARhOldLwFWH+8kGjQsd2WIMIZhqEuyXRoGFi0ONbDeWDMDoL8MhLw==}
+    engines: {node: '>=20.0.0'}
+
   picocolors@1.1.1:
     resolution: {integrity: sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA==}
 
@@ -1711,6 +1715,8 @@ snapshots:
   node-releases@2.0.55: {}
 
   nodemailer@10.0.3: {}
+
+  nodemailer@10.0.9: {}
 
   picocolors@1.1.1: {}
 
