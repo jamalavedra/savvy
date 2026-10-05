@@ -19,16 +19,19 @@ export function GET() {
 ## Requirements and data handling
 
 - macOS 13+ on Apple Silicon. Intel is buildable from source but unsupported.
-- Transcription requires a Deepgram or AssemblyAI account. Savvy streams meeting audio to that provider as it captures it. There is no offline transcription mode.
+- Personal-provider transcription requires a Deepgram or AssemblyAI account. Savvy streams meeting audio to that provider as it captures it. There is no offline transcription mode.
 - Savvy sets Deepgram's mip_opt_out=true to prevent model training on your audio. Check AssemblyAI's terms for its equivalent.
-- Recommendations require Codex CLI or Claude Code installed and signed in. Savvy sends selected excerpts, the whole brief document, and recent relevant transcript turns to that CLI's model provider under your account and its terms.
+- Personal-provider recommendations require Codex CLI or Claude Code installed and signed in. Savvy sends selected excerpts, the whole brief document, and recent relevant transcript turns to that CLI's model provider under your account and its terms.
 - Derived chunks and indexes live in private local SQLite. Provider credentials live in macOS Keychain; only the authorization header goes to the provider.
 - Savvy deletes local audio and transcripts after 30 days, with cleanup at startup. Removing a client deletes derived data without touching the source folder.
 - App directories use 0700 permissions and sensitive files 0600. FileVault encrypts data at rest when enabled. Savvy does not add application-layer encryption.
 
+- Optional Savvy managed assistance uses the same desktop app and OIDC sign-in. Audio passes through Savvy to Deepgram; selected brief evidence and meeting context pass through Savvy to Claude. Stripe hosts billing. See pricing for managed allowance and expiry rules.
+
 ## Links
 
 - [Homepage](${SITE_URL}/)
+- [Pricing](${SITE_URL}/pricing/)
 - [Privacy policy](${SITE_URL}/privacy/)
 - [Data handling](${SITE_URL}/#privacy)
 - [FAQ](${SITE_URL}/#faq)

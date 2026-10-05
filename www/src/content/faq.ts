@@ -1,8 +1,18 @@
 export const faqItems = [
   {
+    question: "Do I need to buy a plan to create an account?",
+    answer:
+      "No. Create an account or sign in with Google or an emailed six-digit code. You can explore local history and meeting preparation without purchasing managed allowance. Checkout is a separate step.",
+  },
+  {
+    question: "What happens during an audio check?",
+    answer:
+      "Signal checks use local capture. An explicitly started transcription test sends audio to your selected provider for up to 30 seconds. Managed tests use meeting allowance. Skipping a test does not mark transcription as working, and no check starts a meeting automatically.",
+  },
+  {
     question: "What do I need to run Savvy?",
     answer:
-      "An Apple Silicon Mac running macOS 13 or newer, a Deepgram or AssemblyAI API key, and Claude Code or Codex CLI installed and signed in. Allow microphone access to hear you and screen-recording access to capture system audio.",
+      "An Apple Silicon Mac running macOS 13 or newer, either personal providers or a Savvy managed account. Personal setup needs a Deepgram or AssemblyAI API key and Claude Code or Codex CLI installed and signed in. Allow microphone access to hear you and optional system-audio access to hear the other participants. Microphone-only mode is available.",
   },
   {
     question: "Does Savvy join the call as a bot?",
@@ -12,12 +22,12 @@ export const faqItems = [
   {
     question: "Is Savvy free?",
     answer:
-      "The open-source app is free under the MIT license. You pay your own transcription and model providers for their services.",
+      "The open-source app is free under the MIT license. You can pay your own transcription and model providers and nothing to Savvy, or choose optional managed assistance in the same app. See the pricing page for managed offers.",
   },
   {
     question: "Where does my data go?",
     answer:
-      "Source files stay in their folders. Savvy stores extracted text, indexes, briefs, recordings, and transcripts on your Mac. Audio streams to your transcription provider. Savvy sends selected excerpts, the whole brief and recent transcript turns to your CLI's model provider. Savvy stores transcription keys in macOS Keychain. At startup, Savvy deletes local recordings and transcripts older than 30 days.",
+      "Source files stay in their folders. Savvy stores extracted text, indexes, briefs, recordings, and transcripts on your Mac. Audio streams to your transcription provider. Savvy sends selected excerpts, the whole brief and recent transcript turns to your CLI's model provider. With managed assistance, audio passes through Savvy to Deepgram and selected context passes through Savvy to Claude. Savvy stores provider keys and managed credentials in macOS Keychain. At startup, Savvy deletes local recordings and transcripts older than 30 days.",
   },
   {
     question: "Does it work with Zoom, Meet, Teams or phone calls?",

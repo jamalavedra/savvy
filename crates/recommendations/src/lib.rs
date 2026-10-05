@@ -172,7 +172,7 @@ pub enum RecommendationError {
     LowConfidence,
     #[error("recommendation contains a source that was not provided to the model")]
     UnknownSource,
-    #[error("dossier-grounded recommendation has no sources")]
+    #[error("recommendation has no verified source or transcript turn")]
     MissingSource,
     #[error("recommendation is not concise enough for live use")]
     TooLong,
@@ -181,16 +181,20 @@ pub enum RecommendationError {
 pub fn validate_recommendation(
     recommendation: &Recommendation,
     allowed_chunk_ids: &HashSet<EntityId>,
+    allowed_turn_ids: &HashSet<EntityId>,
 ) -> Result<(), RecommendationError> {
     if recommendation.trigger != Trigger::Manual && recommendation.grounding_score < 0.55 {
         return Err(RecommendationError::LowConfidence);
     }
-    if matches!(
-        recommendation.grounding,
-        Grounding::Dossier | Grounding::Mixed
-    ) && recommendation.sources.is_empty()
-    {
+    if recommendation.sources.is_empty() && recommendation.source_turn_ids.is_empty() {
         return Err(RecommendationError::MissingSource);
+    }
+    if recommendation
+        .source_turn_ids
+        .iter()
+        .any(|id| !allowed_turn_ids.contains(id))
+    {
+        return Err(RecommendationError::UnknownSource);
     }
     if recommendation
         .sources
@@ -290,31 +294,49 @@ mod tests {
         let chunk_id = Uuid::new_v4();
         let allowed = HashSet::from([chunk_id]);
         assert_eq!(
-            validate_recommendation(&recommendation(chunk_id), &allowed),
+            validate_recommendation(&recommendation(chunk_id), &allowed, &HashSet::new()),
             Ok(())
         );
         assert_eq!(
-            validate_recommendation(&recommendation(Uuid::new_v4()), &allowed),
+            validate_recommendation(&recommendation(Uuid::new_v4()), &allowed, &HashSet::new()),
             Err(RecommendationError::UnknownSource)
         );
         let mut low = recommendation(chunk_id);
         low.grounding_score = 0.54;
         assert_eq!(
-            validate_recommendation(&low, &allowed),
+            validate_recommendation(&low, &allowed, &HashSet::new()),
             Err(RecommendationError::LowConfidence)
         );
         low.trigger = Trigger::Manual;
-        assert_eq!(validate_recommendation(&low, &allowed), Ok(()));
+        assert_eq!(
+            validate_recommendation(&low, &allowed, &HashSet::new()),
+            Ok(())
+        );
         let mut unsourced = recommendation(chunk_id);
         unsourced.sources.clear();
         assert_eq!(
-            validate_recommendation(&unsourced, &allowed),
+            validate_recommendation(&unsourced, &allowed, &HashSet::new()),
             Err(RecommendationError::MissingSource)
+        );
+        unsourced.grounding = Grounding::Brief;
+        assert_eq!(
+            validate_recommendation(&unsourced, &allowed, &HashSet::new()),
+            Err(RecommendationError::MissingSource)
+        );
+        let turn = Uuid::new_v4();
+        unsourced.source_turn_ids.push(turn);
+        assert_eq!(
+            validate_recommendation(&unsourced, &allowed, &HashSet::new()),
+            Err(RecommendationError::UnknownSource)
+        );
+        assert_eq!(
+            validate_recommendation(&unsourced, &allowed, &HashSet::from([turn])),
+            Ok(())
         );
         let mut long = recommendation(chunk_id);
         long.say = "word ".repeat(91);
         assert_eq!(
-            validate_recommendation(&long, &allowed),
+            validate_recommendation(&long, &allowed, &HashSet::new()),
             Err(RecommendationError::TooLong)
         );
     }

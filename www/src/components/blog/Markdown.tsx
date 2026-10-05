@@ -112,7 +112,8 @@ export function Markdown({ body }: { body: string }) {
         i,
         (l) =>
           !!l.trim() &&
-          !l.startsWith("#") &&
+          !l.startsWith("## ") &&
+          !l.startsWith("### ") &&
           !l.startsWith(">") &&
           l !== "---" &&
           !UL.test(l) &&

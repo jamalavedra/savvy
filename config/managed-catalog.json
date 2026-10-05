@@ -1,0 +1,20 @@
+{
+  "monthly": {
+    "version": "managed_v1_monthly",
+    "currency": "usd",
+    "amountCents": 7900,
+    "interval": "month",
+    "hours": 10,
+    "briefs": 20,
+    "expiry": "paid_period_end"
+  },
+  "pack": {
+    "version": "managed_v1_pack",
+    "currency": "usd",
+    "amountCents": 2900,
+    "interval": null,
+    "hours": 3,
+    "briefs": 6,
+    "expiry": "none"
+  }
+}

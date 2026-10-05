@@ -300,6 +300,29 @@ pub struct LedgerItem {
     pub source_turn_ids: Vec<EntityId>,
 }
 
+impl LedgerItem {
+    pub fn is_bounded(&self) -> bool {
+        self.text.len() <= 2048
+            && self.text.chars().count() <= 512
+            && !self.source_turn_ids.is_empty()
+            && self.source_turn_ids.len() <= 32
+            && self
+                .source_turn_ids
+                .iter()
+                .enumerate()
+                .all(|(i, id)| !self.source_turn_ids[..i].contains(id))
+    }
+
+    // Worst-case JSON escaping plus UUIDs, keys and the longest kind name.
+    pub fn json_size_bound(&self) -> usize {
+        self.text
+            .len()
+            .saturating_mul(6)
+            .saturating_add(self.source_turn_ids.len().saturating_mul(40))
+            .saturating_add(128)
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct MeetingLedger {

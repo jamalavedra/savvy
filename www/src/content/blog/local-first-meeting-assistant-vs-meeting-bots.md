@@ -49,7 +49,7 @@ Savvy has no model of its own. It shells out to Claude Code or the Codex CLI alr
 
 Bots are usually priced per seat per month, with a free tier that limits minutes or features.
 
-Savvy is free and MIT-licensed. There is no paid tier. You pay your own providers: a Deepgram or AssemblyAI account for transcription, billed per audio minute at their rates, and whatever plan your CLI is on for recommendations.
+Savvy is free and MIT-licensed. Managed assistance is an optional paid plan, priced on the [pricing page](/pricing/). With your own accounts, you pay your providers directly. Deepgram or AssemblyAI bills transcription per audio minute at their rates. Recommendations run on whatever plan your CLI is on.
 
 ## What you give up with Savvy
 

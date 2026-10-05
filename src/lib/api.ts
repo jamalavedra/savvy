@@ -1,3 +1,4 @@
+import managedCatalog from "../../config/managed-catalog.json";
 import { version } from "../../package.json";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -15,6 +16,7 @@ import type {
   PreparationSnapshot,
   ProviderHealth,
   TranscriptUpdate,
+  TranscriptTurn,
   TranscriptionKeyStatus,
   ClientDocument,
 } from "../types";
@@ -136,6 +138,12 @@ let demoOnboardingCompleted = true;
 export function resetBrowserDemoState({
   onboardingCompleted = true,
 }: { onboardingCompleted?: boolean } = {}): void {
+  demoManagedAccount = null;
+  demoAuthorization = null;
+  demoManagedLastAudio = null;
+  demoManagedOffline = false;
+  browserDemo.activeSession = null;
+  browserSettings.serviceMode = "byok";
   removedDemoClientIds.clear();
   removedDemoBriefScopes.clear();
   demoExcludedPaths.clear();
@@ -181,9 +189,11 @@ const browserDemo: DashboardSnapshot = {
 };
 
 const browserSettings: AppSettings = {
+  serviceMode: "byok",
   startListeningShortcut: "Command+Shift+M",
   selectedMicrophone: null,
   selectedChannel: null,
+  microphoneOnly: false,
   audioFeedback: false,
   selectedOutputDevice: null,
   audioFeedbackVolume: 0.5,
@@ -225,9 +235,9 @@ export async function getAppSettings(): Promise<AppSettings> {
   return invoke<AppSettings>("get_app_settings");
 }
 
-export async function getRecommendationProviderStatus(): Promise<
-  ProviderHealth[]
-> {
+export async function getRecommendationProviderStatus(
+  personalSetup = false,
+): Promise<ProviderHealth[]> {
   if (!window.__TAURI_INTERNALS__) {
     return [
       {
@@ -244,7 +254,9 @@ export async function getRecommendationProviderStatus(): Promise<
       },
     ];
   }
-  return invoke<ProviderHealth[]>("get_recommendation_provider_status");
+  return invoke<ProviderHealth[]>("get_recommendation_provider_status", {
+    personalSetup,
+  });
 }
 
 export async function getAppPaths(): Promise<AppPaths> {
@@ -267,6 +279,12 @@ export async function updateAppSettings(
 ): Promise<AppSettings> {
   if (!window.__TAURI_INTERNALS__) {
     // Remember completion so finishing onboarding sticks in `pnpm dev`.
+    if (
+      browserDemo.activeSession &&
+      settings.serviceMode !== browserSettings.serviceMode
+    )
+      throw new Error("Stop the meeting before changing provider path.");
+    Object.assign(browserSettings, settings);
     demoOnboardingCompleted = settings.onboardingCompleted;
     return settings;
   }
@@ -290,10 +308,22 @@ export async function setTranscriptionApiKey(
       assemblyAi: provider === "assemblyAi",
     };
   }
-  return invoke<TranscriptionKeyStatus>("set_transcription_api_key", {
-    provider,
-    apiKey,
-  });
+  try {
+    return await invoke<TranscriptionKeyStatus>("set_transcription_api_key", {
+      provider,
+      apiKey,
+    });
+  } catch (reason) {
+    if (
+      reason &&
+      typeof reason === "object" &&
+      "message" in reason &&
+      typeof reason.message === "string"
+    ) {
+      throw new Error(reason.message);
+    }
+    throw reason;
+  }
 }
 
 export async function deleteTranscriptionApiKey(
@@ -406,6 +436,48 @@ export async function getMeetingHistory(): Promise<MeetingHistoryItem[]> {
   return invoke<MeetingHistoryItem[]>("get_meeting_history");
 }
 
+export async function getMeetingTranscriptPage(
+  sessionId: string,
+  offset: number,
+): Promise<TranscriptTurn[]> {
+  if (!window.__TAURI_INTERNALS__) {
+    if (offset > 0) return [];
+    return [
+      {
+        id: "demo-turn-1",
+        sessionId,
+        channel: "selfSpeaker",
+        text: "What would make this renewal successful?",
+        language: "en",
+        startMs: 14000,
+        endMs: 18000,
+        isFinal: true,
+        confidence: 1,
+      },
+      {
+        id: "demo-turn-2",
+        sessionId,
+        channel: "other",
+        text: "We need a clear timeline for the rollout.",
+        language: "en",
+        startMs: 21000,
+        endMs: 26000,
+        isFinal: true,
+        confidence: 1,
+      },
+    ];
+  }
+  return invoke<TranscriptTurn[]>("get_meeting_transcript_page", {
+    sessionId,
+    offset,
+  });
+}
+
+export async function openMeetingRecording(sessionId: string): Promise<void> {
+  if (!window.__TAURI_INTERNALS__) return;
+  await invoke("open_meeting_recording", { sessionId });
+}
+
 export async function openRecordingsFolder(): Promise<void> {
   if (!window.__TAURI_INTERNALS__) return;
   await invoke("open_recordings_folder");
@@ -491,8 +563,15 @@ export async function chooseGuidanceFolder(): Promise<string | null> {
 export async function generateBriefDraft(
   clientId: string | null,
   instructions: string,
+  requestId?: string,
 ): Promise<NegotiationBrief> {
   if (!window.__TAURI_INTERNALS__) {
+    if (browserSettings.serviceMode === "managed") {
+      const account = requireDemoManaged();
+      if (account.briefsAvailable <= 0)
+        throw new Error("quota_exhausted: No briefs remain.");
+      account.briefsAvailable -= 1;
+    }
     return {
       ...demoBrief,
       id: "demo-draft",
@@ -509,7 +588,26 @@ export async function generateBriefDraft(
   return invoke<NegotiationBrief>("generate_brief_draft", {
     clientId,
     instructions,
+    requestId,
   });
+}
+
+export type BriefStage = "reading" | "drafting" | "saving";
+export async function getBriefProgress(
+  clientId: string | null,
+  requestId: string,
+): Promise<BriefStage | null> {
+  if (!window.__TAURI_INTERNALS__) return null;
+  return invoke<BriefStage>("brief_progress", { clientId, requestId });
+}
+
+export async function cancelBriefDraft(
+  clientId: string | null,
+  requestId: string,
+): Promise<void> {
+  if (!window.__TAURI_INTERNALS__)
+    throw new Error("The synthetic brief has already completed.");
+  await invoke("cancel_brief_draft", { clientId, requestId });
 }
 
 export async function refreshBriefFromDocument(
@@ -590,9 +688,16 @@ export async function openBriefDocument(briefId: string): Promise<void> {
 export async function startMeeting(
   clientId: string | null,
   briefId: string | null,
+  reviewedContent?: string,
 ): Promise<MeetingSession> {
   if (!window.__TAURI_INTERNALS__) {
-    return {
+    if (browserSettings.serviceMode === "managed") {
+      const account = requireDemoManaged();
+      if (account.meetingMsAvailable <= 0)
+        throw new Error("quota_exhausted: Buy a pack before starting.");
+      demoManagedLastAudio = Date.now();
+    }
+    const session: MeetingSession = {
       id: crypto.randomUUID(),
       clientId,
       briefId,
@@ -603,8 +708,28 @@ export async function startMeeting(
       contextPackHash: "demo-context",
       sourceIndexRevision: "demo-sources",
     };
+    browserDemo.activeSession = session;
+    return session;
   }
-  return invoke<MeetingSession>("start_meeting", { clientId, briefId });
+  if (briefId && reviewedContent === undefined)
+    throw new Error("Review the brief before starting.");
+  const expectedBriefHash = briefId
+    ? Array.from(
+        new Uint8Array(
+          await crypto.subtle.digest(
+            "SHA-256",
+            new TextEncoder().encode(reviewedContent),
+          ),
+        ),
+      )
+        .map((byte) => byte.toString(16).padStart(2, "0"))
+        .join("")
+    : null;
+  return invoke<MeetingSession>("start_meeting", {
+    clientId,
+    briefId,
+    expectedBriefHash,
+  });
 }
 
 export async function getAudioLevel(): Promise<number> {
@@ -614,7 +739,15 @@ export async function getAudioLevel(): Promise<number> {
 
 export async function pauseMeeting(sessionId: string): Promise<MeetingSession> {
   if (!window.__TAURI_INTERNALS__) {
-    return { ...browserDemo.activeSession!, id: sessionId, state: "paused" };
+    settleDemoManaged();
+    demoManagedLastAudio = null;
+    const session: MeetingSession = {
+      ...browserDemo.activeSession!,
+      id: sessionId,
+      state: "paused",
+    };
+    browserDemo.activeSession = session;
+    return session;
   }
   return invoke<MeetingSession>("pause_meeting", { sessionId });
 }
@@ -623,13 +756,35 @@ export async function resumeMeeting(
   sessionId: string,
 ): Promise<MeetingSession> {
   if (!window.__TAURI_INTERNALS__) {
-    return { ...browserDemo.activeSession!, id: sessionId, state: "recording" };
+    if (browserSettings.serviceMode === "managed") {
+      if (requireDemoManaged().meetingMsAvailable <= 0)
+        throw new Error("quota_exhausted: Buy a pack before resuming.");
+      demoManagedLastAudio = Date.now();
+    }
+    const session: MeetingSession = {
+      ...browserDemo.activeSession!,
+      id: sessionId,
+      state: "recording",
+    };
+    browserDemo.activeSession = session;
+    return session;
   }
   return invoke<MeetingSession>("resume_meeting", { sessionId });
 }
 
 export async function requestRecommendation(sessionId: string): Promise<void> {
   if (!window.__TAURI_INTERNALS__) {
+    if (browserSettings.serviceMode === "managed") {
+      requireDemoManaged();
+      settleDemoManaged();
+      if (requireDemoManaged().meetingMsAvailable <= 0)
+        throw new Error("quota_exhausted: add time and explicitly resume");
+      if (
+        browserDemo.activeSession?.id !== sessionId ||
+        browserDemo.activeSession.state !== "recording"
+      )
+        throw new Error("session_conflict: resume assistance first");
+    }
     return;
   }
   return invoke<void>("request_recommendation", { sessionId });
@@ -675,6 +830,9 @@ export async function appendTranscriptTurn(
 
 export async function stopMeeting(sessionId: string): Promise<MeetingSession> {
   if (!window.__TAURI_INTERNALS__) {
+    settleDemoManaged();
+    demoManagedLastAudio = null;
+    browserDemo.activeSession = null;
     return {
       id: sessionId,
       clientId: demoClient.id,
@@ -696,4 +854,204 @@ export async function reopenApp(): Promise<void> {
 
 export async function probeSystemAudioPermission(): Promise<void> {
   if (window.__TAURI_INTERNALS__) await invoke("probe_system_audio_permission");
+}
+
+// Browser purchases change synthetic fixtures only; they never open Checkout.
+let demoManagedAccount: import("../types").ManagedAccount | null = null;
+let demoAuthorization: { flowId: string; completed: boolean } | null = null;
+export async function managedAccount(): Promise<
+  import("../types").ManagedAccount | null
+> {
+  if (!window.__TAURI_INTERNALS__) {
+    if (demoManagedOffline) throw new Error("provider_unavailable: offline");
+    settleDemoManaged();
+    return demoManagedAccount ? { ...demoManagedAccount } : null;
+  }
+  return invoke("managed_account");
+}
+export async function managedSignInBegin(
+  createAccount = false,
+): Promise<import("../types").ManagedAuthorization> {
+  if (!window.__TAURI_INTERNALS__) {
+    demoAuthorization = { flowId: crypto.randomUUID(), completed: false };
+    return { flowId: demoAuthorization.flowId, authorizationUrl: "" };
+  }
+  return invoke("managed_sign_in_begin", { createAccount });
+}
+export async function managedSignInFinish(
+  authorization: import("../types").ManagedAuthorization,
+): Promise<import("../types").ManagedAccount> {
+  if (!window.__TAURI_INTERNALS__) {
+    if (
+      !demoAuthorization ||
+      demoAuthorization.flowId !== authorization.flowId ||
+      demoAuthorization.completed
+    )
+      throw new Error("Sign-in cancelled or expired.");
+    demoAuthorization.completed = true;
+    demoManagedAccount = {
+      catalog: managedCatalog,
+      pendingPurchases: [],
+      nowMs: Date.now(),
+      meetingMsAvailable: 0,
+      meetingMsReserved: 0,
+      briefsAvailable: 0,
+      monthlyMsTotal: 0,
+      monthlyMsUsed: 0,
+      periodEndMs: null,
+      subscription: null,
+    };
+    return demoManagedAccount;
+  }
+  return invoke("managed_sign_in_finish", { authorization });
+}
+export async function managedSignOut(): Promise<void> {
+  if (!window.__TAURI_INTERNALS__) {
+    demoAuthorization = null;
+    demoManagedAccount = null;
+    return;
+  }
+  return invoke("managed_sign_out");
+}
+export async function managedBilling(
+  product: "monthly" | "pack" | "portal",
+): Promise<void> {
+  if (!window.__TAURI_INTERNALS__) {
+    if (!demoManagedAccount) throw new Error("Sign in first.");
+    if (product === "portal") {
+      if (demoManagedAccount.subscription)
+        demoManagedAccount.subscription.cancelAtPeriodEnd = true;
+    } else {
+      demoManagedAccount.pendingPurchases =
+        demoManagedAccount.pendingPurchases?.filter(
+          (purchase) => purchase.product !== product,
+        ) ?? [];
+      demoManagedAccount.paymentPending =
+        demoManagedAccount.pendingPurchases.length > 0;
+      demoManagedAccount.meetingMsAvailable +=
+        managedCatalog[product].hours * 3_600_000;
+      demoManagedAccount.briefsAvailable += managedCatalog[product].briefs;
+      if (product === "monthly") {
+        demoManagedAccount.monthlyMsTotal =
+          managedCatalog.monthly.hours * 3_600_000;
+        demoManagedAccount.periodEndMs = Date.now() + 30 * 86_400_000;
+        demoManagedAccount.subscription = {
+          status: "active",
+          paidThroughMs: demoManagedAccount.periodEndMs,
+          cancelAtPeriodEnd: false,
+        };
+      }
+    }
+    return;
+  }
+  // The service resolves an account/product to its durable attempt across restarts.
+  const account = await managedAccount();
+  const attempt = account?.pendingPurchases?.find(
+    (purchase) => purchase.product === product,
+  );
+  return invoke("managed_billing", {
+    product,
+    idempotencyKey: attempt?.attemptId ?? crypto.randomUUID(),
+  });
+}
+
+let demoManagedLastAudio: number | null = null;
+let demoManagedOffline = false;
+function requireDemoManaged() {
+  if (demoManagedOffline) throw new Error("provider_unavailable: offline");
+  if (!demoManagedAccount)
+    throw new Error("sign_in_required: Sign in to Savvy.");
+  return demoManagedAccount;
+}
+function settleDemoManaged() {
+  if (
+    !demoManagedAccount ||
+    demoManagedLastAudio === null ||
+    demoManagedOffline
+  )
+    return;
+  const now = Date.now();
+  const spent = Math.min(
+    demoManagedAccount.meetingMsAvailable,
+    Math.max(0, now - demoManagedLastAudio),
+  );
+  demoManagedAccount.meetingMsAvailable -= spent;
+  demoManagedAccount.monthlyMsUsed += Math.min(
+    spent,
+    Math.max(
+      0,
+      demoManagedAccount.monthlyMsTotal - demoManagedAccount.monthlyMsUsed,
+    ),
+  );
+  demoManagedAccount.nowMs = now;
+  demoManagedLastAudio = demoManagedAccount.meetingMsAvailable > 0 ? now : null;
+  if (demoManagedLastAudio === null && browserDemo.activeSession)
+    browserDemo.activeSession.state = "paused";
+}
+export function setManagedDemoScenario(
+  scenario:
+    | "signedOut"
+    | "paymentPending"
+    | "active"
+    | "low"
+    | "exhausted"
+    | "pastDue"
+    | "cancelledWithPacks"
+    | "offline",
+) {
+  demoManagedOffline = scenario === "offline";
+  demoManagedLastAudio = null;
+  demoManagedAccount =
+    scenario === "signedOut"
+      ? null
+      : {
+          nowMs: Date.now(),
+          catalog: managedCatalog,
+          pendingPurchases:
+            scenario === "paymentPending"
+              ? [
+                  {
+                    product: "monthly",
+                    attemptId: "demo-monthly",
+                    status: "payment_pending",
+                  },
+                ]
+              : [],
+          paymentPending: scenario === "paymentPending",
+          meetingMsAvailable:
+            scenario === "exhausted" || scenario === "paymentPending"
+              ? 0
+              : scenario === "low"
+                ? 90_000
+                : managedCatalog.pack.hours * 3_600_000,
+          meetingMsReserved: 0,
+          briefsAvailable:
+            scenario === "exhausted" ? 0 : managedCatalog.pack.briefs,
+          monthlyMsTotal: 0,
+          monthlyMsUsed: 0,
+          periodEndMs: null,
+          subscription: {
+            status:
+              scenario === "pastDue"
+                ? "past_due"
+                : scenario === "cancelledWithPacks"
+                  ? "canceled"
+                  : scenario === "paymentPending"
+                    ? "incomplete"
+                    : "active",
+            paidThroughMs: Date.now() + 86_400_000,
+            cancelAtPeriodEnd: scenario === "cancelledWithPacks",
+          },
+        };
+}
+
+export async function managedSignInCancel(): Promise<void> {
+  if (window.__TAURI_INTERNALS__) await invoke("managed_sign_in_cancel");
+  else {
+    if (demoAuthorization?.completed)
+      throw new Error(
+        "Sign-in already completed. Use Sign out to leave this account.",
+      );
+    demoAuthorization = null;
+  }
 }

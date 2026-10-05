@@ -2,10 +2,12 @@ name: Website
 
 on:
   pull_request:
-    paths: ["www/**", ".github/workflows/www.yml"]
+    paths:
+      ["www/**", "config/managed-catalog.json", ".github/workflows/www.yml"]
   push:
     branches: [main]
-    paths: ["www/**", ".github/workflows/www.yml"]
+    paths:
+      ["www/**", "config/managed-catalog.json", ".github/workflows/www.yml"]
   workflow_dispatch:
 
 permissions:
@@ -31,6 +33,7 @@ jobs:
           cache-dependency-path: www/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
+      - run: pnpm typecheck
       - run: pnpm build
       - run: node --test smoke.test.mjs
       - run: pnpm deploy:check

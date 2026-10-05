@@ -1,0 +1,5 @@
+{
+  "productName": "Savvy Integration",
+  "identifier": "com.alamaslabs.savvy.integration",
+  "bundle": { "createUpdaterArtifacts": false }
+}

@@ -1,14 +1,18 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { CONSENT_KEY as KEY, readConsent, CONSENT_YEAR as YEAR } from "@/lib/consent";
 
 export function Analytics() {
+  const paymentReturn = usePathname()?.replace(/\/$/, "") === "/checkout-complete";
   const [open, setOpen] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
+    // Transactional handoffs have no analytics or consent overlay, even after opt-in.
+    if (paymentReturn) return;
     let allowed = false;
     let expires = 0;
     try {
@@ -41,7 +45,7 @@ export function Analytics() {
       window.clearTimeout(timer);
       window.removeEventListener("storage", onStorage);
     };
-  }, []);
+  }, [paymentReturn]);
 
   function choose(allowed: boolean) {
     try {
@@ -54,6 +58,8 @@ export function Analytics() {
       );
     }
   }
+
+  if (paymentReturn) return null;
 
   return (
     <aside

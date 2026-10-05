@@ -128,6 +128,8 @@ textarea:focus-visible {
   min-height: 0;
   padding: 0 8px;
   border-right: 1px solid var(--border);
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .brand-mark {
@@ -378,6 +380,48 @@ button.setting-row:hover {
   gap: 18px;
 }
 
+.prepare-objective label {
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.prepare-objective input {
+  width: 100%;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--background-ui);
+  color: var(--text);
+  font: inherit;
+}
+
+.prepare-objective p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.prepare-main-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.prepare-main-actions .button {
+  min-height: 38px;
+}
+
+.prepare-options summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.prepare-options[open] summary {
+  margin-bottom: 12px;
+}
+
 .prepare-title {
   align-items: center;
 }
@@ -524,7 +568,13 @@ button.prepare-card-header[aria-expanded="true"] {
   margin-bottom: 2px;
 }
 
+.document-list > .link-button[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: wait;
+}
+
 .document-list-note {
+  overflow-wrap: anywhere;
   margin: 0 0 0 auto;
   color: var(--muted);
   font-size: 11px;
@@ -741,7 +791,7 @@ button.folder-row-path:hover:not(:disabled) strong {
   padding: 4px 6px;
   border: 0;
   border-radius: 6px;
-  color: var(--accent);
+  color: color-mix(in srgb, var(--accent) 70%, var(--text));
   font-size: 12px;
   font-weight: 600;
   background: transparent;
@@ -1356,7 +1406,6 @@ button.folder-row-path:hover:not(:disabled) strong {
   background: var(--accent-soft);
 }
 
-.history-empty p,
 .toggle {
   position: relative;
   width: 40px;
@@ -1633,7 +1682,7 @@ button.shortcut-chip {
 
 .settings-error {
   margin: 8px 15px;
-  color: var(--danger);
+  color: color-mix(in srgb, var(--danger) 75%, var(--text));
   font-size: 11px;
 }
 
@@ -2481,8 +2530,10 @@ button.shortcut-chip {
 
 .onboarding {
   display: grid;
-  min-height: 100vh;
-  align-content: center;
+  height: 100vh;
+  min-height: 0;
+  overflow-y: auto;
+  align-content: safe center;
   justify-items: center;
   gap: 20px;
   padding: 32px 24px;
@@ -2496,7 +2547,7 @@ button.shortcut-chip {
   text-align: center;
 }
 
-.onboarding-header p {
+.onboarding-header h1 {
   max-width: 380px;
   margin: 0;
   color: var(--muted);
@@ -2513,6 +2564,66 @@ button.shortcut-chip {
   border: 1px solid var(--border-soft);
   border-radius: 12px;
   background: var(--surface);
+}
+
+.onboarding-card > h2 {
+  margin: 0 0 8px;
+}
+
+.onboarding-card > p {
+  margin: 4px 0;
+}
+
+.onboarding-card > hr {
+  width: 100%;
+  border: 0;
+  border-top: 1px solid var(--border-soft);
+}
+
+.onboarding-welcome .onboarding-header h1 {
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.onboarding-welcome .onboarding-card {
+  padding: 20px;
+  gap: 12px;
+}
+
+.onboarding-welcome .onboarding-card > h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.onboarding-welcome .onboarding-card > p {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.onboarding-browser-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.onboarding-browser-note p,
+.onboarding-footer {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.onboarding-pricing-link {
+  border: 0;
+  padding: 6px 0;
+  background: transparent;
+  color: color-mix(in srgb, var(--accent) 65%, var(--text));
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
 }
 
 .onboarding-row {
@@ -2581,6 +2692,65 @@ button.shortcut-chip {
   background: var(--accent-pale);
 }
 
+.onboarding:has(.managed-pricing) {
+  padding-block: 20px;
+  gap: 16px;
+}
+
+.managed-pricing fieldset {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.managed-offer {
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: start;
+  justify-items: stretch;
+  gap: 10px;
+  padding: 12px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.managed-offer input {
+  width: 16px;
+  height: 16px;
+  margin: 3px 0 0;
+  accent-color: var(--accent);
+}
+
+.managed-offer-title {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+  margin-bottom: 4px;
+}
+
+.managed-offer-terms {
+  display: block;
+  margin-top: 4px;
+  color: var(--text);
+  color: color-mix(in srgb, var(--text) 70%, var(--surface));
+}
+
+.managed-pricing > p {
+  margin: 0;
+  color: var(--text);
+  color: color-mix(in srgb, var(--text) 70%, var(--surface));
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.managed-pricing .button,
+.onboarding-card:has(.managed-pricing) > .onboarding-actions .button {
+  min-height: 38px;
+}
+
 .onboarding-field {
   display: grid;
   gap: 5px;
@@ -2602,6 +2772,11 @@ button.shortcut-chip {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 2px;
+}
+
+.onboarding-card > a {
+  color: var(--text);
+  text-underline-offset: 3px;
 }
 
 .onboarding-note {
@@ -2654,4 +2829,352 @@ button.shortcut-chip {
 .onboarding-error > button svg {
   width: 13px;
   height: 13px;
+}
+
+.confirmation-dialog {
+  width: min(420px, calc(100vw - 40px));
+  max-height: calc(100vh - 40px);
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+}
+.confirmation-dialog::backdrop {
+  background: rgb(0 0 0 / 40%);
+}
+
+.brief-generation-progress {
+  padding: 24px;
+}
+.brief-generation-progress h1 {
+  margin: 0 0 8px;
+  font-size: 22px;
+}
+.brief-generation-progress > p,
+.brief-generation-progress header p {
+  color: var(--muted);
+  line-height: 1.5;
+}
+.brief-progress-card {
+  margin: 32px 0 30px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px;
+}
+.brief-progress-card > div:not(.brief-progress-placeholder) {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 28px;
+}
+.brief-progress-card span:first-child {
+  font-weight: 600;
+}
+.brief-progress-card span:last-child {
+  color: var(--muted);
+}
+.brief-progress-placeholder {
+  display: grid;
+  gap: 12px;
+  padding: 4px 0 46px;
+}
+.brief-progress-placeholder i {
+  display: block;
+  height: 10px;
+  border-radius: 4px;
+  background: var(--border);
+}
+.brief-progress-placeholder i:nth-child(2) {
+  width: 85%;
+}
+.brief-progress-placeholder i:nth-child(3) {
+  width: 65%;
+}
+
+.brief-stage-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.brief-stage-label svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+.brief-progress-card span[data-state="active"] {
+  color: var(--text);
+  color: color-mix(in srgb, var(--warning) 60%, var(--text));
+}
+.brief-progress-card span[data-state="complete"] {
+  color: var(--text);
+  color: color-mix(in srgb, var(--success) 60%, var(--text));
+}
+.brief-generation-progress > button {
+  min-width: 116px;
+  min-height: 38px;
+}
+
+.readiness-checks {
+  margin: 0;
+  padding: 8px 16px;
+}
+.readiness-checks > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 0;
+}
+.readiness-checks dt {
+  font-weight: 600;
+}
+.readiness-checks dd {
+  margin: 0;
+  text-align: right;
+}
+.meeting-readiness {
+  gap: 12px;
+}
+.meeting-readiness .page-title {
+  flex-direction: column;
+  gap: 2px;
+}
+.meeting-readiness > p {
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.readiness-actions {
+  justify-content: space-between;
+  margin-top: 20px;
+}
+
+.brief-review-page {
+  gap: 18px;
+}
+.brief-review-page .page-title {
+  flex-direction: column;
+  gap: 2px;
+}
+.brief-review-content {
+  padding: 20px;
+  max-height: 240px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+.brief-review-content > div + div {
+  margin-top: 24px;
+}
+.brief-review-content .group-title {
+  padding: 0;
+}
+.brief-review-content p,
+.brief-review-content ul {
+  font-size: 14px;
+  line-height: 1.5;
+}
+.brief-review-content ul {
+  padding-left: 20px;
+}
+.brief-review-links {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.brief-policy-note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.brief-review-content.paginated {
+  max-height: 180px;
+}
+
+.meeting-details header h2 {
+  margin: 0;
+}
+.meeting-details header p,
+.meeting-details time {
+  color: var(--muted);
+}
+.meeting-details-transcript {
+  padding: 20px;
+}
+.meeting-details-transcript h3 {
+  margin: 0 0 20px;
+  font-size: 12px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.meeting-details-transcript ol {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.meeting-details-transcript li {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.meeting-details-transcript li p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 6px 0 0;
+}
+.meeting-details-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 20px 0;
+}
+
+.startup-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px;
+  height: 100%;
+  overflow-wrap: anywhere;
+  background: var(--background);
+}
+
+.startup-error p {
+  margin: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+.startup-error button {
+  flex-shrink: 0;
+}
+
+.managed-empty-card {
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 18px;
+  margin: 12px 0;
+}
+.managed-empty-card .group-title {
+  padding: 0;
+}
+.managed-empty-balances {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 36px;
+  font-size: 22px;
+  margin: 16px 0 24px;
+}
+
+.managed-empty-account > h2 {
+  margin: 0 0 12px;
+}
+.managed-empty-account > p {
+  margin: 4px 0;
+}
+
+.managed-payment-recovery .button {
+  margin: 8px 8px 0 0;
+}
+
+.managed-allowances {
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 18px;
+  margin: 12px 0;
+}
+.managed-allowances .managed-empty-card {
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+.managed-allowances .managed-empty-card + .managed-empty-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 12px;
+}
+.managed-allowances
+  .managed-empty-card
+  + .managed-empty-card
+  .managed-empty-balances {
+  font-size: 14px;
+  gap: 12px;
+  margin: 0;
+}
+.managed-allowances .managed-empty-card + .managed-empty-card p {
+  margin: 0;
+}
+
+.audio-test-transcript {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+.audio-test-transcript h3 {
+  margin: 0 0 8px;
+  font-size: 12px;
+}
+.audio-test-transcript p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.audio-input-setup label {
+  display: grid;
+  gap: 6px;
+}
+.audio-input-setup select {
+  width: 100%;
+  min-width: 0;
+  padding: 8px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.audio-setup-step .audio-input-setup {
+  display: grid;
+  gap: 8px;
+}
+.audio-setup-step .audio-input-setup p {
+  font-size: 12px;
+  margin: 0;
+}
+.audio-setup-step .onboarding-actions {
+  margin-top: 12px;
+}
+.audio-setup-step meter {
+  display: block;
+  width: 100%;
+  height: 18px;
+}
+
+.onboarding-audio {
+  gap: 12px;
+  padding: 16px 24px;
+}
+.audio-setup-step {
+  gap: 6px;
+}
+.audio-setup-step h2 {
+  margin: 0 0 8px;
+}
+.audio-setup-step p {
+  margin: 4px 0;
+}
+.audio-setup-step details > * + * {
+  margin-top: 8px;
+}
+.audio-setup-step > .button:not(.secondary),
+.audio-setup-step .onboarding-actions .button:not(.secondary) {
+  background: var(--accent-soft);
 }

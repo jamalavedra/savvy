@@ -218,16 +218,21 @@ export function Privacy() {
           />
           <p className="mt-6 max-w-md text-sm leading-relaxed text-muted">
             Source files stay in their folders. Savvy stores extracted text and indexes in a local
-            database. Audio streams to your transcription provider. AI tasks send selected excerpts,
-            your brief and recent transcript turns to your model provider. At startup, Savvy removes
-            local recordings and transcripts older than 30 days.
+            database. With personal providers, audio streams to your transcription provider. AI
+            tasks send selected excerpts, your brief and recent transcript turns to your model
+            provider. With managed assistance, Savvy relays audio to Deepgram and selected context
+            to Claude. At startup, Savvy removes local recordings and transcripts older than 30
+            days.
           </p>
           <StatList
             items={[
               { icon: FolderIcon, label: "Source files remain unchanged" },
               { icon: KeyIcon, label: "Provider keys in the macOS Keychain" },
               { icon: ClockIcon, label: "30-day local retention, cleaned up at startup" },
-              { icon: WaveIcon, label: "Audio streams only to your transcription provider" },
+              {
+                icon: WaveIcon,
+                label: "Audio streams to transcription, through Savvy in managed mode",
+              },
             ]}
           />
           <MascotNote className="mt-8" state="muted" note="Your keys, your providers." />

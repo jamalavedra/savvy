@@ -1,0 +1,49 @@
+{
+  "name": "savvy-backend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "node build/server.js",
+    "migrate": "node build/migrate.js",
+    "backup": "node build/backup.js",
+    "typecheck": "tsc --noEmit",
+    "build": "pnpm build:server && pnpm build:ui",
+    "test": "tsx --test src/*.test.ts",
+    "test:browser": "pnpm build && tsx --test src/browser.check.ts",
+    "test:desktop": "tsx --test src/desktop.check.ts",
+    "build:server": "tsc -p tsconfig.server.json && node scripts/copy-assets.mjs",
+    "build:ui": "vite build",
+    "test:native-auth": "pnpm build && cargo test -p savvy --lib local_stripe_sandbox_desktop_transport --locked --no-run && SAVVY_NATIVE_CHECK=1 tsx --test src/browser.check.ts",
+    "test:load": "pnpm build:server && node --test e2e/load.test.mjs",
+    "test:package": "pnpm build && node --test e2e/package.test.mjs",
+    "test:web-return": "tsx --test src/return.check.ts"
+  },
+  "dependencies": {
+    "@better-auth/oauth-provider": "1.7.4",
+    "better-auth": "1.7.4",
+    "better-call": "1.4.0",
+    "better-sqlite3": "13.0.3",
+    "jose": "6.2.12",
+    "nodemailer": "10.0.3",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "ws": "8.21.3",
+    "zod": "4.6.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "9.6.0",
+    "@types/node": "22.20.2",
+    "@types/nodemailer": "8.0.1",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@types/smtp-server": "3.5.13",
+    "@types/ws": "8.18.1",
+    "@vitejs/plugin-react": "^4.7.0",
+    "playwright": "1.58.2",
+    "smtp-server": "3.19.10",
+    "tsx": "4.23.13",
+    "typescript": "7.0.2",
+    "vite": "^7.3.6"
+  }
+}

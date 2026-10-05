@@ -18,19 +18,19 @@ export default function PrivacyPolicy() {
         Back to Savvy
       </a>
       <h1 className="mt-8 text-4xl font-medium tracking-tight">Privacy policy</h1>
-      <p className="text-muted">Last updated 6 September 2026</p>
+      <p className="text-muted">Last updated 12 September 2026</p>
 
       <h2>Who is responsible</h2>
       <p>
         Alamas Labs, Inc., a Delaware corporation in the United States, operates savvycopilot.com
-        and is responsible for the website processing described here. Contact{" "}
+        and is responsible for the website and managed-service processing described here. Contact{" "}
         <a href="mailto:hello@savvycopilot.com">hello@savvycopilot.com</a> with privacy questions or
         requests.
       </p>
       <p>
-        This notice covers the public website and explains the current open-source desktop app,
-        where you connect your own providers. It does not describe a future managed subscription
-        service.
+        This notice covers the public website, the desktop app, and Savvy managed assistance. You
+        can use your own providers or choose managed assistance. Those choices send information
+        through different services, as described below.
       </p>
 
       <h2>Website hosting and security</h2>
@@ -91,7 +91,7 @@ export default function PrivacyPolicy() {
         The desktop app has a separate local retention rule, explained below.
       </p>
 
-      <h2>Desktop app and your providers</h2>
+      <h2>Desktop storage and your own providers</h2>
       <p>
         The current desktop app reads source files from folders you choose and stores extracted
         text, indexes, briefs, recordings, and transcripts on your Mac. It leaves the source files
@@ -99,16 +99,69 @@ export default function PrivacyPolicy() {
         This startup cleanup does not delete copies held by providers or backups.
       </p>
       <p>
-        Savvy streams audio to your Deepgram or AssemblyAI account for transcription. There is no
-        offline transcription mode. For recommendations, Savvy sends selected document excerpts, the
-        whole brief, and recent transcript turns to your signed-in Codex or Claude Code CLI's
-        provider. These services process information under your account and their own terms. Review
-        those terms and settings before using confidential material or recording other people.
+        When you use your own providers, Savvy streams audio to your Deepgram or AssemblyAI account
+        for transcription. There is no offline transcription mode. For recommendations, Savvy sends
+        selected document excerpts, the whole brief, and recent transcript turns to your signed-in
+        Codex or Claude Code CLI's provider. These services process information under your account
+        and their own terms. Review those terms and settings before using confidential material or
+        recording other people.
       </p>
+
       <p>
         Savvy stores transcription API keys in macOS Keychain. The website's analytics service does
         not receive these keys. Removing a client in the app removes its derived local data without
         deleting the original source folder.
+      </p>
+
+      <h2>Managed accounts and payments</h2>
+      <p>
+        Managed sign-in uses Google identity or a code delivered to your email address. Savvy
+        processes your verified identity, email address, display name when available, account
+        identifiers, and sign-in and session records. Google access is limited to identity; Savvy
+        does not request access to your email messages, calendar, or files. Our email delivery
+        provider receives your email address and the sign-in message. Savvy counts sign-in attempts
+        and rate-limits requests to block abuse. Signing in does not start listening or buy a plan.
+      </p>
+      <p>
+        Stripe hosts checkout and billing management. Savvy records customer, subscription and
+        purchase identifiers, purchase outcomes, allowance balances, usage, refunds and disputes to
+        provide paid features and reconcile payments. Full card details are entered on Stripe, not
+        in Savvy. See{" "}
+        <a href="https://stripe.com/legal/privacy-center">Stripe’s privacy information</a>.
+      </p>
+
+      <h2>Managed meeting processing</h2>
+      <p>
+        When you explicitly start a managed meeting or transcription test, microphone audio and, if
+        enabled, system audio pass through Savvy’s backend to Deepgram. For brief generation and
+        recommendations, selected document excerpts, the brief and relevant recent transcript
+        context pass through Savvy to Anthropic’s Claude API. These are hosted supplier requests
+        using Savvy’s service accounts. Personal-provider mode instead uses your own accounts.
+      </p>
+      <p>
+        Savvy processes managed audio and model context in memory. Its account and billing databases
+        store session timing, usage and supplier-request metadata, rather than raw audio, transcript
+        text or document excerpts. Local copies remain subject to the desktop storage rules above.
+        Stopping a meeting closes the audio relay to Deepgram; signing out does not delete local
+        history or cancel a subscription.
+      </p>
+      <p>
+        Suppliers have their own retention and security terms. Local deletion and sign-out do not
+        delete supplier-held copies. Savvy requests Deepgram’s model-improvement opt-out; this is
+        not a promise of zero retention by every supplier. Review{" "}
+        <a href="https://deepgram.com/privacy">Deepgram’s privacy notice</a> and{" "}
+        <a href="https://privacy.claude.com/en/articles/7996866-how-long-do-you-store-my-organization-s-data">
+          Anthropic’s commercial retention information
+        </a>{" "}
+        before submitting confidential material.
+      </p>
+      <p>
+        Managed account, payment and usage records currently have no automatic expiry. Contact us to
+        request access, correction or deletion of hosted records. We assess requests against
+        account-security, accounting and other applicable obligations; deleting local files alone
+        does not remove these hosted records. Savvy operates from the United States, and its
+        suppliers may process information outside your country. Contact us for the applicable
+        service providers, retention arrangements and international-transfer safeguards.
       </p>
 
       <h2>Contact and external links</h2>

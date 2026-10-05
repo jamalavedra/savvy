@@ -18,8 +18,8 @@
     "test:rust": "cargo test --workspace --locked",
     "lint": "eslint . --max-warnings 0",
     "format:check": "prettier --check .",
-    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm test:rust",
-    "verify": "pnpm format:check && pnpm check && pnpm build && cargo clippy --workspace --all-targets --locked -- -D warnings",
+    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm test:rust && pnpm --dir backend typecheck && pnpm --dir backend test",
+    "verify": "pnpm format:check && pnpm check && pnpm build && cargo clippy --workspace --all-targets --locked -- -D warnings && pnpm --dir backend build",
     "preview": "vite preview",
     "desktop:install": "./scripts/build-install-run-macos.sh",
     "tauri": "tauri"
@@ -39,6 +39,7 @@
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "6.9.1",
     "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "14.6.1",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",

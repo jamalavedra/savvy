@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { access, readFile } from "node:fs/promises";
 import { test } from "node:test";
+import { faqItems } from "./src/content/faq.ts";
 import { getAllPosts } from "./src/lib/blog.ts";
 import { CONSENT_YEAR, readConsent } from "./src/lib/consent.ts";
 import { SITE_URL } from "./src/lib/constants.ts";
@@ -9,7 +10,7 @@ import worker from "./worker.js";
 test("static export has metadata, FAQ answers and referenced assets", async () => {
   const html = await readFile("out/index.html", "utf8");
   assert.match(html, /rel="canonical" href="https:\/\/www\.savvycopilot\.com\/"/);
-  assert.equal([...html.matchAll(/<details[ >]/g)].length, 11);
+  assert.equal([...html.matchAll(/<details[ >]/g)].length, faqItems.length);
   assert.match(html, /<button[^>]*disabled=""[^>]*>.*?Windows coming soon<\/button>/);
   assert.equal([...html.matchAll(/Reads your files first\.<br\//g)].length, 1);
   assert.match(html, /<summary[^>]*>Where does my data go\?/);
@@ -53,6 +54,16 @@ test("privacy notice is linked and analytics is absent from initial HTML", async
   assert.match(privacy, /Alamas Labs, Inc\./);
   assert.match(privacy, /mailto:hello@savvycopilot\.com/);
   assert.doesNotMatch(privacy, /Draft for review|\[Confirm|\[public privacy/);
+  assert.doesNotMatch(privacy, /does not describe a future managed subscription/);
+  for (const processing of [
+    "Managed accounts and payments",
+    "Managed meeting processing",
+    "Deepgram",
+    "Anthropic",
+    "Stripe",
+    "no automatic expiry",
+  ])
+    assert.ok(privacy.includes(processing), `Missing managed processing disclosure: ${processing}`);
 });
 
 test("static export includes the blog and generated llms.txt", async () => {
@@ -80,6 +91,24 @@ test("static export includes the blog and generated llms.txt", async () => {
   ]) {
     assert.ok(llms.includes(caveat), `Missing caveat: ${caveat}`);
   }
+});
+
+test("managed pricing uses the shared catalog and return page only requests refresh", async () => {
+  const catalog = JSON.parse(await readFile("../config/managed-catalog.json", "utf8"));
+  const pricing = await readFile("out/pricing/index.html", "utf8");
+  const returned = await readFile("out/checkout-complete/index.html", "utf8");
+  const text = pricing.replace(/<[^>]*>/g, "");
+  for (const offer of Object.values(catalog)) {
+    assert.ok(text.includes(String(offer.amountCents / 100)));
+    assert.ok(text.includes(`${offer.hours} meeting hours and ${offer.briefs} briefs`));
+  }
+  assert.match(pricing, /Personal providers/);
+  assert.match(pricing, /nothing to Savvy/);
+  assert.match(pricing, /No scheduled expiry/);
+  assert.match(pricing, /paid period end/);
+  assert.match(returned, /This page does not confirm payment/);
+  assert.match(returned, /Refresh account/);
+  assert.doesNotMatch(returned, /Payment successful|purchase complete|checkout\.stripe\.com/);
 });
 
 test("worker redirects the apex domain to www with a 308", async () => {
