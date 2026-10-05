@@ -119,8 +119,8 @@ export default function PrivacyPolicy() {
         processes your verified identity, email address, display name when available, account
         identifiers, and sign-in and session records. Google access is limited to identity; Savvy
         does not request access to your email messages, calendar, or files. Our email delivery
-        provider receives your email address and the sign-in message. Security records and request
-        limits help prevent account abuse. Signing in does not start listening or buy a plan.
+        provider receives your email address and the sign-in message. Savvy counts sign-in attempts
+        and rate-limits requests to block abuse. Signing in does not start listening or buy a plan.
       </p>
       <p>
         Stripe hosts checkout and billing management. Savvy records customer, subscription and
@@ -142,7 +142,7 @@ export default function PrivacyPolicy() {
         Savvy processes managed audio and model context in memory. Its account and billing databases
         store session timing, usage and supplier-request metadata, rather than raw audio, transcript
         text or document excerpts. Local copies remain subject to the desktop storage rules above.
-        Stopping a meeting releases listening resources; signing out does not delete local history
+        Stopping a meeting closes the audio relay to Deepgram; signing out does not delete local history
         or cancel a subscription.
       </p>
       <p>

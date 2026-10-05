@@ -48,7 +48,7 @@ jobs:
           pnpm --dir www install --frozen-lockfile
 
       # Same gate developers run locally: prettier, tsc, eslint, vitest, cargo test,
-      # vite build, and clippy with warnings denied.
+      # backend typecheck/tests/build, vite build, and clippy with warnings denied.
       - name: Verify
         run: pnpm verify
 

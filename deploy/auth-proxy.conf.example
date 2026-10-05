@@ -8,6 +8,7 @@ map $http_upgrade $savvy_connection_upgrade {
 server {
     listen 443 ssl;
     server_name api.savvycopilot.com;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
     client_max_body_size 64k;
     proxy_http_version 1.1;
     proxy_set_header Host $host;

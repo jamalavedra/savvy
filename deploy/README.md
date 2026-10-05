@@ -33,7 +33,9 @@ Create a dedicated `savvy` system user. Keep a release directory under
 `deploy/savvy-backend.service` starts the compiled backend. The environment file is
 `/etc/savvy/backend.env`, owned by root and readable by the service group, mode 0640.
 Use `backend/.env.example` as the configuration inventory. The unit sets persistent
-database paths and the loopback listener. Run only one instance.
+database paths and the loopback listener. Values in `/etc/savvy/backend.env` override
+these unit settings, so do not set `SAVVY_HOST`, `PORT`, `SAVVY_AUTH_DATABASE` or
+`SAVVY_DB_PATH` there. Run only one instance.
 
 The unit sends SIGINT and allows 150 seconds. Node rejects new paid work, aborts AI,
 settles observed relay audio and releases all remaining meeting reservations before

@@ -48,13 +48,13 @@ usage. They must be distinct files, and only one backend process may open them.
 Configure SMTP and a Google OAuth web client with `/api/auth/callback/google` on
 `BETTER_AUTH_URL`. Google receives identity scopes only. SMTP outside loopback
 requires TLS. A local mail catcher on port 1025 supports manual tests; automated
-checks start their own SMTP catcher. `GET /ready` reports auth schema/configuration
-readiness. `GET /readyz` checks both databases and fails during drain. Neither
+checks start their own SMTP catcher. `GET /ready` confirms the auth database answers a
+`jwks` query and reports whether Google, SMTP and Stripe are configured. `GET /readyz` checks both databases and fails during drain. Neither
 endpoint proves external suppliers are working.
 
 The native client uses `com.alamaslabs.savvy:/oauth/callback`, authorization code
-with S256 PKCE, RS256 access tokens and rotating refresh tokens. Registration is
-closed. Auth migrations keep the registered client and resource rows. Billing identity remains
+with S256 PKCE, RS256 access tokens and rotating refresh tokens. Dynamic OAuth client
+registration is closed; any email address can create an account from the sign-in page. Auth migrations keep the registered client and resource rows. Billing identity remains
 verified issuer plus subject; matching email addresses never merge accounts.
 
 OTP verification uses six digits, ten-minute expiry and three attempts. Server-side
