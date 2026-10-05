@@ -14,7 +14,7 @@
     "deploy:check": "pnpm dlx --allow-build=esbuild --allow-build=workerd wrangler@4.127.1 deploy --dry-run"
   },
   "dependencies": {
-    "next": "16.3.4",
+    "next": "16.3.6",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },
