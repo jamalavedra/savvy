@@ -6246,6 +6246,8 @@ pub fn run() {
             let recordings = app_data.join("recordings");
             create_private_directory(&recordings)?;
             let settings_path = app_data.join("settings.json");
+            // Only the macOS provider selection below mutates settings.
+            #[cfg_attr(not(target_os = "macos"), allow(unused_mut))]
             let mut settings = settings::load(&settings_path);
             apply_native_theme(app.handle(), &settings.theme);
             let provider_health = match settings.service_mode {
@@ -7780,12 +7782,13 @@ mod claude_dispatch_tests {
         assert!(owned.lock().unwrap().try_wait().unwrap().is_some());
         assert!(slot.lock().unwrap().is_none());
 
+        // Generous: this bounds Python start-up on a cold CI runner, not Savvy.
         run_claude_child(
             fake(record, &marker),
             "current request",
             &slot,
             || true,
-            Duration::from_secs(2),
+            Duration::from_secs(30),
         )
         .unwrap();
         assert_eq!(fs::read_to_string(&marker).unwrap(), "current request");
@@ -7877,20 +7880,22 @@ mod one_shot_provider_tests {
         let marker = directory.join("child.pid");
         let (cancel, signal) = tokio::sync::watch::channel(false);
         let marker_for_cancel = marker.clone();
+        // Cancel once the child is running, so Python start-up on a cold CI
+        // runner does not count against the cancellation latency below.
         let canceller = std::thread::spawn(move || {
-            let deadline = Instant::now() + Duration::from_secs(2);
+            let deadline = Instant::now() + Duration::from_secs(20);
             while !marker_for_cancel.is_file() && Instant::now() < deadline {
                 std::thread::sleep(Duration::from_millis(5));
             }
             cancel.send(true).unwrap();
+            Instant::now()
         });
-        let began = Instant::now();
         let result = run_provider_process(
             fake("import os,sys,time,signal; open(sys.argv[1],'w').write(str(os.getpid())); signal.alarm(3); time.sleep(30)", &marker),
-            &"x".repeat(2 * 1024 * 1024), "fixture", Duration::from_secs(10), Some(signal));
-        canceller.join().unwrap();
+            &"x".repeat(2 * 1024 * 1024), "fixture", Duration::from_secs(30), Some(signal));
+        let cancelled_at = canceller.join().unwrap();
         assert!(result.unwrap_err().starts_with("brief_cancelled:"));
-        assert!(began.elapsed() < Duration::from_secs(2));
+        assert!(cancelled_at.elapsed() < Duration::from_secs(2));
         let pid = fs::read_to_string(&marker).unwrap();
         assert!(!Command::new("/bin/kill")
             .args(["-0", pid.trim()])

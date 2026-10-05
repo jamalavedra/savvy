@@ -46,6 +46,7 @@ uuid.workspace = true
 tauri-plugin-updater = "2.10.1"
 tauri-plugin-deep-link = "2"
 base64 = "0.22"
+tokio = { workspace = true, features = ["process", "io-util"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 savvy-audio = { path = "../crates/audio" }
@@ -55,7 +56,6 @@ libc = "0.2"
 tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", rev = "a3122e894383aa068ec5365a42994e3ac94ba1b6" }
 tauri-plugin-autostart = "2"
 tauri-plugin-global-shortcut = "2"
-tokio = { workspace = true, features = ["process", "io-util"] }
 
 [dev-dependencies]
 tauri = { version = "2", features = ["test"] }
