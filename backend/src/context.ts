@@ -72,7 +72,7 @@ const turn = z.object({
   sessionId: uuid,
   channel: z.enum(["selfSpeaker", "other", "unknown"]),
   text: z.string(),
-  language: z.string(),
+  language: z.string().max(64),
   startMs: uint,
   endMs: uint,
   isFinal: z.boolean(),
@@ -91,7 +91,7 @@ export const adviceRequest = z.object({
     "opportunity",
     "manual",
   ]),
-  language: z.string(),
+  language: z.string().max(64),
   briefMarkdown: z.string(),
   hardConstraints: strings,
   evidence: z.array(
@@ -260,7 +260,7 @@ export function validateAdvice(
     !textFits(advice.say, 1024) ||
     !textFits(advice.avoid, 512) ||
     !textFits(advice.rationale, 512) ||
-    !textFits(advice.language, 16) ||
+    !textFits(advice.language, 64) ||
     !idsFit(advice.evidenceIds) ||
     !idsFit(advice.turnIds) ||
     advice.memoryUpdates.length > 8 ||

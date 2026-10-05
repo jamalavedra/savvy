@@ -207,7 +207,7 @@
       },
       "language": {
         "type": "string",
-        "maxLength": 16
+        "maxLength": 64
       },
       "evidenceIds": {
         "type": "array",

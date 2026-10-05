@@ -38,6 +38,7 @@ export async function post(
   path: string,
   body: unknown,
   signal?: AbortSignal,
+  beta?: string,
 ): Promise<Record<string, unknown>> {
   const deadline = AbortSignal.any([
     AbortSignal.timeout(path ? 10_000 : 120_000),
@@ -52,6 +53,7 @@ export async function post(
           "x-api-key": state.config.aiKey,
           "anthropic-version": "2023-06-01",
           "content-type": "application/json",
+          ...(beta ? { "anthropic-beta": beta } : {}),
         },
         body: JSON.stringify(body),
         signal: deadline,
@@ -59,7 +61,23 @@ export async function post(
       },
     );
     if (!response.ok) {
-      await response.body?.cancel();
+      const detail = await response
+        .json()
+        .then((value: { error?: { type?: unknown; message?: unknown } }) =>
+          [value.error?.type, value.error?.message]
+            .filter((part) => typeof part === "string")
+            .join(": ")
+            .slice(0, 300),
+        )
+        .catch(() => "");
+      console.error(`reasoning provider returned ${response.status}`, detail);
+      // A rejected request shape fails only this caller; it must not trip the
+      // shared circuit breaker that pauses every account.
+      if ([400, 413, 422].includes(response.status))
+        throw new ApiError(
+          "result_unavailable",
+          "reasoning provider rejected the request",
+        );
       throw new ApiError(
         "provider_unavailable",
         "reasoning provider rejected the request",
@@ -145,8 +163,10 @@ export async function generate(
   const payload = await post(
     state,
     "",
-    { ...body, max_tokens: maxTokens },
+    // A refusal is re-run server-side on a model chosen by refusal category.
+    { ...body, max_tokens: maxTokens, fallbacks: "default" },
     signal,
+    "server-side-fallback-2026-07-01",
   );
   const usage =
     payload.usage && typeof payload.usage === "object"
@@ -272,7 +292,7 @@ export async function recordOutcome(
     try {
       pauseSession(state, row.account_id, row.local_session_id);
     } catch {
-      /* Lease recovery releases unavailable sessions. */
+      /* Already stopped, or the lease sweep will stop it. */
     }
   }
 }

@@ -83,6 +83,8 @@ export function createAuth(env: NodeJS.ProcessEnv = process.env) {
     secret: env.BETTER_AUTH_SECRET,
     database: db,
     emailAndPassword: { enabled: false },
+    // The browser session only bridges sign-in to the desktop's OAuth tokens.
+    session: { expiresIn: 3600, updateAge: 3600 },
     account: { encryptOAuthTokens: true },
     trustedOrigins: [url.origin],
     advanced: { ipAddress: { ipAddressHeaders: ["x-savvy-client-ip"] } },
@@ -184,7 +186,8 @@ export function createAuth(env: NodeJS.ProcessEnv = process.env) {
             throw new APIError("BAD_REQUEST", {
               message: "Unsupported email operation.",
             });
-          // Only the route with atomic admission before OTP rotation may deliver.
+          // Only send-verification-otp reserves delivery (the before hook) ahead
+          // of OTP rotation; refuse every other caller.
           if (ctx?.path !== "/email-otp/send-verification-otp")
             throw new APIError("BAD_REQUEST", {
               message: "Unsupported email operation.",
@@ -200,7 +203,17 @@ export function createAuth(env: NodeJS.ProcessEnv = process.env) {
               subject: "Your Savvy sign-in code",
               text: `Your Savvy code is ${otp}. It expires in 10 minutes. If you did not request it, ignore this email.`,
             });
-          } catch {
+          } catch (error) {
+            const { code, responseCode, command } = error as {
+              code?: string;
+              responseCode?: number;
+              command?: string;
+            };
+            console.error("sign-in code email failed", {
+              code,
+              responseCode,
+              command,
+            });
             throw new APIError("SERVICE_UNAVAILABLE", {
               message: "Email delivery failed. Try again later.",
             });

@@ -122,6 +122,7 @@ export async function managedRequest(
         "billing is not configured on this backend",
       );
     if (path === "/v1/briefs" && req.method === "POST") {
+      const account = await state.authorize(req.headers);
       const body = briefBody.safeParse(await readObject(req));
       if (!body.success)
         throw new ApiError(
@@ -130,7 +131,6 @@ export async function managedRequest(
           undefined,
           422,
         );
-      const account = await state.authorize(req.headers);
       await sendAi(res, (signal) =>
         postBrief(state, account.accountId, body.data, signal),
       );
@@ -163,6 +163,7 @@ export async function managedRequest(
       path,
     );
     if (recommendation && req.method === "POST") {
+      const account = await state.authorize(req.headers);
       const body = adviceBody.safeParse(await readObject(req));
       if (!body.success)
         throw new ApiError(
@@ -171,7 +172,6 @@ export async function managedRequest(
           undefined,
           422,
         );
-      const account = await state.authorize(req.headers);
       await sendAi(res, (signal) =>
         recommend(
           state,
@@ -193,6 +193,7 @@ export async function managedRequest(
       return;
     }
     if (path === "/v1/sessions" && req.method === "POST") {
+      const account = await state.authorize(req.headers);
       const body = await readObject(req);
       if (typeof body.sessionId !== "string")
         throw new ApiError(
@@ -201,7 +202,6 @@ export async function managedRequest(
           undefined,
           422,
         );
-      const account = await state.authorize(req.headers);
       const id = validateSessionId(body.sessionId);
       const existing = state.db
         .prepare(
@@ -229,6 +229,7 @@ export async function managedRequest(
       path,
     );
     if (sessionAction && req.method === "POST") {
+      const account = await state.authorize(req.headers);
       const body = await readObject(req);
       if (
         typeof body.leaseVersion !== "number" ||
@@ -245,7 +246,6 @@ export async function managedRequest(
           undefined,
           422,
         );
-      const account = await state.authorize(req.headers);
       const action = sessionAction[2] as "pause" | "resume" | "stop";
       if (action === "resume") {
         state.requireAdmission();
@@ -284,6 +284,7 @@ export async function managedRequest(
       return;
     }
     if (path === "/v1/billing/checkout" && req.method === "POST") {
+      const account = await state.authorize(req.headers);
       const body = await readObject(req);
       if (
         typeof body.product !== "string" ||
@@ -299,7 +300,6 @@ export async function managedRequest(
           422,
         );
       state.requireAdmission();
-      const account = await state.authorize(req.headers);
       send(
         res,
         await checkout(state, account.accountId, {
@@ -374,6 +374,8 @@ export async function managedRequest(
     }
     res.writeHead(404).end();
   } catch (error) {
+    if (!(error instanceof ApiError))
+      console.error(`${req.method} ${path}`, error);
     const failure =
       error instanceof ApiError
         ? error

@@ -52,7 +52,7 @@ export function configuration(env: NodeJS.ProcessEnv = process.env) {
     port: Number(env.PORT ?? 8788),
     aiBaseUrl: env.SAVVY_ANTHROPIC_BASE_URL ?? "https://api.anthropic.com",
     aiKey: required("SAVVY_ANTHROPIC_API_KEY"),
-    aiModel: env.SAVVY_AI_MODEL ?? "claude-sonnet-5",
+    aiModel: env.SAVVY_AI_MODEL ?? "claude-sonnet-5-5",
     deepgramUrl: env.SAVVY_DEEPGRAM_URL ?? "wss://api.deepgram.com/v1/listen",
     deepgramKey: required("SAVVY_DEEPGRAM_API_KEY"),
     stripeBaseUrl: env.SAVVY_STRIPE_BASE_URL ?? "https://api.stripe.com",

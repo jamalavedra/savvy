@@ -130,6 +130,12 @@ async function fixture(
     calls.push({ path: req.url!, body });
     assert.equal(req.headers["x-api-key"], "synthetic");
     assert.equal(req.headers["anthropic-version"], "2023-06-01");
+    assert.equal(
+      req.headers["anthropic-beta"],
+      body.fallbacks === undefined
+        ? undefined
+        : "server-side-fallback-2026-07-01",
+    );
     if (req.url?.endsWith("count_tokens")) await countGate?.();
     else await generationGate?.();
     res.writeHead(req.url?.endsWith("count_tokens") ? 200 : status, {
@@ -361,6 +367,7 @@ test("brief generation debits once, caches briefly and isolates accounts before 
   const sent = h.calls[0].body.messages as { content: string }[];
   assert.equal(sent[0].content, briefPrompt(briefRequest.parse(request)));
   assert.equal(h.calls[1].body.max_tokens, 4096);
+  assert.equal(h.calls[1].body.fallbacks, "default");
   h.advance(300_001n);
   assert.equal((await h.post("/v1/briefs", body)).status, 410);
   assert.equal(h.calls.length, 2);
@@ -433,6 +440,17 @@ test("rejected grounding and excessive context release reservations without open
   assert.equal(h.calls.filter((c) => c.path === "/v1/messages").length, 1);
   assert.equal(balance(h.db, 1n, h.state.clock()).briefsAvailable, 20n);
   assert.equal(balance(h.db, 1n, h.state.clock()).briefsReserved, 0n);
+  h.setCount(10);
+  h.setStatus(400);
+  for (let i = 0; i < 3; i++)
+    assert.equal(
+      (await h.post("/v1/briefs", { idempotencyKey: `rejected${i}`, request }))
+        .status,
+      410,
+    );
+  assert.equal(h.state.aiPaused, false);
+  assert.equal(h.state.aiHealth.failures.length, 0);
+  assert.equal(requireSession(h.db, 1n, SESSION).state, "active");
 });
 
 test("supplier failures pause sessions, shared cooldown probes contain no customer context and never resume listening", async (t) => {
@@ -544,6 +562,20 @@ test("live advice requires healthy audio and enforces language, duplicate and pa
       )
       .get(),
     { input_tokens: 10n, output_tokens: 20n, state: "failed" },
+  );
+  const multi = "the dominant language used in the recent transcript";
+  h.advance(5000n);
+  h.audio();
+  h.setOutput({ ...advice, language: multi });
+  assert.equal(
+    (
+      await h.post(path, {
+        ...body,
+        idempotencyKey: "multi_language",
+        request: { ...adviceRequest, language: multi },
+      })
+    ).status,
+    200,
   );
   assert.equal(requireSession(h.db, 1n, SESSION).state, "active");
   assert.equal(balance(h.db, 1n, h.state.clock()).briefsAvailable, 20n);
@@ -1228,6 +1260,20 @@ test("invalid output and cancellation floods hit durable attempt ceilings, and e
   );
   assert.equal(h.state.aiPaused, false);
   assert.equal(balance(h.db, 1n, h.state.clock()).briefsAvailable, 20n);
+  for (let i = 6; i < 21; i++) {
+    if (i % 6 === 0) h.advance(60_001n);
+    assert.equal(
+      (await h.post("/v1/briefs", { idempotencyKey: `day_${i}`, request }))
+        .status,
+      i < 20 ? 410 : 429,
+    );
+  }
+  h.advance(86_400_000n);
+  assert.equal(
+    (await h.post("/v1/briefs", { idempotencyKey: "next_day", request }))
+      .status,
+    410,
+  );
   for (let i = 0; i < 60; i++)
     assert.equal(
       (await h.post(`/v1/requests/cancel_${i}/cancel`, {})).status,

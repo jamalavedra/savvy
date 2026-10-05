@@ -577,7 +577,8 @@ async function processEventInner(
     owner === undefined ? acquireBilling(state, account) : undefined;
   try {
     if (release) {
-      // The first fetch establishes ownership only; financial changes use a read under the account slot.
+      // This fetch only proves ownership; ledger writes re-read the object
+      // under the per-account billing lock.
       object = await fetchEventObject(state, path, kind);
       if (stripeId(object.customer) !== customer)
         throw new ApiError("invalid_request", "billing account changed");
@@ -836,17 +837,17 @@ export async function webhook(
   header: string,
   body: Buffer,
 ) {
-  state.db
-    .transaction(() =>
-      reserveAttempt(state.db, 0n, "webhook", state.clock(), 60_000n, 120n),
-    )
-    .immediate();
   verifySignature(
     stripeBilling(state).webhookSecret,
     header,
     body,
     state.clock() / 1000n,
   );
+  state.db
+    .transaction(() =>
+      reserveAttempt(state.db, 0n, "webhook", state.clock(), 60_000n, 120n),
+    )
+    .immediate();
   let event: unknown;
   try {
     event = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(body));
@@ -1040,7 +1041,8 @@ export async function reconcilePurchases(state: ServiceState) {
             state,
             `checkout/sessions?customer=${stripeId(customer)}&limit=100${suffix}`,
           );
-        } catch {
+        } catch (error) {
+          logRetry("reconciliation", error);
           continue;
         }
         const data = list.data;
@@ -1061,7 +1063,8 @@ export async function reconcilePurchases(state: ServiceState) {
             )
               throw new Error("invalid purchase metadata");
           }
-        } catch {
+        } catch (error) {
+          logRetry("reconciliation", error);
           continue;
         }
         const found = data.find(
@@ -1093,7 +1096,8 @@ export async function reconcilePurchases(state: ServiceState) {
       let checkout: StripeObject;
       try {
         checkout = await get(state, `checkout/sessions/${stripeId(known)}`);
-      } catch {
+      } catch (error) {
+        logRetry("reconciliation", error);
         continue;
       }
       try {
@@ -1111,7 +1115,8 @@ export async function reconcilePurchases(state: ServiceState) {
         let current: StripeObject;
         try {
           current = await get(state, `subscriptions/${subscription}`);
-        } catch {
+        } catch (error) {
+          logRetry("reconciliation", error);
           continue;
         }
         try {
@@ -1168,7 +1173,8 @@ async function reconcileSubscriptions(state: ServiceState) {
     let current: StripeObject;
     try {
       current = await get(state, `subscriptions/${subscription}`);
-    } catch {
+    } catch (error) {
+      logRetry("reconciliation", error);
       continue;
     }
     if (typeof current.latest_invoice === "string") {
@@ -1251,8 +1257,9 @@ export async function refreshRenewal(state: ServiceState, account: bigint) {
           account,
         );
     });
-  } catch {
-    /* Refresh failure never invents allowance; admission reads the ledger. */
+  } catch (error) {
+    // Refresh failure never invents allowance; admission reads the ledger.
+    logRetry("renewal", error);
   } finally {
     release();
   }

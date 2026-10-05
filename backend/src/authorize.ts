@@ -48,7 +48,8 @@ export function createAuthorizer(
     let keys;
     try {
       keys = await getKeys();
-    } catch {
+    } catch (error) {
+      console.error("identity signing keys unavailable", error);
       throw new ApiError(
         "provider_unavailable",
         "identity signing keys unavailable",

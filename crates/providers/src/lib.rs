@@ -127,7 +127,7 @@ impl ProviderAdvice {
             (&self.say, 1024),
             (&self.avoid, 512),
             (&self.rationale, 512),
-            (&self.language, 16),
+            (&self.language, 64),
         ]
         .into_iter()
         .any(|(text, chars)| text.len() > chars * 4 || text.chars().count() > chars);
@@ -262,7 +262,7 @@ pub const PROVIDER_OUTPUT_SCHEMA: &str = r#"{
     "say": { "type": "string", "maxLength": 1024 },
     "avoid": { "type": "string", "maxLength": 512 },
     "rationale": { "type": "string", "maxLength": 512 },
-    "language": { "type": "string", "maxLength": 16 },
+    "language": { "type": "string", "maxLength": 64 },
     "evidenceIds": { "type": "array", "maxItems": 32, "uniqueItems": true, "items": { "type": "string", "format": "uuid" } },
     "turnIds": { "type": "array", "maxItems": 32, "uniqueItems": true, "items": { "type": "string", "format": "uuid" } },
     "memoryUpdates": {

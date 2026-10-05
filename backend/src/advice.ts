@@ -201,7 +201,9 @@ export async function postBrief(
         state.requireAssistance();
         reserveBrief(state.db, account, key, now);
         reserveAttempt(state.db, account, "brief", now, 60_000n, 6n);
-        reserveAttempt(state.db, account, "brief", now, 3_600_000n, 60n);
+        // Failed and canceled briefs are refunded, so attempts are the only
+        // bound on paid generations per account.
+        reserveAttempt(state.db, account, "brief", now, 86_400_000n, 20n);
         reserveAttempt(state.db, 0n, "brief", now, 60_000n, 300n);
       })
       .immediate();

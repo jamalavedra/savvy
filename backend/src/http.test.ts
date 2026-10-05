@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { request, createServer } from "node:http";
+import { request, createServer, type IncomingMessage } from "node:http";
+import { Readable } from "node:stream";
 import { spawn } from "node:child_process";
 import { mkdtemp, rm, link, symlink } from "node:fs/promises";
 import { join } from "node:path";
@@ -9,6 +10,7 @@ import { randomBytes } from "node:crypto";
 import Database from "better-sqlite3";
 import { createAuth } from "./auth.js";
 import { migrate } from "./migrate.js";
+import { readBody } from "./api.js";
 
 test(
   "HTTP boundary limits streaming bodies and trusts only configured proxy peers",
@@ -94,7 +96,7 @@ test(
       ] as Record<string, string>[])
         assert.equal(
           await send("/v1/briefs", headers, "x".repeat(1048577)),
-          413,
+          401,
         );
       assert.equal(
         await send(
@@ -205,3 +207,17 @@ test(
     }
   },
 );
+
+test("API bodies over 1 MiB are refused by declared or streamed length", async () => {
+  const body = (headers: Record<string, string>, size: number) =>
+    Object.assign(Readable.from([Buffer.alloc(size)]), {
+      headers,
+    }) as unknown as IncomingMessage;
+  await assert.rejects(readBody(body({ "content-length": "1048577" }, 0)), {
+    code: "context_too_large",
+  });
+  await assert.rejects(readBody(body({}, 1_048_577)), {
+    code: "context_too_large",
+  });
+  assert.equal((await readBody(body({}, 1_048_576))).length, 1_048_576);
+});

@@ -104,7 +104,8 @@ const server = createServer(async (req, res) => {
         base: process.env.BETTER_AUTH_URL ?? "http://127.0.0.1:8788",
         bodySizeLimit: 65_536,
       });
-      // Consume the bounded stream before Better Auth can turn parse errors into 400.
+      // Read the bounded body here so the size-limit error reaches the 413
+      // handler below instead of Better Auth answering 400.
       const body = request.body ? await request.arrayBuffer() : undefined;
       return await setResponse(
         res,
@@ -173,6 +174,11 @@ const server = createServer(async (req, res) => {
       req.pause();
       return;
     }
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      res.writeHead(404).end();
+      return;
+    }
+    console.error(`${req.method} ${req.url?.split("?")[0]}`, error);
     res.writeHead(503).end("Savvy sign-in is unavailable. Try again later.");
   }
 });
@@ -190,8 +196,8 @@ const sessionTimer = setInterval(() => {
   try {
     expireStaleSessions(state);
     pruneResults(state);
-  } catch {
-    console.warn("session expiry requires retry");
+  } catch (error) {
+    console.warn("session expiry requires retry", error);
   }
 }, 1000);
 for (const signal of ["SIGINT", "SIGTERM"])
