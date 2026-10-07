@@ -17,7 +17,7 @@
     "test:native-auth": "pnpm build && cargo test -p savvy --lib local_stripe_sandbox_desktop_transport --locked --no-run && SAVVY_NATIVE_CHECK=1 tsx --test src/browser.check.ts",
     "test:load": "pnpm build:server && node --test e2e/load.test.mjs",
     "test:package": "pnpm build && node --test e2e/package.test.mjs",
-    "test:web-return": "tsx --test src/return.check.ts"
+    "test:web-return": "pnpm --dir ../www build && tsx --test src/return.check.ts"
   },
   "dependencies": {
     "@better-auth/oauth-provider": "1.7.4",
