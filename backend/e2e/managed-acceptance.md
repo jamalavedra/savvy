@@ -13,7 +13,7 @@ private signing material, source documents or customer audio in public evidence.
   These checks use synthetic suppliers; native-auth uses MockRuntime, not Keychain.
 - Hosted staging: `jaume@epistoma`, separate service/state on loopback 8789, existing
   Cloudflare Tunnel to `https://staging-api.savvycopilot.com`. Google, delivered SMTP,
-  Anthropic and Deepgram must be real. Stripe and purchases must be test mode.
+  Fireworks GLM-5.3 and Deepgram must be real. Stripe and purchases must be test mode.
   No unmetered mode or development HTTP grant endpoint. Restrict the staging host
   to current test egress addresses except its signed billing webhook.
 - Installed desktop: `ssh -p 2222 openfort@macbook-pro-de-openfort.tail701c62.ts.net`.
@@ -116,13 +116,13 @@ Observed: pending. Status: NOT RUN. Evidence: pending.
 
 ### TEST-009
 
-Use short invented source documents with a known price, a hard constraint, and a meeting objective. Generate a real Claude brief, verify grounded facts/source IDs, approve and reopen it, and observe exactly one brief debit. Cancel another generation and verify reservations release. Excluded documents must not appear in sent context.
+Use short invented source documents with a known price, a hard constraint, and a meeting objective. Generate a real Fireworks GLM-5.3 brief, verify grounded facts/source IDs, approve and reopen it, and observe exactly one brief debit. Cancel another generation and verify reservations release. Excluded documents must not appear in sent context.
 
 Observed: pending. Status: NOT RUN. Evidence: pending.
 
 ### TEST-010
 
-Run a twelve-minute two-channel meeting with distinct microphone/system utterances. Real Deepgram produces final turns attributed to the correct channel. Trigger a question, a hard-constraint conflict, and manual Advice; require valid Claude output grounded in supplied evidence/turn IDs. Pause stops streaming; resume requires an explicit action; stop releases reservations. Two simultaneous channels must charge elapsed covered time once rather than twice. Saved history survives relaunch.
+Run a twelve-minute two-channel meeting with distinct microphone/system utterances. Real Deepgram produces final turns attributed to the correct channel. Trigger a question, a hard-constraint conflict, and manual Advice; require valid Fireworks GLM-5.3 output grounded in supplied evidence/turn IDs. Pause stops streaming; resume requires an explicit action; stop releases reservations. Two simultaneous channels must charge elapsed covered time once rather than twice. Saved history survives relaunch.
 
 Observed: pending. Status: NOT RUN. Evidence: pending.
 

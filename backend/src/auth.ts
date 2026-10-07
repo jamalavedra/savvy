@@ -63,6 +63,10 @@ export function createAuth(env: NodeJS.ProcessEnv = process.env) {
     ).run(key, now, fresh ? now : row.window_ms, fresh ? 1 : row.count + 1);
   });
   const mail = nodemailer.createTransport({
+    connectionTimeout: 10_000,
+    greetingTimeout: 10_000,
+    socketTimeout: 20_000,
+    dnsTimeout: 10_000,
     requireTLS: !["127.0.0.1", "localhost", "::1"].includes(
       env.SMTP_HOST ?? "",
     ),
@@ -245,7 +249,7 @@ export function createAuth(env: NodeJS.ProcessEnv = process.env) {
         clientPrivileges: () => false,
         cachedTrustedClients: new Set([clientId]),
         accessTokenExpiresIn: 600,
-        codeExpiresIn: 120,
+        codeExpiresIn: 600,
         refreshTokenReuseInterval: 0,
       }),
     ],

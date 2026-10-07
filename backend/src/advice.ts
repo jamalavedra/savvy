@@ -23,6 +23,7 @@ import {
   contracts,
   briefPrompt,
   advicePrompt,
+  adviceOutputSchema,
   safeRelativePath,
   validateBrief,
   validateAdvice,
@@ -347,7 +348,7 @@ export async function checkMeetingContext(
       .immediate();
     await checkInput(
       state,
-      requestBody(state, advicePrompt(request), contracts.adviceSchema),
+      requestBody(state, advicePrompt(request), adviceOutputSchema(request)),
       16_000,
       signal,
     );
@@ -437,7 +438,7 @@ export async function recommend(
       const upstream = requestBody(
         state,
         advicePrompt(body.request),
-        contracts.adviceSchema,
+        adviceOutputSchema(body.request),
       );
       await checkInput(state, upstream, 24_000, signal);
       const advice = validateAdvice(

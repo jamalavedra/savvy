@@ -515,13 +515,16 @@ export function onAudio(
       session = requireSession(db, account, id);
       const since = session.billable_since_ms ?? now;
       let exhausted = false;
-      if (now - since >= min(CHECKPOINT_MS, session.reserved_ms))
-        [, exhausted] = settleTo(db, session, now, false);
+      // Gaps settle coverage and reset `since`; replenish by remaining
+      // reservation too, before a later contiguous frame can overrun it.
+      const checkpoint =
+        now - since >= min(CHECKPOINT_MS, session.reserved_ms) ||
+        session.reserved_ms <= RESERVATION_MS - CHECKPOINT_MS;
+      if (checkpoint) [, exhausted] = settleTo(db, session, now, false);
       session = requireSession(db, account, id);
-      const reserved =
-        now - since >= min(CHECKPOINT_MS, session.reserved_ms)
-          ? setReservation(db, session, RESERVATION_MS, now)
-          : session.reserved_ms;
+      const reserved = checkpoint
+        ? setReservation(db, session, RESERVATION_MS, now)
+        : session.reserved_ms;
       if (reserved === 0n) exhausted = true;
       db.prepare(
         "UPDATE managed_sessions SET lease_expires_ms=?,updated_at_ms=? WHERE id=?",

@@ -59,6 +59,18 @@ checks start their own SMTP catcher. `GET /ready` confirms the auth database ans
 `jwks` query and reports whether Google, SMTP and Stripe are configured. `GET /readyz` checks both databases and fails during drain. Neither
 endpoint proves external suppliers are working.
 
+For managed GLM-5.3, set `SAVVY_FIREWORKS_API_KEY`,
+`SAVVY_AI_MODEL=accounts/fireworks/models/glm-5p3`, and
+`SAVVY_FIREWORKS_BASE_URL=https://api.fireworks.ai/inference`. This uses standard
+serverless Messages with schema output and the model's required thinking enabled.
+Its byte-level BPE lets the shared input check conservatively bound tokens using
+serialized UTF-8 bytes plus 4096 tokens of template overhead. Some inputs below
+the real token limit will be rejected; required context is never trimmed. Briefs,
+meeting readiness and advice retain their respective 120k/16k/24k limits. Usage
+includes cached input, and costs use the standard GLM-5.3 rates. Other Fireworks
+models require verification before configuration. An empty Fireworks key retains
+the Anthropic variables and Claude path.
+
 The native client uses `com.alamaslabs.savvy:/oauth/callback`, authorization code
 with S256 PKCE, RS256 access tokens and rotating refresh tokens. Dynamic OAuth client
 registration is closed; any email address can create an account from the sign-in page. Auth migrations keep the registered client and resource rows. Billing identity remains
