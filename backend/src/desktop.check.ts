@@ -143,11 +143,11 @@ test(
         await page
           .getByRole("button", { name: "Account", exact: true })
           .click();
-        await page.getByRole("heading", { name: "Savvy managed" }).waitFor();
+        await page.getByRole("heading", { name: "Your account" }).waitFor();
         await capture("account");
         await page
           .getByRole("button", {
-            name: "Sign out or cancel sign-in",
+            name: "Sign out",
             exact: true,
           })
           .click();
@@ -164,7 +164,7 @@ test(
         assert.equal(
           await page
             .getByRole("button", {
-              name: "Sign out or cancel sign-in",
+              name: "Sign out",
               exact: true,
             })
             .evaluate((el) => el === document.activeElement),

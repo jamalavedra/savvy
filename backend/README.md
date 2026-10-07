@@ -41,6 +41,13 @@ The default listener is `127.0.0.1:8788`. Set desktop `SAVVY_SERVICE_URL` and
 `SAVVY_OIDC_ISSUER` to the configured `BETTER_AUTH_URL`. The resource audience is an
 identity value and need not equal that URL. Do not change it once accounts exist.
 
+For direct Cloudflare Tunnel ingress, select `SAVVY_AUTH_PROXY_IP_HEADER=cf-connecting-ip`
+and trust only its exact socket peer (`SAVVY_AUTH_TRUSTED_PROXIES=127.0.0.1` on
+Epistoma). The default header is `x-savvy-proxy-ip` for standalone nginx. Trusted
+peers must send a single valid IP in the selected header; no alternative header
+is accepted. Untrusted peers are attributed to their socket address. See the
+[ingress setup](../deploy/README.md#ingress-and-configuration) before exposing it.
+
 `SAVVY_AUTH_DATABASE` contains users, sessions, OAuth grants and encrypted signing
 keys. `SAVVY_DB_PATH` contains the billing ledger, subscriptions, purchases and
 usage. They must be distinct files, and only one backend process may open them.
@@ -81,6 +88,7 @@ pnpm --dir backend test:browser
 pnpm --dir backend test:desktop
 pnpm --dir backend test:native-auth
 pnpm --dir backend test:package
+pnpm --dir backend test:web-return
 pnpm --dir backend test:load
 ```
 

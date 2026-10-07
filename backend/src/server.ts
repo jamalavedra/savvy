@@ -16,6 +16,10 @@ import { reconcile } from "./stripe.js";
 import { recoverRestart, expireStaleSessions } from "./sessions.js";
 
 const config = configuration();
+const proxyIpHeader =
+  process.env.SAVVY_AUTH_PROXY_IP_HEADER ?? "x-savvy-proxy-ip";
+if (!["x-savvy-proxy-ip", "cf-connecting-ip"].includes(proxyIpHeader))
+  throw new Error("Invalid trusted proxy header");
 const { auth, db } = createAuth();
 const serviceDb = openServiceDatabase(config.serviceDatabase);
 const clock = systemClock();
@@ -72,7 +76,7 @@ const server = createServer(async (req, res) => {
 
   try {
     const peer = req.socket.remoteAddress ?? "";
-    const forwarded = req.headers["x-savvy-proxy-ip"];
+    const forwarded = req.headers[proxyIpHeader];
     if (!isIP(peer)) {
       res.writeHead(400).end();
       return;

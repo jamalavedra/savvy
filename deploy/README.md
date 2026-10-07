@@ -37,6 +37,12 @@ database paths and the loopback listener. Values in `/etc/savvy/backend.env` ove
 these unit settings, so do not set `SAVVY_HOST`, `PORT`, `SAVVY_AUTH_DATABASE` or
 `SAVVY_DB_PATH` there. Run only one instance.
 
+The unit uses the pinned official Node runtime at
+`/opt/node-v22.23.2-linux-x64/bin/node`. Download its Linux x64 archive and
+`SHASUMS256.txt` from `https://nodejs.org/dist/v22.23.2/`, verify the archive
+with SHA-256 before extracting it into `/opt`, and verify the installed version.
+Keep this path in sync with the repository Node pin.
+
 The unit sends SIGINT and allows 150 seconds. Node rejects new paid work, aborts AI,
 settles observed relay audio and releases all remaining meeting reservations before
 closing both databases. Its own 140-second fallback exits unsuccessfully if drain
@@ -53,12 +59,38 @@ the signing secret and the native client ID before the first sign-in. Never chan
 any of these afterwards: installed desktops, refresh tokens and account identities
 depend on them. Any alias hostname must terminate at this same backend.
 
-`deploy/auth-proxy.conf.example` has one loopback upstream. It preserves the raw
-webhook body and Authorization header, supports WebSocket upgrades and applies a
-64-KiB auth limit and one-MiB managed limit. Configure the exact proxy peer in
-`SAVVY_AUTH_TRUSTED_PROXIES`; the proxy overwrites the client-address header.
-Supply the owned-domain TLS configuration before validating it with `nginx -t`.
-The example cannot validate certificates or public routing locally.
+On Epistoma, use the existing remotely managed Cloudflare Tunnel directly:
+`api.savvycopilot.com` routes to `http://127.0.0.1:8788` and the separate staging
+hostname routes to `http://127.0.0.1:8789`. Insert each ingress rule before the
+catch-all without changing unrelated routes. Create proxied DNS records pointing
+to the existing tunnel. Keep auth/API responses uncached and pass Authorization,
+raw Stripe webhook bodies, and WebSocket upgrades without interactive challenges.
+
+Set `SAVVY_AUTH_TRUSTED_PROXIES=127.0.0.1` and
+`SAVVY_AUTH_PROXY_IP_HEADER=cf-connecting-ip`. Only exact trusted socket peers
+can supply the selected address. Missing, malformed, repeated, or comma-separated
+values from those peers return 400; there is no fallback to a caller's custom
+header. The default selector remains `x-savvy-proxy-ip` for standalone nginx.
+Loopback readiness probes must include the selected header:
+
+```sh
+curl --fail -H 'CF-Connecting-IP: 127.0.0.1' http://127.0.0.1:8788/ready
+curl --fail -H 'CF-Connecting-IP: 127.0.0.1' http://127.0.0.1:8788/readyz
+```
+
+`deploy/auth-proxy.conf.example` is a standalone nginx alternative. It preserves
+raw bodies, Authorization and upgrades, but its `$remote_addr` forwarding would
+attribute every visitor to cloudflared if placed behind the tunnel. That topology
+needs explicit trusted real-client-IP handling and is not used on Epistoma.
+
+Staging uses its own `savvy-staging` user, `/var/lib/savvy-staging` state,
+`/etc/savvy/staging.env`, `/opt/savvy/staging` release link, issuer/audience
+`https://staging-api.savvycopilot.com`, and client ID `savvy-desktop-staging`.
+Adapt the existing unit's user, group, working directory, environment file, state
+and writable paths, and port; preserve its drain and hardening settings. Restrict
+only the staging hostname to the current test-machine egress IPs, except the
+signed `/v1/billing/webhook` route. Use real identity/SMTP and suppliers with
+Stripe test-mode credentials. Never copy staging state or test grants to production.
 
 Configure Google identity, SMTP, Stripe and the transcription and AI suppliers in the
 protected environment. Do not embed secrets in desktop builds. Offer prices come
@@ -99,11 +131,13 @@ recovering uncertain checkout identities.
 
 ## Acceptance still required
 
+Follow [`backend/e2e/managed-acceptance.md`](../backend/e2e/managed-acceptance.md)
+for the installed-app, hosted-provider, operations and release checks.
 Run root `pnpm verify`, the backend browser checks, the desktop issuer tests and the
 website lint, typecheck, build and smoke checks. Complete the five-minute mixed load
 test, the installed macOS journey and a security review of the final build.
 
-Hosting, owned domains, Linux/systemd/nginx behavior, Google and external SMTP, real
+Hosting, owned domains, Linux/systemd/tunnel behavior, Google and external SMTP, real
 supplier output, Stripe test-mode payments, customer policies and production signing
 still need configuration and a staging run.
 
