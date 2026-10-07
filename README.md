@@ -6,9 +6,9 @@ Savvy is a macOS meeting assistant. It prepares a brief from your own source doc
 
 Use personal providers or optional Savvy managed assistance in the same MIT-licensed desktop app. Personal setup connects your transcription account and signed-in model CLI. Managed setup uses browser sign-in with Google or an emailed code. Rust handles PKCE and stores refresh credentials in macOS Keychain. Checkout and billing management are Stripe-hosted.
 
-Managed offer amounts, allowances and expiry rules live in [the shared catalog](config/managed-catalog.json). Managed prices pay for Deepgram transcription and Claude usage on your behalf, plus Savvy's margin. With personal providers you pay those providers directly and nothing to Savvy. The account screen shows server-provided offers, remaining usage and pending purchases. A browser return never confirms payment. Adding allowance requires you to explicitly resume an exhausted meeting. Signing out or switching to personal providers does not cancel a subscription.
+Managed offer amounts, allowances and expiry rules live in [the shared catalog](config/managed-catalog.json). Managed prices pay for Deepgram transcription and Fireworks GLM-5.3 usage on your behalf, plus Savvy's margin. With personal providers you pay those providers directly and nothing to Savvy. The account screen shows server-provided offers, remaining usage and pending purchases. A browser return never confirms payment. Adding allowance requires you to explicitly resume an exhausted meeting. Signing out or switching to personal providers does not cancel a subscription.
 
-Managed audio passes through Savvy to Deepgram; selected brief evidence and meeting context pass through Savvy to Claude. Documents and history remain on your Mac. The provider descriptions below describe personal-provider setup. See the [backend guide](backend/README.md) and [deployment guide](deploy/README.md) for running the managed service.
+Managed audio passes through Savvy to Deepgram; selected brief evidence and meeting context pass through Savvy to Fireworks GLM-5.3. Documents and history remain on your Mac. The provider descriptions below describe personal-provider setup. See the [backend guide](backend/README.md) and [deployment guide](deploy/README.md) for running the managed service.
 
 ## Where your data goes
 

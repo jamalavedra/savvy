@@ -644,7 +644,7 @@ export default function ManagedAccount({
           <p>
             Audio passes through Savvy to Deepgram Nova-3 with training opt-out.
             Selected brief evidence and meeting context pass through Savvy to
-            Claude. Documents and history stay on this Mac.
+            Fireworks GLM-5.3. Documents and history stay on this Mac.
           </p>
           <p>
             {`$${offers.monthly.amountCents / 100} monthly includes ${offers.monthly.hours} meeting hours and ${offers.monthly.briefs} briefs. `}
