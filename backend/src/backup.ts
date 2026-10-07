@@ -130,7 +130,7 @@ export async function requireStopped(env: NodeJS.ProcessEnv) {
 
 if (
   process.argv[1] &&
-  import.meta.url === pathToFileURL(resolve(process.argv[1])).href
+  import.meta.url === pathToFileURL(await realpath(process.argv[1])).href
 ) {
   const destination = process.argv[2];
   if (!destination || process.argv.length !== 3)
