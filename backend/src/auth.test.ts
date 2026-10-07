@@ -80,16 +80,16 @@ test("real Better Auth: delivered OTP, persistent limits, discovery, PKCE and si
         .digest("base64url"),
     }))
       login.searchParams.set(key, value);
-    const loginStarted = Date.now();
     const redirected = await instance.auth.handler(new Request(login));
     assert.equal(redirected.status, 302);
     const oauthQuery = new URL(
       redirected.headers.get("location")!,
       env.BETTER_AUTH_URL,
     ).search.slice(1);
+    const loginParameters = new URLSearchParams(oauthQuery);
+    const loginStarted = Number(loginParameters.get("ba_iat"));
     assert.equal(
-      Number(new URLSearchParams(oauthQuery).get("exp")) -
-        Math.floor(loginStarted / 1000),
+      Number(loginParameters.get("exp")) - Math.floor(loginStarted / 1000),
       600,
     );
     const sent = await request("/email-otp/send-verification-otp", {
