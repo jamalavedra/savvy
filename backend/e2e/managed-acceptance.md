@@ -40,6 +40,9 @@ pnpm --dir backend install --frozen-lockfile
 pnpm --dir www install --frozen-lockfile
 pnpm --dir backend exec playwright install chromium
 pnpm verify
+pnpm audit
+pnpm --dir backend audit
+pnpm --dir www audit
 pnpm --dir backend test:browser
 pnpm --dir backend test:desktop
 pnpm --dir backend test:native-auth

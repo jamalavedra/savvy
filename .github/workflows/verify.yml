@@ -52,6 +52,12 @@ jobs:
       - name: Verify
         run: pnpm verify
 
+      - name: Audit JavaScript dependencies
+        run: |
+          pnpm audit --audit-level=moderate
+          pnpm --dir backend audit --audit-level=moderate
+          pnpm --dir www audit --audit-level=moderate
+
       - name: Install browser
         run: pnpm --dir backend exec playwright install chromium
 
