@@ -308,9 +308,9 @@ export default function ManagedAccount({
         <>
           <p>
             Signed in as{" "}
-            {account.identity?.name ??
-              account.identity?.email ??
-              account.accountIdentity ??
+            {account.identity?.name ||
+              account.identity?.email ||
+              account.accountIdentity ||
               "Synthetic demo account"}
             {!noPlan && !recoveryVisible && !paymentPending && (
               <>

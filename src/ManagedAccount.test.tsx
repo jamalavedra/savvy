@@ -26,6 +26,27 @@ import {
 describe("managed account fixtures", () => {
   beforeEach(() => resetBrowserDemoState());
   afterEach(() => vi.useRealTimers());
+  it("shows the verified email when an OTP account has an empty display name", async () => {
+    const account = await managedSignInFinish(await managedSignInBegin());
+    const read = vi.spyOn(api, "managedAccount").mockResolvedValue({
+      ...account,
+      identity: {
+        issuer: "https://staging.example.test",
+        subject: "otp-account",
+        name: "",
+        email: "owner@example.test",
+        emailVerified: true,
+      },
+    });
+    try {
+      render(<ManagedAccount />);
+      expect(
+        await screen.findByText(/Signed in as owner@example\.test/),
+      ).toBeInTheDocument();
+    } finally {
+      read.mockRestore();
+    }
+  });
   it("requires confirmation while the initial account lookup is unresolved", async () => {
     const account = await managedSignInFinish(await managedSignInBegin());
     let finishRead!: (value: typeof account) => void;
