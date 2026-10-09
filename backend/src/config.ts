@@ -44,15 +44,23 @@ export function configuration(env: NodeJS.ProcessEnv = process.env) {
     throw new Error(
       "Stripe is not configured for a public issuer or listener; set the SAVVY_STRIPE_* variables or SAVVY_ALLOW_UNMETERED=1",
     );
+  const fireworks = Boolean(env.SAVVY_FIREWORKS_API_KEY);
   const config = {
     issuer,
     audience: env.SAVVY_OIDC_AUDIENCE ?? "https://api.savvycopilot.com",
     serviceDatabase: env.SAVVY_DB_PATH ?? "savvy-service.sqlite",
     bind: env.SAVVY_HOST ?? "127.0.0.1",
     port: Number(env.PORT ?? 8788),
-    aiBaseUrl: env.SAVVY_ANTHROPIC_BASE_URL ?? "https://api.anthropic.com",
-    aiKey: required("SAVVY_ANTHROPIC_API_KEY"),
-    aiModel: env.SAVVY_AI_MODEL ?? "claude-sonnet-5-5",
+    aiProvider: fireworks ? ("fireworks" as const) : ("anthropic" as const),
+    aiBaseUrl: fireworks
+      ? (env.SAVVY_FIREWORKS_BASE_URL ?? "https://api.fireworks.ai/inference")
+      : (env.SAVVY_ANTHROPIC_BASE_URL ?? "https://api.anthropic.com"),
+    aiKey: required(
+      fireworks ? "SAVVY_FIREWORKS_API_KEY" : "SAVVY_ANTHROPIC_API_KEY",
+    ),
+    aiModel:
+      env.SAVVY_AI_MODEL ??
+      (fireworks ? "accounts/fireworks/models/glm-5p3" : "claude-sonnet-5-5"),
     deepgramUrl: env.SAVVY_DEEPGRAM_URL ?? "wss://api.deepgram.com/v1/listen",
     deepgramKey: required("SAVVY_DEEPGRAM_API_KEY"),
     stripeBaseUrl: env.SAVVY_STRIPE_BASE_URL ?? "https://api.stripe.com",
@@ -62,6 +70,10 @@ export function configuration(env: NodeJS.ProcessEnv = process.env) {
       "https://www.savvycopilot.com/checkout-complete/",
     fixtures: env.SAVVY_DEV_FIXTURES === "1",
   };
+  if (fireworks && config.aiModel !== "accounts/fireworks/models/glm-5p3")
+    throw new Error(
+      "Managed Fireworks currently supports GLM-5.3; verify token bounds and costs before changing models",
+    );
   if (
     !isIP(config.bind) ||
     !Number.isInteger(config.port) ||

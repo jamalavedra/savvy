@@ -548,6 +548,38 @@ test("idle gaps bill delivered coverage and a stale fresh source cannot make tra
   );
 });
 
+test("short PCM scheduling gaps renew reservations for one or two sources without false exhaustion", (t) => {
+  for (const sources of [
+    ["microphone"],
+    ["microphone", "system"],
+  ] as Source[][]) {
+    const h = fixture(t);
+    h.create();
+    for (let frame = 0; frame < 1200; frame++) {
+      for (const source of sources)
+        assert.equal(
+          onAudio(
+            h.state,
+            1n,
+            ID,
+            source,
+            frame === 0 ? 1568 : 1600,
+            h.state.clock(),
+          ),
+          "continue",
+        );
+      h.advance(frame < 600 ? 55n : 50n);
+    }
+    const stopped = lifecycle(h.state, 1n, ID, "stop", 1n, 1n);
+    assert.equal(stopped.settledMs, 59_999n);
+    assert.equal(
+      balance(h.db, 1n, h.state.clock()).meetingMsAvailable,
+      35_940_001n,
+    );
+    assert.equal(balance(h.db, 1n, h.state.clock()).meetingMsReserved, 0n);
+  }
+});
+
 test("a restored SQLite snapshot preserves identities and unique grants while absorbing uncheckpointed time", async (t) => {
   const h = fixture(t);
   h.create();

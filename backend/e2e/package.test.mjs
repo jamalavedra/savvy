@@ -36,6 +36,8 @@ test(
         join(root, "backend/node_modules"),
         join(backend, "node_modules"),
       );
+      const alias = join(directory, "staging");
+      await symlink(backend, alias);
       const portProbe = createServer();
       portProbe.listen(0, "127.0.0.1");
       await once(portProbe, "listening");
@@ -63,7 +65,7 @@ test(
         SAVVY_CHECKOUT_RETURN_URL: origin + "/complete",
       };
       const options = { cwd: backend, env, timeout: 10000 };
-      await run(process.execPath, ["build/migrate.js"], options);
+      await run(process.execPath, [join(alias, "build/migrate.js")], options);
       child = spawn(process.execPath, ["build/server.js"], {
         cwd: backend,
         env,
@@ -91,7 +93,11 @@ test(
       child.kill("SIGINT");
       assert.deepEqual(await exited, [0, null]);
       const backup = join(directory, "snapshot");
-      await run(process.execPath, ["build/backup.js", backup], options);
+      await run(
+        process.execPath,
+        [join(alias, "build/backup.js"), backup],
+        options,
+      );
       const manifest = JSON.parse(
         await readFile(join(backup, "manifest.json"), "utf8"),
       );
@@ -108,7 +114,11 @@ test(
         );
       }
       await assert.rejects(
-        run(process.execPath, ["build/backup.js", backup], options),
+        run(
+          process.execPath,
+          [join(alias, "build/backup.js"), backup],
+          options,
+        ),
       );
     } finally {
       if (child && child.exitCode === null && child.signalCode === null) {

@@ -135,7 +135,7 @@ export default function PrivacyPolicy() {
         When you explicitly start a managed meeting or transcription test, microphone audio and, if
         enabled, system audio pass through Savvy’s backend to Deepgram. For brief generation and
         recommendations, selected document excerpts, the brief and relevant recent transcript
-        context pass through Savvy to Anthropic’s Claude API. These are hosted supplier requests
+        context pass through Savvy to Fireworks AI’s GLM-5.3 API. These are hosted supplier requests
         using Savvy’s service accounts. Personal-provider mode instead uses your own accounts.
       </p>
       <p>
@@ -150,10 +150,8 @@ export default function PrivacyPolicy() {
         delete supplier-held copies. Savvy requests Deepgram’s model-improvement opt-out; this is
         not a promise of zero retention by every supplier. Review{" "}
         <a href="https://deepgram.com/privacy">Deepgram’s privacy notice</a> and{" "}
-        <a href="https://privacy.claude.com/en/articles/7996866-how-long-do-you-store-my-organization-s-data">
-          Anthropic’s commercial retention information
-        </a>{" "}
-        before submitting confidential material.
+        <a href="https://fireworks.ai/privacy-policy">Fireworks AI’s privacy notice</a> before
+        submitting confidential material.
       </p>
       <p>
         Managed account, payment and usage records currently have no automatic expiry. Contact us to

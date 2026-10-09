@@ -222,7 +222,7 @@ export default function AudioCheck({
     if (hasSignal) return "Input detected. This does not test transcription.";
     if (reading.status === "idle") return "Not checked.";
     if (running) return "No signal detected yet.";
-    return "No signal detected. Check your input and try again.";
+    return "No signal detected. Check your input and permissions in System Settings, then quit and reopen Savvy.";
   };
   return (
     <section
@@ -475,7 +475,9 @@ export default function AudioCheck({
         </button>
       )}
       {connected &&
-        reading.status === "failed" &&
+        (reading.status === "failed" ||
+          (reading.status === "finished" &&
+            (!detected.microphone || (!microphoneOnly && !detected.system)))) &&
         Boolean(window.__TAURI_INTERNALS__) && (
           <div className="onboarding-actions">
             {(microphoneOnly ? [false] : [false, true]).map((system) => (

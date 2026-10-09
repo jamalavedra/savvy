@@ -59,7 +59,7 @@ test("privacy notice is linked and analytics is absent from initial HTML", async
     "Managed accounts and payments",
     "Managed meeting processing",
     "Deepgram",
-    "Anthropic",
+    "Fireworks",
     "Stripe",
     "no automatic expiry",
   ])

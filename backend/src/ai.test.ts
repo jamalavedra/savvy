@@ -13,6 +13,66 @@ import { insertGrant, balance } from "./billing.js";
 import { managedRequest } from "./api.js";
 import { reconcile } from "./stripe.js";
 import { completeRequest } from "./advice.js";
+import { checkInput, generate, requestBody } from "./ai.js";
+
+test("Fireworks uses Messages without count_tokens or fallbacks and accounts for cached input", async (t) => {
+  const h = await fixture(t, { env: { SAVVY_FIREWORKS_API_KEY: "synthetic" } });
+  const response = await h.post("/v1/briefs", {
+    idempotencyKey: "fireworks",
+    request,
+  });
+  assert.equal(response.status, 200);
+  assert.equal(h.calls.length, 1);
+  assert.equal(h.calls[0].path, "/v1/messages");
+  assert.equal(h.calls[0].body.model, "accounts/fireworks/models/glm-5p3");
+  assert.equal(h.calls[0].body.thinking, undefined);
+  assert.deepEqual(
+    h.db
+      .prepare(
+        "SELECT input_tokens,output_tokens,cost_microdollars,state FROM provider_requests WHERE account_id=1",
+      )
+      .get(),
+    {
+      input_tokens: 60n,
+      output_tokens: 20n,
+      cost_microdollars: 115n,
+      state: "succeeded",
+    },
+  );
+  assert.equal(balance(h.db, 1n, h.state.clock()).briefsAvailable, 19n);
+  const body = requestBody(h.state, "😀".repeat(3000), contracts.adviceSchema);
+  const bound = Buffer.byteLength(JSON.stringify(body), "utf8") + 4096;
+  await checkInput(h.state, body, bound, new AbortController().signal);
+  await assert.rejects(
+    checkInput(h.state, body, bound - 1, new AbortController().signal),
+    (error: unknown) =>
+      error instanceof ApiError && error.code === "context_too_large",
+  );
+  assert.equal(h.calls.length, 1);
+  await generate(
+    h.state,
+    body,
+    1024,
+    1n,
+    "budget",
+    new AbortController().signal,
+  );
+  assert.equal(h.calls[1].body.max_tokens, 4096);
+  assert.equal(
+    (h.calls[1].body.output_config as { effort: string }).effort,
+    "low",
+  );
+  assert.match(h.calls[1].body.system as string, /Output schema:/);
+  assert.throws(
+    () =>
+      configuration({
+        SAVVY_FIREWORKS_API_KEY: "synthetic",
+        SAVVY_AI_MODEL: "unknown",
+        SAVVY_DEEPGRAM_API_KEY: "synthetic",
+      }),
+    /supports GLM-5.3/,
+  );
+});
 import {
   createSession,
   onAudio,
@@ -27,6 +87,7 @@ import {
   briefPrompt,
   contracts,
   validateAdvice,
+  adviceOutputSchema,
   adviceRequest as adviceRequestSchema,
 } from "./context.js";
 
@@ -128,8 +189,15 @@ async function fixture(
     for await (const chunk of req) raw += chunk;
     const body = JSON.parse(raw) as Record<string, unknown>;
     calls.push({ path: req.url!, body });
-    assert.equal(req.headers["x-api-key"], "synthetic");
-    assert.equal(req.headers["anthropic-version"], "2023-06-01");
+    if (options.env?.SAVVY_FIREWORKS_API_KEY) {
+      assert.equal(req.headers.authorization, "Bearer synthetic");
+      assert.equal(req.headers["x-api-key"], undefined);
+      assert.equal(req.headers["anthropic-version"], undefined);
+      assert.equal(body.fallbacks, undefined);
+    } else {
+      assert.equal(req.headers["x-api-key"], "synthetic");
+      assert.equal(req.headers["anthropic-version"], "2023-06-01");
+    }
     assert.equal(
       req.headers["anthropic-beta"],
       body.fallbacks === undefined
@@ -147,7 +215,13 @@ async function fixture(
           ? { input_tokens: tokenCount }
           : {
               id: "vendor_test",
-              usage: { input_tokens: 10, output_tokens: 20 },
+              usage: {
+                input_tokens: 10,
+                output_tokens: 20,
+                cache_read_input_tokens: options.env?.SAVVY_FIREWORKS_API_KEY
+                  ? 50
+                  : 0,
+              },
               stop_reason: "end_turn",
               content: [
                 { type: "text", text: rawText ?? JSON.stringify(output) },
@@ -176,6 +250,9 @@ async function fixture(
       SAVVY_STRIPE_PRICE_PACK: "price_pack",
       SAVVY_ANTHROPIC_API_KEY: "synthetic",
       SAVVY_ANTHROPIC_BASE_URL: `http://127.0.0.1:${address.port}`,
+      ...(options.env?.SAVVY_FIREWORKS_API_KEY
+        ? { SAVVY_FIREWORKS_BASE_URL: `http://127.0.0.1:${address.port}` }
+        : {}),
       SAVVY_DEEPGRAM_API_KEY: "synthetic",
       ...options.env,
     }),
@@ -273,6 +350,26 @@ async function fixture(
 
 test("provider advice bounds reject oversized text and repeated citations before delivery", async (t) => {
   const input = adviceRequestSchema.parse(adviceRequest);
+  const schema = adviceOutputSchema(input);
+  const properties = schema.properties as Record<
+    string,
+    Record<string, unknown>
+  >;
+  assert.deepEqual(properties.language.enum, [input.language]);
+  assert.deepEqual(properties.evidenceIds.items, {
+    type: "string",
+    enum: [SOURCE],
+  });
+  assert.deepEqual(properties.turnIds.items, { type: "string", enum: [TURN] });
+  assert.equal(
+    (
+      contracts.adviceSchema.properties as Record<
+        string,
+        Record<string, unknown>
+      >
+    ).language.enum,
+    undefined,
+  );
   assert.doesNotThrow(() => validateAdvice(advice, input));
   for (const invalid of [
     { ...advice, say: "x".repeat(100000) },

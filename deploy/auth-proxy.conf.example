@@ -1,3 +1,6 @@
+# Standalone nginx alternative; direct Cloudflare Tunnel does not need nginx.
+# Behind cloudflared, $remote_addr is the connector, not the visitor. Configure
+# trusted real-client-IP handling before using this example in that topology.
 # Include this file in nginx's http context. Supply the owned-domain certificate
 # configuration. server_name must match the BETTER_AUTH_URL hostname.
 # Node remains loopback-only: SAVVY_AUTH_TRUSTED_PROXIES=127.0.0.1

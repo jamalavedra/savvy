@@ -19,7 +19,7 @@ export function DataFootnote() {
           brief and recent transcript turns to the model provider your CLI is signed in to, under
           your own account and its terms. Check the rules of your meeting before using AI
           assistance. With managed assistance, Savvy relays audio to Deepgram and selected context
-          to Claude. Documents and history remain on your Mac.
+          to Fireworks GLM-5.3. Documents and history remain on your Mac.
         </p>
       </div>
     </section>

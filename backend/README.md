@@ -41,6 +41,13 @@ The default listener is `127.0.0.1:8788`. Set desktop `SAVVY_SERVICE_URL` and
 `SAVVY_OIDC_ISSUER` to the configured `BETTER_AUTH_URL`. The resource audience is an
 identity value and need not equal that URL. Do not change it once accounts exist.
 
+For direct Cloudflare Tunnel ingress, select `SAVVY_AUTH_PROXY_IP_HEADER=cf-connecting-ip`
+and trust only its exact socket peer (`SAVVY_AUTH_TRUSTED_PROXIES=127.0.0.1` on
+Epistoma). The default header is `x-savvy-proxy-ip` for standalone nginx. Trusted
+peers must send a single valid IP in the selected header; no alternative header
+is accepted. Untrusted peers are attributed to their socket address. See the
+[ingress setup](../deploy/README.md#ingress-and-configuration) before exposing it.
+
 `SAVVY_AUTH_DATABASE` contains users, sessions, OAuth grants and encrypted signing
 keys. `SAVVY_DB_PATH` contains the billing ledger, subscriptions, purchases and
 usage. They must be distinct files, and only one backend process may open them.
@@ -51,6 +58,18 @@ requires TLS. A local mail catcher on port 1025 supports manual tests; automated
 checks start their own SMTP catcher. `GET /ready` confirms the auth database answers a
 `jwks` query and reports whether Google, SMTP and Stripe are configured. `GET /readyz` checks both databases and fails during drain. Neither
 endpoint proves external suppliers are working.
+
+For managed GLM-5.3, set `SAVVY_FIREWORKS_API_KEY`,
+`SAVVY_AI_MODEL=accounts/fireworks/models/glm-5p3`, and
+`SAVVY_FIREWORKS_BASE_URL=https://api.fireworks.ai/inference`. This uses standard
+serverless Messages with schema output and the model's required thinking enabled.
+Its byte-level BPE lets the shared input check conservatively bound tokens using
+serialized UTF-8 bytes plus 4096 tokens of template overhead. Some inputs below
+the real token limit will be rejected; required context is never trimmed. Briefs,
+meeting readiness and advice retain their respective 120k/16k/24k limits. Usage
+includes cached input, and costs use the standard GLM-5.3 rates. Other Fireworks
+models require verification before configuration. An empty Fireworks key retains
+the Anthropic variables and Claude path.
 
 The native client uses `com.alamaslabs.savvy:/oauth/callback`, authorization code
 with S256 PKCE, RS256 access tokens and rotating refresh tokens. Dynamic OAuth client
@@ -81,6 +100,7 @@ pnpm --dir backend test:browser
 pnpm --dir backend test:desktop
 pnpm --dir backend test:native-auth
 pnpm --dir backend test:package
+pnpm --dir backend test:web-return
 pnpm --dir backend test:load
 ```
 

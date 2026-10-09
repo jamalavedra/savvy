@@ -17,7 +17,7 @@
     "test:native-auth": "pnpm build && cargo test -p savvy --lib local_stripe_sandbox_desktop_transport --locked --no-run && SAVVY_NATIVE_CHECK=1 tsx --test src/browser.check.ts",
     "test:load": "pnpm build:server && node --test e2e/load.test.mjs",
     "test:package": "pnpm build && node --test e2e/package.test.mjs",
-    "test:web-return": "tsx --test src/return.check.ts"
+    "test:web-return": "pnpm --dir ../www build && tsx --test src/return.check.ts"
   },
   "dependencies": {
     "@better-auth/oauth-provider": "1.7.4",
@@ -25,7 +25,7 @@
     "better-call": "1.4.0",
     "better-sqlite3": "13.0.3",
     "jose": "6.2.12",
-    "nodemailer": "10.0.3",
+    "nodemailer": "10.0.9",
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "ws": "8.21.3",
@@ -45,5 +45,11 @@
     "tsx": "4.23.13",
     "typescript": "7.0.2",
     "vite": "^7.3.6"
+  },
+  "pnpm": {
+    "overrides": {
+      "source-map-js": "1.2.2",
+      "nodemailer": "10.0.9"
+    }
   }
 }

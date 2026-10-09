@@ -18,7 +18,7 @@ import {
 } from "./billing.js";
 import { createAuthorizer } from "./authorize.js";
 
-test("real Better Auth: delivered OTP, persistent limits, discovery, PKCE and signing keys", async () => {
+test("real Better Auth: delivered OTP, persistent limits, discovery, PKCE and signing keys", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "savvy-auth-"));
   let message = "";
   const smtp = new SMTPServer({
@@ -66,6 +66,32 @@ test("real Better Auth: delivered OTP, persistent limits, discovery, PKCE and si
       "refresh_token",
     ]);
     assert.ok(metadata.code_challenge_methods_supported.includes("S256"));
+    const login = new URL(metadata.authorization_endpoint);
+    for (const [key, value] of Object.entries({
+      client_id: instance.clientId,
+      response_type: "code",
+      redirect_uri: "com.alamaslabs.savvy:/oauth/callback",
+      scope: "openid email profile offline_access",
+      resource: instance.audience,
+      state: "delayed-email-login",
+      code_challenge_method: "S256",
+      code_challenge: createHash("sha256")
+        .update(randomBytes(32))
+        .digest("base64url"),
+    }))
+      login.searchParams.set(key, value);
+    const redirected = await instance.auth.handler(new Request(login));
+    assert.equal(redirected.status, 302);
+    const oauthQuery = new URL(
+      redirected.headers.get("location")!,
+      env.BETTER_AUTH_URL,
+    ).search.slice(1);
+    const loginParameters = new URLSearchParams(oauthQuery);
+    const loginStarted = Number(loginParameters.get("ba_iat"));
+    assert.equal(
+      Number(loginParameters.get("exp")) - Math.floor(loginStarted / 1000),
+      600,
+    );
     const sent = await request("/email-otp/send-verification-otp", {
       email: "person@example.test",
       type: "sign-in",
@@ -124,10 +150,29 @@ test("real Better Auth: delivered OTP, persistent limits, discovery, PKCE and si
       second.reserveDelivery("person@example.test", Date.now()),
     );
     second.db.close();
-    const signed = await request("/sign-in/email-otp", {
-      email: "person@example.test",
-      otp,
-    });
+    t.mock.timers.enable({ apis: ["Date"], now: loginStarted + 601_000 });
+    try {
+      const expired = await request("/sign-in/email-otp", {
+        email: "person@example.test",
+        otp,
+        oauth_query: oauthQuery,
+      });
+      assert.equal(expired.status, 400);
+      assert.equal((await expired.json()).error, "invalid_signature");
+    } finally {
+      t.mock.timers.reset();
+    }
+    t.mock.timers.enable({ apis: ["Date"], now: loginStarted + 180_000 });
+    let signed: Response;
+    try {
+      signed = await request("/sign-in/email-otp", {
+        email: "person@example.test",
+        otp,
+        oauth_query: oauthQuery,
+      });
+    } finally {
+      t.mock.timers.reset();
+    }
     assert.equal(signed.status, 200, await signed.text());
     const cookie = signed.headers
       .getSetCookie()

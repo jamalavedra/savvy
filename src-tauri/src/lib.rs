@@ -650,7 +650,7 @@ fn audio_check_stop(id: String) -> Result<(), String> {
     }
 }
 #[tauri::command]
-fn audio_check_start(
+async fn audio_check_start(
     app: AppHandle,
     state: State<'_, AppState>,
     transcribe: bool,
@@ -658,6 +658,9 @@ fn audio_check_start(
 ) -> Result<String, String> {
     #[cfg(target_os = "macos")]
     {
+        if !tauri_plugin_macos_permissions::check_microphone_permission().await {
+            return Err("Allow Savvy microphone access in System Settings > Privacy & Security > Microphone, then quit and reopen Savvy before checking audio again.".into());
+        }
         let operation = state.app_operation.lock().map_err(|_| "operation lock")?;
         if *operation {
             return Err("Savvy is restarting.".into());

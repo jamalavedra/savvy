@@ -13,7 +13,7 @@ Environment=SAVVY_AUTH_DATABASE=/var/lib/savvy/auth.sqlite
 Environment=SAVVY_DB_PATH=/var/lib/savvy/service.sqlite
 Environment=SAVVY_HOST=127.0.0.1
 Environment=PORT=8788
-ExecStart=/usr/bin/node build/server.js
+ExecStart=/opt/node-v22.23.2-linux-x64/bin/node build/server.js
 KillSignal=SIGINT
 TimeoutStopSec=150
 Restart=on-failure

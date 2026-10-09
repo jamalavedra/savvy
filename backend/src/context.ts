@@ -206,6 +206,32 @@ export function advicePrompt(request: AdviceRequest) {
     rule,
   );
 }
+export function adviceOutputSchema(request: AdviceRequest) {
+  const schema = structuredClone(contracts.adviceSchema);
+  const properties = schema.properties as Record<
+    string,
+    Record<string, unknown>
+  >;
+  const references = (ids: string[]) => ({
+    type: "array",
+    maxItems: ids.length ? 32 : 0,
+    uniqueItems: true,
+    items: {
+      type: "string",
+      ...(ids.length ? { enum: [...new Set(ids)] } : {}),
+    },
+  });
+  const turns = request.recentTurns.map((turn) => turn.id);
+  properties.language = { ...properties.language, enum: [request.language] };
+  properties.evidenceIds = references(
+    request.evidence.map((evidence) => evidence.id),
+  );
+  properties.turnIds = references(turns);
+  const memory = properties.memoryUpdates.items as Record<string, unknown>;
+  const memoryProperties = memory.properties as Record<string, unknown>;
+  memoryProperties.sourceTurnIds = references(turns);
+  return schema;
+}
 export function validateBrief(
   value: unknown,
   request: BriefRequest,

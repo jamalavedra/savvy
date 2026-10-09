@@ -52,6 +52,27 @@ jobs:
       - name: Verify
         run: pnpm verify
 
+      - name: Audit JavaScript dependencies
+        run: |
+          pnpm audit --audit-level=moderate
+          pnpm --dir backend audit --audit-level=moderate
+          pnpm --dir www audit --audit-level=moderate
+
+      - name: Install browser
+        run: pnpm --dir backend exec playwright install chromium
+
+      - name: Managed flow fixture acceptance
+        run: |
+          pnpm --dir backend test:browser
+          pnpm --dir backend test:desktop
+          pnpm --dir backend test:native-auth
+          pnpm --dir backend test:package
+          pnpm --dir backend test:web-return
+
+      - name: Mixed managed load
+        if: github.event_name == 'workflow_dispatch'
+        run: pnpm --dir backend test:load
+
       # Licenses, advisories, and dependency sources. The policy and every
       # exemption live in deny.toml.
       - name: Install cargo-deny
@@ -111,3 +132,12 @@ jobs:
 
       - name: Cargo check
         run: cargo check --workspace --all-targets --locked
+
+      - name: Linux backend checks
+        if: runner.os == 'Linux'
+        run: |
+          pnpm --dir backend install --frozen-lockfile
+          pnpm --dir backend typecheck
+          pnpm --dir backend test
+          pnpm --dir backend build
+          pnpm --dir backend test:package
