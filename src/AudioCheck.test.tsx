@@ -208,7 +208,7 @@ it("distinguishes each detected source from silence and resets evidence on retry
   expect(system).toHaveTextContent("No signal detected yet");
   emit(CHECK_ONE, "finished", 0, 0);
   expect(mic).toHaveTextContent("Input detected");
-  expect(system).toHaveTextContent("Check your input and try again");
+  expect(system).toHaveTextContent("Check your input and permissions");
   expect(
     screen.queryByRole("button", { name: "Finish setup" }),
   ).not.toBeInTheDocument();
@@ -439,6 +439,80 @@ it("opens either audio permission pane without claiming a successful check", asy
     delete window.__TAURI_INTERNALS__;
   }
 });
+
+it.each([0, 0.3])(
+  "offers permission recovery after an undetected signal, level %s",
+  async (microphoneLevel) => {
+    window.__TAURI_INTERNALS__ = {};
+    try {
+      render(<AudioCheck managed microphoneOnly />);
+      await act(async () => {});
+      fireEvent.click(screen.getByRole("button", { name: "Check signal" }));
+      for (const status of ["listening", "finished"]) {
+        act(() =>
+          native.listener?.({
+            payload: {
+              id: CHECK_ONE,
+              status,
+              microphoneLevel: status === "listening" ? microphoneLevel : 0,
+              systemLevel: 0,
+              message:
+                "Signal check finished. Transcription has not been tested.",
+            },
+          }),
+        );
+      }
+      const recovery = screen.queryByRole("button", {
+        name: "Open microphone settings",
+      });
+      if (microphoneLevel === 0) {
+        expect(recovery).toBeEnabled();
+        expect(
+          screen.getByLabelText("Microphone signal status"),
+        ).toHaveTextContent("permissions in System Settings");
+        fireEvent.click(recovery!);
+        expect(native.invoke).toHaveBeenLastCalledWith("open_audio_settings", {
+          system: false,
+        });
+      } else {
+        expect(recovery).toBeNull();
+      }
+      expect(screen.queryByLabelText("Test transcript")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Stop check" })).toBeNull();
+    } finally {
+      delete window.__TAURI_INTERNALS__;
+    }
+  },
+);
+
+it.each(["Check signal", "Start transcription test"])(
+  "shows permission recovery when %s is refused before capture starts",
+  async (name) => {
+    window.__TAURI_INTERNALS__ = {};
+    try {
+      native.invoke.mockRejectedValueOnce(
+        "Allow Savvy microphone access in System Settings, then quit and reopen Savvy before checking audio again.",
+      );
+      render(<AudioCheck managed microphoneOnly />);
+      await act(async () => {});
+      await act(async () =>
+        fireEvent.click(screen.getByRole("button", { name })),
+      );
+      expect(screen.getByRole("status")).toHaveTextContent(
+        "Allow Savvy microphone access",
+      );
+      expect(screen.getByRole("status")).toHaveTextContent("quit and reopen");
+      expect(
+        screen.getByRole("button", { name: "Open microphone settings" }),
+      ).toBeEnabled();
+      expect(screen.queryByRole("button", { name: "Stop check" })).toBeNull();
+      expect(screen.queryByLabelText("Test transcript")).toBeNull();
+      expect(native.invoke).toHaveBeenCalledTimes(1);
+    } finally {
+      delete window.__TAURI_INTERNALS__;
+    }
+  },
+);
 
 it("removes a subscription that completes after navigation exactly once", async () => {
   let complete!: (remove: () => void) => void;

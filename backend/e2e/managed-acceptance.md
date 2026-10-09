@@ -22,6 +22,9 @@ private signing material, source documents or customer audio in public evidence.
   Back up the production app/data. Install `Savvy Integration.app`, stop the other
   app, and register the normal OS callback handler. Keep separate integration data.
   Restore the production handler after testing. A callback file is not OS delivery.
+  After a signing-identity change, verify actual capture even if macOS permission
+  switches appear enabled. Stale grants can reference an older code requirement;
+  re-authorize the final signed candidate normally and relaunch before audio tests.
 - Production: separate user, issuer, secret, database pair and live Stripe catalog;
   port 8788 at `https://api.savvycopilot.com`. Use the signed/notarized draft candidate.
   Never inject test grants or submit an unrequested live payment. Real supplier smoke
