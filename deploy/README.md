@@ -5,10 +5,10 @@ listener and one systemd unit. It owns auth, billing, sessions, WebSockets and A
 requests. Both SQLite databases live under `/var/lib/savvy/`. The marketing website
 is a static export; no second application server or worker is required.
 
-The backend has not run in production yet. Linux deployment, owned domains, real
-supplier output and the installed desktop journey are not covered by the fixture
-tests. Complete the acceptance checks at the end of this file before opening it to
-customers.
+The production backend runs on Epistoma behind the Cloudflare Tunnel at
+`https://api.savvycopilot.com`. The website runs on the `savvy-www` Cloudflare
+Worker. Fixture tests do not replace installed-app acceptance: complete the checks
+at the end of this file against each candidate release before opening it to customers.
 
 ## Build and package
 
