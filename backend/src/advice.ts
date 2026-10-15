@@ -20,7 +20,7 @@ import {
 import {
   briefRequest,
   adviceRequest,
-  contracts,
+  briefOutputSchema,
   briefPrompt,
   advicePrompt,
   adviceOutputSchema,
@@ -195,7 +195,7 @@ export async function postBrief(
     const upstream = requestBody(
       state,
       briefPrompt(body.request),
-      contracts.briefSchema,
+      briefOutputSchema(body.request),
     );
     state.db
       .transaction(() => {

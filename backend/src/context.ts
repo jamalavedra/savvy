@@ -206,6 +206,22 @@ export function advicePrompt(request: AdviceRequest) {
     rule,
   );
 }
+export function briefOutputSchema(request: BriefRequest) {
+  const schema = structuredClone(contracts.briefSchema);
+  const properties = schema.properties as Record<
+    string,
+    Record<string, unknown>
+  >;
+  const facts = properties.factsToUse;
+  const ids = [...new Set(request.clientEvidence.map((item) => item.sourceId))];
+  if (!ids.length) facts.maxItems = 0;
+  else {
+    const item = facts.items as Record<string, unknown>;
+    const fields = item.properties as Record<string, Record<string, unknown>>;
+    fields.sourceIds.items = { type: "string", enum: ids };
+  }
+  return schema;
+}
 export function adviceOutputSchema(request: AdviceRequest) {
   const schema = structuredClone(contracts.adviceSchema);
   const properties = schema.properties as Record<

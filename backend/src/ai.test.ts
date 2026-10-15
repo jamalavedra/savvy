@@ -120,6 +120,7 @@ import {
 import {
   briefRequest,
   briefPrompt,
+  briefOutputSchema,
   contracts,
   validateAdvice,
   adviceOutputSchema,
@@ -382,6 +383,49 @@ async function fixture(
     },
   };
 }
+
+test("brief output schema permits only client citations and no facts for guidance-only requests", async (t) => {
+  const input = briefRequest.parse(request);
+  const schema = briefOutputSchema(input) as typeof contracts.briefSchema & {
+    properties: {
+      factsToUse: {
+        maxItems: number;
+        items: { properties: { sourceIds: { items: unknown } } };
+      };
+    };
+  };
+  assert.deepEqual(
+    schema.properties.factsToUse.items.properties.sourceIds.items,
+    {
+      type: "string",
+      enum: [SOURCE],
+    },
+  );
+  const h = await fixture(t, { env: { SAVVY_FIREWORKS_API_KEY: "synthetic" } });
+  h.setOutput({ ...brief, factsToUse: [] });
+  const response = await h.post("/v1/briefs", {
+    idempotencyKey: "guidance_only",
+    request: {
+      ...request,
+      guidance: request.clientEvidence,
+      clientEvidence: [],
+    },
+  });
+  assert.equal(response.status, 200);
+  const output = h.calls[0].body.output_config as {
+    format: { schema: typeof schema };
+  };
+  assert.equal(output.format.schema.properties.factsToUse.maxItems, 0);
+  assert.match(
+    h.calls[0].body.system as string,
+    /"factsToUse":\{"type":"array","maxItems":0/,
+  );
+  assert.equal(
+    (contracts.briefSchema.properties as typeof schema.properties).factsToUse
+      .maxItems,
+    20,
+  );
+});
 
 test("provider advice bounds reject oversized text and repeated citations before delivery", async (t) => {
   const input = adviceRequestSchema.parse(adviceRequest);
