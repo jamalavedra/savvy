@@ -1797,17 +1797,17 @@ mod issuer_tests {
                 app_operation: Mutex::new(false),
                 settings_path: directory.join("settings.json"),
                 provider_health: Mutex::new(Vec::new()),
-                #[cfg(target_os = "macos")]
+                #[cfg(any(target_os = "macos", target_os = "windows"))]
                 microphone: Mutex::new(crate::MicrophoneCapture::new()),
-                #[cfg(target_os = "macos")]
+                #[cfg(any(target_os = "macos", target_os = "windows"))]
                 system_audio: Mutex::new(crate::SystemAudioCapture::new()),
-                #[cfg(target_os = "macos")]
+                #[cfg(any(target_os = "macos", target_os = "windows"))]
                 transcription_stop: Mutex::new(None),
-                #[cfg(target_os = "macos")]
+                #[cfg(any(target_os = "macos", target_os = "windows"))]
                 transcription_assembly: Mutex::new(None),
-                #[cfg(target_os = "macos")]
+                #[cfg(any(target_os = "macos", target_os = "windows"))]
                 codex_server: Mutex::new(None),
-                #[cfg(target_os = "macos")]
+                #[cfg(any(target_os = "macos", target_os = "windows"))]
                 claude_child: Mutex::new(None),
             })
             .invoke_handler(tauri::generate_handler![

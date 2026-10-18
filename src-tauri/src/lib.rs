@@ -64,9 +64,9 @@ use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_updater::UpdaterExt;
 use uuid::Uuid;
 
-mod managed;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod credentials;
+mod managed;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod overlay;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -520,7 +520,7 @@ async fn set_transcription_api_key(
         let api_key = api_key.trim();
         transcription_key::validate(&provider, api_key).await?;
         credentials::set(&provider, api_key.as_bytes())
-        .map_err(|_| transcription_key::KeyError::storage())?;
+            .map_err(|_| transcription_key::KeyError::storage())?;
         transcription_key_status().map_err(|_| transcription_key::KeyError::storage())
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
@@ -5228,15 +5228,15 @@ fn get_audio_level(state: State<'_, AppState>) -> Result<f32, String> {
     {
         #[cfg(target_os = "macos")]
         {
-        match state.system_audio.try_lock() {
-            Ok(system) => {
-                system.level().map_err(|error| error.to_string())?;
+            match state.system_audio.try_lock() {
+                Ok(system) => {
+                    system.level().map_err(|error| error.to_string())?;
+                }
+                Err(std::sync::TryLockError::WouldBlock) => {}
+                Err(std::sync::TryLockError::Poisoned(_)) => {
+                    return Err("system audio lock poisoned".into())
+                }
             }
-            Err(std::sync::TryLockError::WouldBlock) => {}
-            Err(std::sync::TryLockError::Poisoned(_)) => {
-                return Err("system audio lock poisoned".into())
-            }
-        }
         }
         match state.microphone.try_lock() {
             Ok(microphone) => microphone.level().map_err(|error| error.to_string()),
@@ -7001,9 +7001,9 @@ mod tests {
                 app_operation: Mutex::new(false),
                 settings_path: fixture.directory.join("settings.json"),
                 provider_health: Mutex::new(Vec::new()),
-                #[cfg(target_os = "macos")]
+                #[cfg(any(target_os = "macos", target_os = "windows"))]
                 microphone: Mutex::new(MicrophoneCapture::new()),
-                #[cfg(target_os = "macos")]
+                #[cfg(any(target_os = "macos", target_os = "windows"))]
                 system_audio: Mutex::new(SystemAudioCapture::new()),
                 #[cfg(any(target_os = "macos", target_os = "windows"))]
                 transcription_stop: Mutex::new(None),
