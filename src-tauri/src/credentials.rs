@@ -106,6 +106,7 @@ mod windows_store {
     }
 
     #[test]
+    #[ignore = "Windows Credential Manager requires an interactive logon session"]
     fn disposable_credential_can_be_replaced_and_deleted() {
         let provider = format!("test-{}", uuid::Uuid::new_v4());
         assert_eq!(get(&provider).unwrap(), None);
