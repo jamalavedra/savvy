@@ -207,11 +207,25 @@ fn write_revocations(records: &[PendingRevocation]) -> Result<(), String> {
     *context.revocations.lock().unwrap() = records.to_vec();
     Ok(())
 }
-#[cfg(all(not(target_os = "macos"), not(test)))]
+#[cfg(all(target_os = "windows", not(test)))]
+fn read_revocations() -> Result<Vec<PendingRevocation>, String> {
+    match crate::credentials::get_for(MANAGED_KEYCHAIN_SERVICE, "pending-revocations-v1")? {
+        Some(bytes) => {
+            serde_json::from_slice(&bytes).map_err(|_| "invalid pending revocation record".into())
+        }
+        None => Ok(vec![]),
+    }
+}
+#[cfg(all(target_os = "windows", not(test)))]
+fn write_revocations(records: &[PendingRevocation]) -> Result<(), String> {
+    let bytes = serde_json::to_vec(records).map_err(|_| "invalid pending revocation record")?;
+    crate::credentials::set_for(MANAGED_KEYCHAIN_SERVICE, "pending-revocations-v1", &bytes)
+}
+#[cfg(all(not(any(target_os = "macos", target_os = "windows")), not(test)))]
 fn read_revocations() -> Result<Vec<PendingRevocation>, String> {
     Ok(vec![])
 }
-#[cfg(all(not(target_os = "macos"), not(test)))]
+#[cfg(all(not(any(target_os = "macos", target_os = "windows")), not(test)))]
 fn write_revocations(_records: &[PendingRevocation]) -> Result<(), String> {
     Err("secure credential storage is available on macOS".into())
 }
@@ -316,7 +330,7 @@ fn http() -> Result<reqwest::blocking::Client, String> {
         .map_err(|error| error.to_string())
 }
 
-#[cfg(all(target_os = "macos", not(test)))]
+#[cfg(all(any(target_os = "macos", target_os = "windows"), not(test)))]
 fn credential_account() -> Result<String, String> {
     use sha2::{Digest, Sha256};
     let c = config()?;
@@ -439,7 +453,16 @@ pub(crate) fn clear_connected_e2e_service() {
 fn read_refresh_token() -> Result<Option<String>, String> {
     Ok(test_context().and_then(|context| context.credential.lock().unwrap().clone()))
 }
-#[cfg(all(not(target_os = "macos"), not(test)))]
+#[cfg(all(target_os = "windows", not(test)))]
+fn read_refresh_token() -> Result<Option<String>, String> {
+    crate::credentials::get_for(MANAGED_KEYCHAIN_SERVICE, &credential_account()?)?
+        .map(|bytes| {
+            String::from_utf8(bytes)
+                .map_err(|_| "stored Savvy credential is not valid UTF-8".into())
+        })
+        .transpose()
+}
+#[cfg(all(not(any(target_os = "macos", target_os = "windows")), not(test)))]
 fn read_refresh_token() -> Result<Option<String>, String> {
     Ok(None)
 }
@@ -450,7 +473,15 @@ fn store_refresh_token(token: &str) -> Result<(), String> {
     *context.credential.lock().unwrap() = Some(token.to_owned());
     Ok(())
 }
-#[cfg(all(not(target_os = "macos"), not(test)))]
+#[cfg(all(target_os = "windows", not(test)))]
+fn store_refresh_token(token: &str) -> Result<(), String> {
+    crate::credentials::set_for(
+        MANAGED_KEYCHAIN_SERVICE,
+        &credential_account()?,
+        token.as_bytes(),
+    )
+}
+#[cfg(all(not(any(target_os = "macos", target_os = "windows")), not(test)))]
 fn store_refresh_token(_token: &str) -> Result<(), String> {
     Err("secure credential storage is available on macOS".into())
 }
@@ -462,7 +493,11 @@ fn delete_refresh_token() -> Result<(), String> {
     }
     Ok(())
 }
-#[cfg(all(not(target_os = "macos"), not(test)))]
+#[cfg(all(target_os = "windows", not(test)))]
+fn delete_refresh_token() -> Result<(), String> {
+    crate::credentials::delete_for(MANAGED_KEYCHAIN_SERVICE, &credential_account()?)
+}
+#[cfg(all(not(any(target_os = "macos", target_os = "windows")), not(test)))]
 fn delete_refresh_token() -> Result<(), String> {
     Ok(())
 }

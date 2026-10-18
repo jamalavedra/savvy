@@ -33,12 +33,12 @@ mod windows_store {
         Win32::{Foundation::ERROR_NOT_FOUND, Security::Credentials::*},
     };
 
-    fn target(provider: &str) -> Vec<u16> {
-        format!("{SERVICE}/{provider}\0").encode_utf16().collect()
+    fn target(service: &str, provider: &str) -> Vec<u16> {
+        format!("{service}/{provider}\0").encode_utf16().collect()
     }
 
-    pub fn get(provider: &str) -> Result<Option<Vec<u8>>, String> {
-        let target = target(provider);
+    pub fn get_for(service: &str, provider: &str) -> Result<Option<Vec<u8>>, String> {
+        let target = target(service, provider);
         let mut credential = std::ptr::null_mut();
         // The target is NUL-terminated and lives through the call. CredReadW
         // allocates the returned structure; copy its blob before freeing it.
@@ -69,16 +69,16 @@ mod windows_store {
             }
             Err(error) if error.code() == HRESULT::from_win32(ERROR_NOT_FOUND.0) => Ok(None),
             Err(error) => Err(format!(
-                "could not read API key from Windows Credential Manager: {error}"
+                "could not read credential from Windows Credential Manager: {error}"
             )),
         }
     }
 
-    pub fn set(provider: &str, secret: &[u8]) -> Result<(), String> {
+    pub fn set_for(service: &str, provider: &str, secret: &[u8]) -> Result<(), String> {
         if secret.len() > CRED_MAX_CREDENTIAL_BLOB_SIZE as usize {
-            return Err("API key is too long for Windows Credential Manager".into());
+            return Err("credential is too long for Windows Credential Manager".into());
         }
-        let mut target = target(provider);
+        let mut target = target(service, provider);
         let entry = CREDENTIALW {
             Type: CRED_TYPE_GENERIC,
             TargetName: PWSTR(target.as_mut_ptr()),
@@ -89,20 +89,32 @@ mod windows_store {
         };
         // CredWriteW copies the blob; both borrowed buffers outlive this call.
         unsafe { CredWriteW(&entry, 0) }.map_err(|error| {
-            format!("could not save API key in Windows Credential Manager: {error}")
+            format!("could not save credential in Windows Credential Manager: {error}")
         })
     }
 
-    pub fn delete(provider: &str) -> Result<(), String> {
-        let target = target(provider);
+    pub fn delete_for(service: &str, provider: &str) -> Result<(), String> {
+        let target = target(service, provider);
         // The UTF-16 target remains alive and NUL-terminated for the call.
         match unsafe { CredDeleteW(PCWSTR(target.as_ptr()), CRED_TYPE_GENERIC, None) } {
             Ok(()) => Ok(()),
             Err(error) if error.code() == HRESULT::from_win32(ERROR_NOT_FOUND.0) => Ok(()),
             Err(error) => Err(format!(
-                "could not delete API key from Windows Credential Manager: {error}"
+                "could not delete credential from Windows Credential Manager: {error}"
             )),
         }
+    }
+
+    pub fn get(provider: &str) -> Result<Option<Vec<u8>>, String> {
+        get_for(SERVICE, provider)
+    }
+
+    pub fn set(provider: &str, secret: &[u8]) -> Result<(), String> {
+        set_for(SERVICE, provider, secret)
+    }
+
+    pub fn delete(provider: &str) -> Result<(), String> {
+        delete_for(SERVICE, provider)
     }
 
     #[test]
@@ -120,6 +132,13 @@ mod windows_store {
         assert_eq!(second.unwrap(), Some(b"replacement".to_vec()));
         assert_eq!(get(&provider).unwrap(), None);
         delete(&provider).unwrap();
+        set_for("com.alamaslabs.savvy.managed", &provider, b"managed-token").unwrap();
+        assert_eq!(get(&provider).unwrap(), None);
+        assert_eq!(
+            get_for("com.alamaslabs.savvy.managed", &provider).unwrap(),
+            Some(b"managed-token".to_vec())
+        );
+        delete_for("com.alamaslabs.savvy.managed", &provider).unwrap();
         assert!(set(
             &provider,
             &vec![0; CRED_MAX_CREDENTIAL_BLOB_SIZE as usize + 1]
@@ -129,4 +148,4 @@ mod windows_store {
 }
 
 #[cfg(target_os = "windows")]
-pub use windows_store::{delete, get, set};
+pub use windows_store::{delete, delete_for, get, get_for, set, set_for};
