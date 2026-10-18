@@ -195,7 +195,8 @@ pub fn open_verified(path: &Path) -> io::Result<File> {
         io::AsRawHandle,
     };
     use windows_sys::Win32::Storage::FileSystem::{
-        GetFinalPathNameByHandleW, FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_OPEN_REPARSE_POINT,
+        GetFinalPathNameByHandleW, GetLongPathNameW, FILE_ATTRIBUTE_REPARSE_POINT,
+        FILE_FLAG_OPEN_REPARSE_POINT,
     };
 
     let absolute = if path.is_absolute() {
@@ -248,7 +249,19 @@ pub fn open_verified(path: &Path) -> io::Result<File> {
     } else {
         format!(r"\\?\{expected}")
     };
-    if resolved.to_string_lossy().to_lowercase() != expected.to_lowercase() {
+    // Windows temp paths can use 8.3 aliases; expand those without following reparse points.
+    let input: Vec<u16> = expected.encode_utf16().chain(std::iter::once(0)).collect();
+    let mut long = [0_u16; 32_768];
+    let long_length =
+        unsafe { GetLongPathNameW(input.as_ptr(), long.as_mut_ptr(), long.len() as u32) } as usize;
+    if long_length == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if long_length >= long.len() {
+        return Err(io::Error::other("document path is too long"));
+    }
+    let expected = std::ffi::OsString::from_wide(&long[..long_length]);
+    if resolved.to_string_lossy().to_lowercase() != expected.to_string_lossy().to_lowercase() {
         return Err(io::Error::other("document path changed during opening"));
     }
     Ok(file)
@@ -467,10 +480,22 @@ mod windows_security_tests {
 
     #[test]
     fn verifies_regular_files_and_rejects_path_redirection() {
+        use std::os::windows::ffi::{OsStrExt, OsStringExt};
+        use windows_sys::Win32::Storage::FileSystem::GetShortPathNameW;
+
         let root = tempfile::tempdir().unwrap();
         let source = root.path().join("notes.md");
         std::fs::write(&source, "source").unwrap();
         assert!(open_verified(&source).is_ok());
+        let input: Vec<u16> = source.as_os_str().encode_wide().chain(Some(0)).collect();
+        let mut short = [0_u16; 32_768];
+        let length =
+            unsafe { GetShortPathNameW(input.as_ptr(), short.as_mut_ptr(), short.len() as u32) }
+                as usize;
+        if length > 0 && length < short.len() {
+            let short_path = PathBuf::from(std::ffi::OsString::from_wide(&short[..length]));
+            assert!(open_verified(&short_path).is_ok());
+        }
         assert!(open_verified(&root.path().join("..\\notes.md")).is_err());
         let alias = root.path().join("alias.md");
         if std::os::windows::fs::symlink_file(&source, &alias).is_ok() {
