@@ -143,6 +143,11 @@ export default function PrivacyPolicy() {
         the same Savvy account.
       </p>
       <p>
+        Google may grant Composio broader Gmail and Google Drive permissions than Savvy's read-only
+        connectors use, including write and delete access. Review the provider's consent screen
+        before connecting.
+      </p>
+      <p>
         When you explicitly start a managed meeting or transcription test, microphone audio and, if
         enabled, system audio pass through Savvy’s backend to Deepgram. For brief generation and
         recommendations, selected document excerpts, the brief and relevant recent transcript

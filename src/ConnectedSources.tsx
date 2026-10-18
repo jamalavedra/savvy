@@ -102,6 +102,19 @@ export default function ConnectedSources({
         Connect an app, then choose the records for this client. Savvy saves a
         local Markdown copy.
       </p>
+      {!connection?.connected && provider === "gmail" && (
+        <p>
+          Google currently asks to let Composio send and permanently delete all
+          Gmail messages and read contacts and profile data. Savvy only reads
+          threads you select.
+        </p>
+      )}
+      {!connection?.connected && provider === "googledrive" && (
+        <p>
+          Google currently asks to let Composio edit and delete all Drive files.
+          Savvy only reads documents you select.
+        </p>
+      )}
       <div className="connected-source-controls">
         <label>
           App{" "}

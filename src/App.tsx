@@ -3575,7 +3575,9 @@ function SettingsView({
               you select in Prepare pass through Savvy's backend to this Mac and
               remain as Markdown files in the client folder. Cited excerpts can
               reach Savvy's AI supplier during advice. Disconnect an app in
-              Prepare to revoke access.
+              Prepare to revoke access. Google may grant Composio broader mail
+              and Drive permissions than Savvy's read-only connector uses;
+              review the provider's consent screen before connecting.
             </p>
           </>
         ) : null}
