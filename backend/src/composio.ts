@@ -34,19 +34,33 @@ type RecordPreview = {
   modifiedAt: string | null;
 };
 
+const READ_SCOPES: Record<string, readonly string[]> = {
+  googledrive: [
+    "https://www.googleapis.com/auth/drive",
+    "https://www.googleapis.com/auth/drive.readonly",
+  ],
+  gmail: [
+    "https://mail.google.com/",
+    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/gmail.modify",
+  ],
+  outlook: [
+    "mail.read",
+    "mail.readwrite",
+    "mail.read.shared",
+    "mail.readwrite.shared",
+  ],
+};
+
 function missingReadScope(name: string, data: unknown): boolean {
-  if (name !== "googledrive" || !data || typeof data !== "object") return false;
+  const readScopes = READ_SCOPES[name];
+  if (!readScopes || !data || typeof data !== "object") return false;
   const scope = (data as Record<string, unknown>).scope;
   return (
     typeof scope === "string" &&
     !scope
       .split(/[\s,]+/)
-      .some((value) =>
-        [
-          "https://www.googleapis.com/auth/drive",
-          "https://www.googleapis.com/auth/drive.readonly",
-        ].includes(value),
-      )
+      .some((value) => readScopes.includes(value.toLowerCase()))
   );
 }
 

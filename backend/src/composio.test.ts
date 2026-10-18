@@ -193,6 +193,41 @@ test("an email-only Google grant requires reconnect before Drive reads", async (
   );
 });
 
+test("mail connections require a scope that can read message bodies", async (t) => {
+  const h = fixture(t);
+  for (const [name, insufficient, readable] of [
+    [
+      "gmail",
+      "https://www.googleapis.com/auth/userinfo.email",
+      "https://www.googleapis.com/auth/gmail.readonly",
+    ],
+    ["outlook", "User.Read Mail.Send", "User.Read Mail.Read"],
+  ]) {
+    h.setToolkit(name);
+    h.setScope(insufficient);
+    const missing = (await h.service.connections(1n)).find(
+      (item) => item.provider === name,
+    );
+    assert.equal(missing?.status, "PERMISSION_REQUIRED");
+    assert.equal(missing?.connected, false);
+    await assert.rejects(
+      h.service.search(1n, {
+        provider: name,
+        kind: "thread",
+        accountId: "account-one",
+        query: "Acme",
+      }),
+      (error: unknown) => error instanceof ApiError && error.status === 403,
+    );
+    h.setScope(readable);
+    assert.equal(
+      (await h.service.connections(1n)).find((item) => item.provider === name)
+        ?.connected,
+      true,
+    );
+  }
+});
+
 test("connection status and unfinished disconnect paginate within one account", async (t) => {
   const h = fixture(t);
   let page = 0;
