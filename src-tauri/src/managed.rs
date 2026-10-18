@@ -2,8 +2,8 @@
 //!
 //! Errors crossing the Tauri boundary are strings; managed failures use a
 //! stable `code: message` shape so the UI can branch on the code while BYOK
-//! errors stay free-form. The refresh token lives in the macOS Keychain under
-//! its own service name; access tokens stay in process memory only.
+//! errors stay free-form. The refresh token lives in the platform credential
+//! store under its own service name; access tokens stay in process memory only.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -16,9 +16,9 @@ use std::time::{Duration, Instant};
 
 pub const SIGN_IN_REQUIRED: &str = "sign_in_required";
 
-/// Keychain service for the managed refresh token, distinct from the
+/// Credential-store service for the managed refresh token, distinct from the
 /// transcription-key service so BYOK keys and account credentials never mix.
-#[cfg(all(target_os = "macos", not(test)))]
+#[cfg(all(any(target_os = "macos", target_os = "windows"), not(test)))]
 pub const MANAGED_KEYCHAIN_SERVICE: &str = "com.alamaslabs.savvy.managed";
 
 pub fn typed_error(code: &str, message: &str) -> String {
