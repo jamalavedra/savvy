@@ -76,6 +76,8 @@ jobs:
         run: pnpm --dir backend test:native-auth
 
       - name: Package fixture
+        # Exercises Unix deploy scripts; Windows packaging is built below.
+        if: runner.os != 'Windows'
         run: pnpm --dir backend test:package
 
       - name: Web return fixture
