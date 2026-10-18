@@ -43,11 +43,18 @@ export type Db = Database.Database;
 export function openPrivateDatabase(path: string): Db {
   if (path === ":memory:") return new Database(path);
   const directory = statSync(dirname(resolve(path)));
-  if (directory.uid !== process.getuid?.() || (directory.mode & 0o022) !== 0)
+  // Windows uses the containing profile's ACL; POSIX mode bits are not meaningful there.
+  const posix = process.platform !== "win32";
+  if (
+    posix &&
+    (directory.uid !== process.getuid?.() || (directory.mode & 0o022) !== 0)
+  )
     throw new Error(
       "Database directory must be owned by this user and not writable by others",
     );
   for (const file of [path, `${path}-wal`, `${path}-shm`, `${path}-journal`]) {
+    if (lstatSync(file, { throwIfNoEntry: false })?.isSymbolicLink())
+      throw new Error("Database files must not be symbolic links");
     let fd: number;
     try {
       fd = openSync(
@@ -65,11 +72,15 @@ export function openPrivateDatabase(path: string): Db {
     }
     try {
       const info = fstatSync(fd);
-      if (!info.isFile() || info.uid !== process.getuid?.() || info.nlink !== 1)
+      if (
+        !info.isFile() ||
+        info.nlink !== 1 ||
+        (posix && info.uid !== process.getuid?.())
+      )
         throw new Error(
           "Database files must be regular, owned files without hardlinks",
         );
-      fchmodSync(fd, 0o600);
+      if (posix) fchmodSync(fd, 0o600);
     } finally {
       closeSync(fd);
     }

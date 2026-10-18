@@ -13,40 +13,44 @@ import { createAuthorizer } from "./authorize.js";
 import { ApiError, json } from "./errors.js";
 import { configuration, systemClock } from "./config.js";
 
-test("database opening restricts files and sidecars before use and rejects unsafe paths", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "savvy-private-db-"));
-  const path = join(directory, "service.sqlite");
-  const mask = process.umask(0);
-  try {
-    const db = openServiceDatabase(path);
+test(
+  "database opening restricts files and sidecars before use and rejects unsafe paths",
+  { skip: process.platform === "win32" },
+  async () => {
+    const directory = await mkdtemp(join(tmpdir(), "savvy-private-db-"));
+    const path = join(directory, "service.sqlite");
+    const mask = process.umask(0);
     try {
-      for (const file of [path, `${path}-wal`, `${path}-shm`])
-        assert.equal((await stat(file)).mode & 0o777, 0o600);
+      const db = openServiceDatabase(path);
+      try {
+        for (const file of [path, `${path}-wal`, `${path}-shm`])
+          assert.equal((await stat(file)).mode & 0o777, 0o600);
+      } finally {
+        db.close();
+      }
+      await chmod(path, 0o644);
+      const reopened = openPrivateDatabase(path);
+      reopened.close();
+      assert.equal((await stat(path)).mode & 0o777, 0o600);
+      const alias = join(directory, "alias.sqlite");
+      await symlink(path, alias);
+      assert.throws(() => openPrivateDatabase(alias));
+      await rm(alias);
+      await link(path, alias);
+      assert.throws(() => openPrivateDatabase(alias), /without hardlinks/);
+      await rm(alias);
+      await symlink(path, `${path}-wal`);
+      assert.throws(() => openPrivateDatabase(path));
+      await rm(`${path}-wal`);
+      assert.throws(() => openPrivateDatabase(directory));
+      await chmod(directory, 0o777);
+      assert.throws(() => openPrivateDatabase(path), /not writable by others/);
     } finally {
-      db.close();
+      process.umask(mask);
+      await rm(directory, { recursive: true, force: true });
     }
-    await chmod(path, 0o644);
-    const reopened = openPrivateDatabase(path);
-    reopened.close();
-    assert.equal((await stat(path)).mode & 0o777, 0o600);
-    const alias = join(directory, "alias.sqlite");
-    await symlink(path, alias);
-    assert.throws(() => openPrivateDatabase(alias));
-    await rm(alias);
-    await link(path, alias);
-    assert.throws(() => openPrivateDatabase(alias), /without hardlinks/);
-    await rm(alias);
-    await symlink(path, `${path}-wal`);
-    assert.throws(() => openPrivateDatabase(path));
-    await rm(`${path}-wal`);
-    assert.throws(() => openPrivateDatabase(directory));
-    await chmod(directory, 0o777);
-    assert.throws(() => openPrivateDatabase(path), /not writable by others/);
-  } finally {
-    process.umask(mask);
-    await rm(directory, { recursive: true, force: true });
-  }
-});
+  },
+);
 
 test("verified issuer/subject, current signing keys, and disabled accounts define ownership", async () => {
   const db = openServiceDatabase(":memory:");
