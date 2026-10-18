@@ -2,7 +2,7 @@
 goal: Verify Composio connected sources and the installed managed meeting before review
 version: 1.0
 date_created: 2026-10-18
-last_updated: 2026-10-18
+last_updated: 2026-10-19
 owner: Savvy
 status: 'In progress'
 tags: [feature, verification, composio, desktop]
@@ -81,6 +81,19 @@ Complete the checks left open by the 2026-10-16 connected-source run. Use fictio
 | TASK-016 | Run Windows React, backend, Rust, typecheck, formatting, and build checks; fix failures. | ✅ | 2026-10-18 |
 | TASK-017 | Launch the built Windows app in an interactive session and verify live OAuth, connected source selection, two-channel audio, and an actual managed call when staging access is available. Record any unmet external gate exactly. | ✅ | 2026-10-18 |
 | TASK-018 | Push the combined branch and open [PR #40](https://github.com/jamalavedra/savvy/pull/40) against `feat/windows-support` with the Windows verification record. | ✅ | 2026-10-18 |
+
+### Implementation Phase 6: post-Windows merge review
+
+- GOAL-006: Rebase the acceptance decision on the merged Windows code and make each remaining live-provider gate explicit.
+
+| Task | Description | Completed | Date |
+|------|-------------|-----------|------|
+| TASK-019 | Rerun the native/backend CRM-plus-document and outage fixture on the combined branch on macOS and Windows 11; check backend adapters, App UI, and typechecks. | ✅ | 2026-10-19 |
+| TASK-020 | Clear client-specific refresh status when the rep switches clients, and rerun the focused App suite. | ✅ | 2026-10-19 |
+| TASK-021 | Merge Windows support PR #15, retarget PR #40 to `main`, and require fresh CI on the updated branch. | | |
+| TASK-022 | Run the live 11-kind fixture across all seven providers. Salesforce, HubSpot, Gong, Gmail, and Outlook still lack connected test accounts or acceptable read grants; keep PR #40 draft while this gate remains open. | | |
+| TASK-023 | Resolve or explicitly accept the session-level action restriction and broad Gmail, Outlook, and Drive grant risks before release. | | |
+| TASK-024 | Verify per-claim citations for a mixed Notion and Drive answer; the previous installed call had a mismatched citation. | | |
 
 ## 3. Alternatives
 

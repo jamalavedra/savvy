@@ -1,6 +1,6 @@
 # Connected sources verification — 2026-10-18
 
-Branch: `feature/composio-connected-sources` (based on `720ab64`); draft [PR #39](https://github.com/jamalavedra/savvy/pull/39). This is an in-progress acceptance record for the staging backend and signed `Savvy Integration.app`. All test content is fictional. Private tokens, email codes, customer mail, and audio are excluded.
+The initial Mac work was recorded on `feature/composio-connected-sources` in draft [PR #39](https://github.com/jamalavedra/savvy/pull/39). The combined Windows and connected-source change is draft [PR #40](https://github.com/jamalavedra/savvy/pull/40). This is an in-progress acceptance record for the staging backend and installed desktop apps. All test content is fictional. Private tokens, email codes, customer mail, and audio are excluded.
 
 ## Results
 
@@ -60,3 +60,13 @@ Google Drive also completed a Composio Connect Link from the Windows Prepare vie
 The test machine's direct staging egress received Cloudflare HTTP 403. For this isolated test, HTTPS used a temporary local IPv4 proxy; WebSocket TLS used a temporary loopback tunnel to the same IPv4 staging endpoint. TLS validation remained enabled and Windows `curl` returned HTTP 200 through the route. Temporary grants were made only for the authorized staging account, with short expiry and distinct fixture origins. Both grants were expired after testing; staging had zero active meetings and zero reserved milliseconds. The Windows hosts entry, test tunnels, temporary Connect Links, isolated Edge profile, test tasks, and integration recordings were removed. This routing is test infrastructure, not part of the Windows app or PR.
 
 The live installed calls prove the Notion and Google Drive document paths. The Windows CRM path remains verified by the native/backend fixture, not a live provider account. Live Salesforce, HubSpot, Gong, Gmail, and Outlook reads retain the external account and scope gates listed above.
+
+## Review on 2026-10-19
+
+The latest combined branch ran the native/backend connected-source fixture on both macOS and Windows 11: 1/1 on each. The fixture imports a CRM record and a document, sends their indexed local excerpts through the managed advice request, verifies a citation to an imported local source, then repeats with a provider outage and stale-copy or exclusion choice. No Composio request occurs during advice. The backend source-adapter suite passed 12/12; the full backend suite passed 115 tests with its opt-in live test skipped. Root and backend TypeScript checks and the 49 App UI tests passed. These fixture results verify the current code after the installed live calls above; they do not replace live reads from the five unconnected providers.
+
+Code review found that switching clients could leave the prior client's refresh status visible for a record attached to both clients. The Prepare callback now clears those results on client change. The focused App suite and TypeScript check passed after the change.
+
+Composio sessions are restricted to the seven supported toolkits, with the remote sandbox disabled. Savvy fixes its own proxy calls to read endpoints and never gives the model a Composio tool. The session itself cannot enforce a per-action read allowlist while using `proxyExecute`; Composio [documents that toolkit tool rules do not apply to proxy execution](https://docs.composio.dev/docs/extending-sessions/proxy-execute). A project-level read-only grant or a move to scoped tool execution remains a release security improvement. The currently broad Gmail, Outlook, and Drive grants described above make this especially relevant.
+
+Open live gates remain Salesforce account/opportunity/note, HubSpot company/deal/note, Gong transcript, Gmail thread, and Outlook thread. A live multi-source answer also mentioned a Drive fact with only a Notion citation; per-claim attribution is still a quality risk. PR #40 stays draft until these gates are validated or consciously accepted for release.

@@ -11,8 +11,10 @@ test("static export has metadata, FAQ answers and referenced assets", async () =
   const html = await readFile("out/index.html", "utf8");
   assert.match(html, /rel="canonical" href="https:\/\/www\.savvycopilot\.com\/"/);
   assert.equal([...html.matchAll(/<details[ >]/g)].length, faqItems.length);
-  assert.match(html, /<button[^>]*disabled=""[^>]*>.*?Windows coming soon<\/button>/);
-  assert.equal([...html.matchAll(/Reads your files first\.<br\//g)].length, 1);
+  assert.match(html, /href="https:\/\/github\.com\/jamalavedra\/savvy\/releases\/latest"/);
+  for (const app of ["google-meet", "microsoft-teams", "zoom"]) {
+    assert.match(html, new RegExp(`/images/logos/${app}\\.svg`));
+  }
   assert.match(html, /<summary[^>]*>Where does my data go\?/);
   for (const [, asset] of html.matchAll(/(?:src|poster)="(\/[^"?]+)"/g)) {
     await access(`out${asset}`);

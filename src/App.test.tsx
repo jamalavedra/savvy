@@ -101,6 +101,55 @@ describe("App", () => {
     window.history.replaceState({}, "", "/");
   });
 
+  it("uses Windows shortcuts and lets users select system audio separately from feedback", async () => {
+    vi.mocked(listen).mockResolvedValue(vi.fn());
+    vi.spyOn(api, "getAppStatus").mockResolvedValue({
+      version,
+      platform: "windows",
+    });
+    const settings = await api.getAppSettings();
+    vi.spyOn(api, "getAppSettings").mockResolvedValue({
+      ...settings,
+      startListeningShortcut: "Control+Alt+M",
+    });
+    vi.spyOn(api, "getOutputDevices").mockResolvedValue([
+      { name: "System default", isDefault: true, channels: 2 },
+      { name: "Meeting headphones", isDefault: false, channels: 2 },
+    ]);
+    const save = vi.spyOn(api, "updateAppSettings");
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "General" }));
+    expect(
+      await screen.findByRole("button", {
+        name: "Change start listening shortcut",
+      }),
+    ).toHaveTextContent("Ctrl+Alt+M");
+    fireEvent.click(screen.getByRole("button", { name: "Reset shortcut" }));
+    await waitFor(() =>
+      expect(save).toHaveBeenCalledWith(
+        expect.objectContaining({ startListeningShortcut: "Control+Shift+M" }),
+      ),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "System Audio Output" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("option", { name: "Meeting headphones" }),
+    );
+    await waitFor(() =>
+      expect(save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          selectedSystemOutputDevice: "Meeting headphones",
+          selectedOutputDevice: null,
+        }),
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Models" }));
+    expect(
+      await screen.findByRole("button", { name: /Windows Credential Manager/ }),
+    ).toBeInTheDocument();
+  });
+
   it("shows managed assistance instead of a personal-provider model selector", async () => {
     const settings = await api.getAppSettings();
     await api.updateAppSettings({

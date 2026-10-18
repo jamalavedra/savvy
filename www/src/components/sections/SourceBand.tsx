@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 import { FadeInUp } from "@/components/animations/FadeInUp";
-import { Eyebrow, MascotNote, TwoLineHeading } from "@/components/sections/primitives";
+import { MascotNote, TwoLineHeading } from "@/components/sections/primitives";
 
 type Pod = {
   key: string;
@@ -10,7 +10,6 @@ type Pod = {
   grounded: number;
   className: string;
   orbit: { r: number; dur: number; delay: number; reverse?: boolean };
-  tilt: number;
   layer: "front" | "back";
 };
 
@@ -23,7 +22,6 @@ const PODS: Pod[] = [
     grounded: 94,
     className: "-left-6 top-[1%] md:left-[8%] md:top-[22%]",
     orbit: { r: 37, dur: 16, delay: -3 },
-    tilt: -2,
     layer: "back",
   },
   {
@@ -34,7 +32,6 @@ const PODS: Pod[] = [
     grounded: 100,
     className: "-right-8 top-[4%] md:right-[6%] md:top-[16%]",
     orbit: { r: 35, dur: 19, delay: -9, reverse: true },
-    tilt: 2.5,
     layer: "back",
   },
   {
@@ -45,7 +42,6 @@ const PODS: Pod[] = [
     grounded: 88,
     className: "-left-8 bottom-[4%] md:bottom-[26%] md:left-[4%]",
     orbit: { r: 32, dur: 14, delay: -6 },
-    tilt: 1.5,
     layer: "back",
   },
   {
@@ -56,7 +52,6 @@ const PODS: Pod[] = [
     grounded: 96,
     className: "-right-6 bottom-[1%] md:bottom-[20%] md:right-[8%]",
     orbit: { r: 38, dur: 17, delay: -12, reverse: true },
-    tilt: -1.5,
     layer: "front",
   },
   {
@@ -67,7 +62,6 @@ const PODS: Pod[] = [
     grounded: 91,
     className: "hidden lg:block lg:left-[26%] lg:top-[7%]",
     orbit: { r: 27, dur: 15, delay: -2 },
-    tilt: 3,
     layer: "front",
   },
   {
@@ -78,7 +72,6 @@ const PODS: Pod[] = [
     grounded: 100,
     className: "hidden lg:block lg:right-[26%] lg:top-[8%]",
     orbit: { r: 28, dur: 13, delay: -7, reverse: true },
-    tilt: -3,
     layer: "back",
   },
   {
@@ -89,7 +82,6 @@ const PODS: Pod[] = [
     grounded: 93,
     className: "hidden xl:block xl:left-[4%] xl:top-[48%]",
     orbit: { r: 33, dur: 18, delay: -14 },
-    tilt: 2,
     layer: "back",
   },
   {
@@ -100,7 +92,6 @@ const PODS: Pod[] = [
     grounded: 86,
     className: "hidden xl:block xl:right-[4%] xl:top-[46%]",
     orbit: { r: 36, dur: 12.5, delay: -5, reverse: true },
-    tilt: -2.5,
     layer: "back",
   },
   {
@@ -111,7 +102,6 @@ const PODS: Pod[] = [
     grounded: 97,
     className: "hidden lg:block lg:bottom-[8%] lg:left-[38%]",
     orbit: { r: 30, dur: 14.5, delay: -10 },
-    tilt: 1,
     layer: "front",
   },
 ];
@@ -123,7 +113,7 @@ const DocGlyph = (
     height="11"
     fill="none"
     stroke="currentColor"
-    strokeWidth="2"
+    strokeWidth="1.5"
     strokeLinecap="round"
     strokeLinejoin="round"
     aria-hidden="true"
@@ -133,30 +123,23 @@ const DocGlyph = (
 );
 
 const TONE: Record<Pod["title"], string> = {
-  Answer: "bg-success/15",
-  "Red line": "bg-danger/15",
-  Advice: "bg-accent/15",
-  "Savvy noticed": "bg-warning/15",
+  Answer: "bg-success/10 text-success",
+  "Red line": "bg-danger/10 text-danger",
+  Advice: "bg-black/5 text-[#111]",
+  "Savvy noticed": "bg-warning/10 text-warning",
 };
 
 function PodCard({ title, say, source, grounded }: Pod) {
   return (
-    <div className="w-48 px-3.5 py-3 md:w-56">
+    <div className="w-52 p-3 text-[#111] md:w-60">
       <div className="flex items-center gap-2">
-        <span
-          className={`rounded-full px-2 py-0.5 text-[10px] font-bold text-foreground ${TONE[title]}`}
-        >
+        <span className={`rounded-md px-1.5 py-0.5 text-[12px] font-semibold ${TONE[title]}`}>
           {title}
         </span>
-        <span className="ml-auto shrink-0 font-mono text-[10px] text-muted">{grounded}%</span>
+        <span className="ml-auto shrink-0 font-mono text-[11px] text-black/55">{grounded}%</span>
       </div>
-      <p className="mt-2 text-[13px] leading-snug tracking-tight">
-        <span className="mr-1.5 text-[9px] font-extrabold uppercase tracking-[0.08em] text-success">
-          Say
-        </span>
-        {say}
-      </p>
-      <p className="mt-2 flex items-center gap-1.5 truncate font-mono text-[10px] text-muted">
+      <p className="mt-2 text-[14px] font-semibold leading-snug">{say}</p>
+      <p className="mt-2 flex items-center gap-1.5 rounded-lg bg-[#f6f5f2] px-2 py-1 font-mono text-[11px] text-black/55">
         {DocGlyph}
         <span className="truncate">{source}</span>
       </p>
@@ -168,32 +151,21 @@ export function SourceBand() {
   return (
     <section className="pt-20 lg:pt-28">
       <div className="page-column">
-        <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
-          <FadeInUp>
-            <Eyebrow>Grounded</Eyebrow>
-          </FadeInUp>
-          <FadeInUp delay={0.05}>
-            <TwoLineHeading
-              className="lg:max-w-xl lg:text-right"
-              line1="See the supporting source"
-              line2="Documents, brief, and conversation"
-            />
-          </FadeInUp>
-        </div>
+        <FadeInUp>
+          <TwoLineHeading
+            line1="See the supporting source"
+            line2="Documents, brief, and conversation"
+          />
+        </FadeInUp>
       </div>
 
       <FadeInUp delay={0.1}>
         <div className="page-column">
-          <div
-            className="panel relative mt-14 overflow-hidden text-foreground"
-            style={{ "--hue": "var(--color-hue-butter)" } as CSSProperties}
-          >
+          <div className="art-panel art-paper relative mt-10 overflow-hidden text-foreground">
             {PODS.map((pod) => (
               <div
                 key={pod.key}
-                className={`absolute ${
-                  pod.layer === "front" ? "z-20" : "z-0 blur-[2px] md:blur-[3px]"
-                } ${pod.className}`}
+                className={`absolute ${pod.layer === "front" ? "z-20" : "z-0"} ${pod.className}`}
               >
                 <div
                   className={`pod-orbit ${pod.orbit.reverse ? "pod-orbit-reverse" : ""}`}
@@ -206,10 +178,9 @@ export function SourceBand() {
                   }
                 >
                   <div
-                    className={`bg-surface/80 shadow-sm backdrop-blur-sm ${
-                      pod.layer === "back" ? "opacity-80" : ""
+                    className={`rounded-2xl bg-surface shadow-[0_12px_32px_-16px_rgba(31,26,16,0.45)] ring-1 ring-black/[0.06] ${
+                      pod.layer === "back" ? "opacity-70" : ""
                     }`}
-                    style={{ transform: `rotate(${pod.tilt}deg)` }}
                   >
                     <PodCard {...pod} />
                   </div>
@@ -217,18 +188,19 @@ export function SourceBand() {
               </div>
             ))}
 
-            <div className="relative z-10 px-6 py-32 text-center backdrop-blur-[3px] lg:py-44">
-              <p className="text-5xl font-medium tracking-tighter sm:text-6xl lg:text-7xl">
-                Check the source.
-              </p>
-              <p className="mx-auto mt-4 max-w-md text-sm text-balance text-muted">
-                Cards cite your documents, brief, or conversation. Review the source before acting.
-              </p>
-              <MascotNote
-                className="mt-8 justify-center"
-                state="listening"
-                note="Every card names its source."
-              />
+            <div className="relative z-10 px-4 py-32 lg:py-44">
+              <div className="art-card mx-auto max-w-md px-6 py-8 text-center">
+                <p className="text-display">Check the source.</p>
+                <p className="mx-auto mt-4 max-w-sm text-small text-balance text-muted">
+                  Cards cite your documents, brief, or conversation. Review the source before
+                  acting.
+                </p>
+                <MascotNote
+                  className="mt-8 justify-center"
+                  state="listening"
+                  note="Every card names its source."
+                />
+              </div>
             </div>
           </div>
         </div>

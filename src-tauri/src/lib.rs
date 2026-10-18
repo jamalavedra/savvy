@@ -611,7 +611,7 @@ async fn managed_billing(
         .map_err(|e| e.to_string())
 }
 
-/// Opens the relevant audio settings without requesting capture.
+/// Opens the relevant system audio or microphone settings without requesting capture.
 #[tauri::command]
 fn open_audio_settings(app: AppHandle, system: bool) -> Result<(), String> {
     #[cfg(target_os = "windows")]

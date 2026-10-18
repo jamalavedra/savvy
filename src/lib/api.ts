@@ -146,6 +146,7 @@ export function resetBrowserDemoState({
   demoManagedOffline = false;
   browserDemo.activeSession = null;
   browserSettings.serviceMode = "byok";
+  browserSettings.startListeningShortcut = "Command+Shift+M";
   removedDemoClientIds.clear();
   removedDemoBriefScopes.clear();
   demoExcludedPaths.clear();

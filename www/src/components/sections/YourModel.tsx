@@ -2,7 +2,6 @@ import type { CSSProperties, ReactNode } from "react";
 import { FadeInUp } from "@/components/animations/FadeInUp";
 import {
   CHECK_PATH,
-  Eyebrow,
   StatList,
   TerminalIcon,
   TwoLineHeading,
@@ -46,7 +45,7 @@ function SpeechMark() {
 }
 
 const CheckBadge = (
-  <span className="pr-check absolute -right-1.5 -top-1.5 grid h-5 w-5 place-items-center rounded-full bg-success text-white shadow-sm">
+  <span className="pr-check absolute -right-1.5 -top-1.5 grid h-5 w-5 place-items-center rounded-full bg-success text-white ring-2 ring-white">
     <svg
       viewBox="0 0 24 24"
       width="12"
@@ -72,11 +71,7 @@ const MARKS: { key: string; mark: ReactNode }[] = [
 
 const ProvidersVignette = (
   <div className="relative flex flex-col items-center pt-[104px] pb-2">
-    <div className="pr-seat relative grid h-[64px] w-[184px] place-items-center rounded-2xl border border-accent-soft bg-surface shadow-sm">
-      <span
-        aria-hidden="true"
-        className="pr-ring absolute inset-0 rounded-2xl border border-accent"
-      />
+    <div className="relative grid h-[64px] w-[184px] place-items-center rounded-2xl bg-[#f6f5f2]">
       <span className="savvy-wordmark text-[24px]">savvy</span>
     </div>
 
@@ -84,7 +79,7 @@ const ProvidersVignette = (
       {MARKS.map(({ key, mark }, i) => (
         <span
           key={key}
-          className="pr-drop relative grid place-items-center rounded-xl border border-border bg-surface text-foreground shadow-sm"
+          className="pr-drop relative grid place-items-center rounded-2xl bg-white text-[#111] ring-1 ring-black/[0.06] shadow-[0_8px_20px_-10px_rgba(31,26,16,0.35)]"
           style={{ "--pr-delay": `${i * 3}s` } as CSSProperties}
         >
           {mark}
@@ -93,9 +88,7 @@ const ProvidersVignette = (
       ))}
     </div>
 
-    <p className="mt-4 font-mono text-[11px] uppercase tracking-[0.08em] text-muted">
-      Already on your Mac
-    </p>
+    <p className="mt-4 text-small text-muted">Already on your Mac</p>
   </div>
 );
 
@@ -104,25 +97,22 @@ export function YourModel() {
     <section className="py-20 lg:py-28">
       <div className="page-column grid gap-10 *:min-w-0 lg:grid-cols-[1fr_minmax(0,380px)_1fr] lg:gap-12">
         <FadeInUp>
-          <Eyebrow>Bring your own</Eyebrow>
-          <TwoLineHeading
-            className="mt-4"
-            line1="Use your own accounts"
-            line2="Choose your providers"
-          />
+          <TwoLineHeading line1="Use your own accounts" line2="Choose your providers" />
         </FadeInUp>
 
         <FadeInUp delay={0.1}>
-          <div className="panel relative overflow-hidden px-4 pb-6">{ProvidersVignette}</div>
+          <div className="art-panel art-ember p-5 sm:p-6">
+            <div className="art-card relative overflow-hidden px-4 pb-6">{ProvidersVignette}</div>
+          </div>
         </FadeInUp>
 
         <FadeInUp delay={0.15}>
-          <p className="text-sm leading-relaxed text-muted">
+          <p className="text-small text-muted">
             Personal-provider setup uses Claude Code or Codex CLI for guidance. Sign in on your Mac
             and use your existing provider account. Savvy sends selected excerpts, the whole brief,
             and recent transcript turns to that provider.
           </p>
-          <p className="mt-4 text-sm leading-relaxed text-muted">
+          <p className="mt-4 text-small text-muted">
             Transcription uses your Deepgram or AssemblyAI API key, stored in the macOS Keychain.
             Your providers bill for usage. Or choose Savvy managed in the same app for hosted
             transcription and Claude access. See pricing for included allowance.

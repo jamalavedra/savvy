@@ -1,21 +1,17 @@
-import { Caveat, Inter, JetBrains_Mono } from "next/font/google";
+import { IBM_Plex_Mono, Nunito } from "next/font/google";
 
-// Inter is the app's UI face (savvy/src/App.css); the mono is for eyebrows,
-// file paths and numerals only.
-export const inter = Inter({
+// Rounded sans for everything; SF Pro Rounded wins on Apple devices (see
+// --font-sans). The mono is for figures, file paths and timers only.
+export const nunito = Nunito({
   subsets: ["latin"],
-  variable: "--font-inter",
+  weight: ["500", "600", "700", "800"],
+  variable: "--font-nunito",
   display: "swap",
 });
 
-export const jetbrainsMono = JetBrains_Mono({
+export const plexMono = IBM_Plex_Mono({
   subsets: ["latin"],
-  variable: "--font-jetbrains-mono",
-  display: "swap",
-});
-
-export const caveat = Caveat({
-  subsets: ["latin"],
-  variable: "--font-caveat",
+  weight: ["400", "500", "600"],
+  variable: "--font-plex-mono",
   display: "swap",
 });
