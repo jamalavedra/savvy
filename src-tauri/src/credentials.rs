@@ -148,4 +148,6 @@ mod windows_store {
 }
 
 #[cfg(target_os = "windows")]
-pub use windows_store::{delete, delete_for, get, get_for, set, set_for};
+pub use windows_store::{delete, get, set};
+#[cfg(all(target_os = "windows", not(test)))]
+pub use windows_store::{delete_for, get_for, set_for};
