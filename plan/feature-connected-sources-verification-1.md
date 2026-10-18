@@ -37,7 +37,7 @@ Complete the checks left open by the 2026-10-16 connected-source run. Use fictio
 |------|-------------|-----------|------|
 | TASK-001 | Create branch `feature/composio-connected-sources` from current `main` without discarding the existing feature changes. Inventory tracked and untracked files with `git status --short`; exclude pre-existing `findings/`. | ✅ | 2026-10-18 |
 | TASK-002 | Renew the dedicated staging account login through the installed browser OAuth flow in `src-tauri/src/managed.rs`; assert that the callback returns to the exact signed staging app and `/v1/account` succeeds. | | |
-| TASK-003 | Build a signed staging app with `scripts/build-integration-macos.sh`. Back up and hash the Integration app data, then use a disposable client folder under `target/`. Record signature, bundle path, and source revision. | ✅ | 2026-10-18 |
+| TASK-003 | Build a signed staging app. Back up and hash the Integration app data, then use a disposable client folder under `target/`. Record signature, bundle path, and source revision. | ✅ | 2026-10-18 |
 
 ### Implementation Phase 2
 
