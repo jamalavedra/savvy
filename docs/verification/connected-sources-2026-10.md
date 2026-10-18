@@ -35,4 +35,4 @@ The fictional Drive brief and Gmail thread are saved in the authorized test acco
 
 The latest connection-status test verifies that Gmail and Outlook grants without message-body read scope show `PERMISSION_REQUIRED`, as the existing Drive check does. This prevents a partial OAuth grant from appearing ready for import.
 
-Composio documents [managed auth scope overrides](https://docs.composio.dev/docs/authentication/controlling-scopes), but the staging project key returns HTTP 403 for `auth_configs` read access. A project administrator must supply a scoped auth config or grant the required config permission before Savvy can test narrower Gmail and Drive grants.
+Composio documents [managed auth scope overrides](https://docs.composio.dev/docs/authentication/controlling-scopes), but the staging project key returns HTTP 403 for `auth_configs` read access. The pinned SDK's `session.authorize()` has no per-link scope override, so a project administrator must supply a scoped auth config or grant the required config permission before Savvy can test narrower Gmail and Drive grants.
