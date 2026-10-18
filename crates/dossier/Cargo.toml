@@ -21,3 +21,6 @@ thiserror.workspace = true
 uuid.workspace = true
 walkdir = "2"
 zip = { version = "6", default-features = false, features = ["deflate"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }

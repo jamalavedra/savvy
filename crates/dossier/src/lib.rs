@@ -187,11 +187,71 @@ pub fn open_verified(path: &Path) -> io::Result<File> {
     }
     Ok(file)
 }
-#[cfg(not(unix))]
+#[cfg(windows)]
+pub fn open_verified(path: &Path) -> io::Result<File> {
+    use std::os::windows::{ffi::OsStringExt, fs::{MetadataExt, OpenOptionsExt}, io::AsRawHandle};
+    use windows_sys::Win32::Storage::FileSystem::{
+        GetFinalPathNameByHandleW, FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_OPEN_REPARSE_POINT,
+    };
+
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()?.join(path)
+    };
+    let mut component_path = PathBuf::new();
+    for component in absolute.components() {
+        if matches!(component, Component::ParentDir | Component::CurDir) {
+            return Err(io::Error::other("invalid document path"));
+        }
+        component_path.push(component);
+        if matches!(component, Component::Normal(_))
+            && std::fs::symlink_metadata(&component_path)?.file_attributes()
+                & FILE_ATTRIBUTE_REPARSE_POINT != 0
+        {
+            return Err(io::Error::other("document path contains a reparse point"));
+        }
+    }
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(&absolute)?;
+    if !file.metadata()?.is_file() {
+        return Err(io::Error::other("document must be a regular file"));
+    }
+    let mut resolved = [0_u16; 32_768];
+    let length = unsafe {
+        GetFinalPathNameByHandleW(
+            file.as_raw_handle(),
+            resolved.as_mut_ptr(),
+            resolved.len() as u32,
+            0,
+        )
+    } as usize;
+    if length == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if length >= resolved.len() {
+        return Err(io::Error::other("document path is too long"));
+    }
+    let resolved = std::ffi::OsString::from_wide(&resolved[..length]);
+    let expected = absolute.to_string_lossy();
+    let expected = if expected.starts_with(r"\\?\") {
+        expected.to_string()
+    } else if let Some(unc) = expected.strip_prefix(r"\\") {
+        format!(r"\\?\UNC\{unc}")
+    } else {
+        format!(r"\\?\{expected}")
+    };
+    if resolved.to_string_lossy().to_lowercase() != expected.to_lowercase() {
+        return Err(io::Error::other("document path changed during opening"));
+    }
+    Ok(file)
+}
+
+#[cfg(not(any(unix, windows)))]
 pub fn open_verified(_path: &Path) -> io::Result<File> {
-    Err(io::Error::other(
-        "verified document opening requires a supported platform",
-    ))
+    Err(io::Error::other("verified document opening requires a supported platform"))
 }
 
 fn hash_file(
@@ -391,5 +451,23 @@ mod security_tests {
         let directory_alias = root.path().join("linked");
         std::os::unix::fs::symlink(root.path(), &directory_alias).unwrap();
         assert!(open_verified(&directory_alias.join("notes.md")).is_err());
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_security_tests {
+    use super::*;
+
+    #[test]
+    fn verifies_regular_files_and_rejects_path_redirection() {
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("notes.md");
+        std::fs::write(&source, "source").unwrap();
+        assert!(open_verified(&source).is_ok());
+        assert!(open_verified(&root.path().join("..\\notes.md")).is_err());
+        let alias = root.path().join("alias.md");
+        if std::os::windows::fs::symlink_file(&source, &alias).is_ok() {
+            assert!(open_verified(&alias).is_err());
+        }
     }
 }
