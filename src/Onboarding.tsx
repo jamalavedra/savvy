@@ -133,15 +133,18 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
   const [keyCheckPending, setKeyCheckPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const applyPermissions = useCallback((reading: PermissionReading | null) => {
-    if (!reading) return false;
-    setIsMacos(reading.macos);
-    setPlatform(reading.platform);
-    if (reading.platform === "windows") setStep("transcription");
-    setMicrophone(reading.mic ? "granted" : "needed");
-    setScreen(reading.capture ? "granted" : "needed");
-    return true;
-  }, []);
+  const applyPermissions = useCallback(
+    (reading: PermissionReading | null) => {
+      if (!reading) return false;
+      setIsMacos(reading.macos);
+      setPlatform(reading.platform);
+      if (reading.platform === "windows" && !managed) setStep("transcription");
+      setMicrophone(reading.mic ? "granted" : "needed");
+      setScreen(reading.capture ? "granted" : "needed");
+      return true;
+    },
+    [managed],
+  );
 
   /** The rows would otherwise sit on "Checking…" forever with nothing explaining it. */
   const reportCheckFailure = useCallback(() => {
