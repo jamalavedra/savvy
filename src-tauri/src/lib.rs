@@ -4609,7 +4609,12 @@ fn is_terminal_managed_failure(message: &str) -> bool {
 
 fn managed_stream_message(message: &str, label: &str) -> String {
     if message.contains("capture_unavailable") {
-        format!("Savvy assistance paused: {label} capture stopped supplying audio. Unlock your Mac, check audio permissions, then resume the meeting to restart capture.")
+        let recovery = if cfg!(target_os = "windows") {
+            "Check your Windows audio output, then resume the meeting to restart capture."
+        } else {
+            "Unlock your Mac, check audio permissions, then resume the meeting to restart capture."
+        };
+        format!("Savvy assistance paused: {label} capture stopped supplying audio. {recovery}")
     } else if message.contains("quota_exhausted") {
         "Savvy assistance paused: your included time ran out. Add time, then explicitly resume the meeting.".to_owned()
     } else if message.contains("sign_in_required") {
