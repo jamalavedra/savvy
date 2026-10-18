@@ -115,6 +115,13 @@ export default function ConnectedSources({
           Savvy only reads documents you select.
         </p>
       )}
+      {!connection?.connected && provider === "outlook" && (
+        <p>
+          Microsoft currently asks to let Composio send and delete mail and edit
+          calendars, contacts, and mailbox settings. Savvy only reads threads
+          you select.
+        </p>
+      )}
       <div className="connected-source-controls">
         <label>
           App{" "}

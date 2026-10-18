@@ -143,8 +143,9 @@ export default function PrivacyPolicy() {
         the same Savvy account.
       </p>
       <p>
-        Google may grant Composio broader Gmail and Google Drive permissions than Savvy's read-only
-        connectors use, including write and delete access. Review the provider's consent screen
+        Google and Microsoft may grant Composio broader Gmail, Outlook, and Google Drive permissions
+        than Savvy's read-only connectors use, including sending email and editing or deleting mail,
+        contacts, calendars, mailbox settings, and Drive files. Review the provider's consent screen
         before connecting.
       </p>
       <p>
