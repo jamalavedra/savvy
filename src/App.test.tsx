@@ -97,6 +97,7 @@ describe("App", () => {
     vi.restoreAllMocks();
     vi.useRealTimers();
     delete window.__TAURI_INTERNALS__;
+    delete document.documentElement.dataset.platform;
     window.history.replaceState({}, "", "/");
   });
 

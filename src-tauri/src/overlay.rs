@@ -1,7 +1,11 @@
 use crate::settings::AppSettings;
-use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, Position, Size, WebviewUrl};
+use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewUrl};
+#[cfg(target_os = "macos")]
+use tauri::{Position, Size};
+#[cfg(target_os = "macos")]
 use tauri_nspanel::{tauri_panel, CollectionBehavior, PanelBuilder, PanelLevel, StyleMask};
 
+#[cfg(target_os = "macos")]
 tauri_panel! {
     panel!(MeetingOverlayPanel {
         config: {
@@ -23,6 +27,7 @@ const WIDTH: f64 = 420.0;
 const HEIGHT: f64 = 340.0;
 const COLLAPSED_WIDTH: f64 = 244.0;
 const COLLAPSED_HEIGHT: f64 = 96.0;
+#[cfg(any(target_os = "macos", test))]
 const TOP_OFFSET: f64 = 32.0;
 const BOTTOM_OFFSET: f64 = 15.0;
 
@@ -42,6 +47,7 @@ fn monitor_with_cursor(app: &AppHandle) -> Option<tauri::Monitor> {
         .or_else(|| app.primary_monitor().ok().flatten())
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn logical_position(
     monitor_position: PhysicalPosition<i32>,
     monitor_size: PhysicalSize<u32>,
@@ -65,6 +71,7 @@ fn logical_position(
     (x, y)
 }
 
+#[cfg(target_os = "macos")]
 fn position(app: &AppHandle, settings: &AppSettings, size: (f64, f64)) -> Option<(f64, f64)> {
     let monitor = monitor_with_cursor(app)?;
     let work_area = monitor.work_area();
@@ -108,6 +115,7 @@ fn anchored_origin(
     (x, y)
 }
 
+#[cfg(target_os = "macos")]
 pub fn create(app: &AppHandle, settings: &AppSettings) {
     let Some((x, y)) = position(app, settings, (COLLAPSED_WIDTH, COLLAPSED_HEIGHT)) else {
         log::error!("overlay creation failed: no monitor available");
@@ -148,6 +156,7 @@ pub fn create(app: &AppHandle, settings: &AppSettings) {
     }
 }
 
+#[cfg(target_os = "macos")]
 pub fn show(app: &AppHandle, settings: &AppSettings) {
     let handle = app.clone();
     let settings = settings.clone();
@@ -210,17 +219,35 @@ pub fn set_expanded(app: &AppHandle, settings: &AppSettings, expanded: bool) {
             size,
             anchor_top,
         );
-        if let Err(error) = window.set_size(Size::Logical(tauri::LogicalSize {
-            width: size.0,
-            height: size.1,
-        })) {
+        #[cfg(target_os = "windows")]
+        if let Err(error) = set_windows_bounds(
+            &window,
+            (
+                (x * scale).round() as i32,
+                (y * scale).round() as i32,
+                (size.0 * scale).round() as i32,
+                (size.1 * scale).round() as i32,
+            ),
+            false,
+        ) {
             log::error!("meeting overlay resize failed: {error}");
             return;
         }
-        if let Err(error) = window.set_position(Position::Logical(tauri::LogicalPosition { x, y }))
+        #[cfg(target_os = "macos")]
         {
-            log::error!("meeting overlay position failed: {error}");
-            return;
+            if let Err(error) = window.set_size(Size::Logical(tauri::LogicalSize {
+                width: size.0,
+                height: size.1,
+            })) {
+                log::error!("meeting overlay resize failed: {error}");
+                return;
+            }
+            if let Err(error) =
+                window.set_position(Position::Logical(tauri::LogicalPosition { x, y }))
+            {
+                log::error!("meeting overlay position failed: {error}");
+                return;
+            }
         }
         log::info!(
             "meeting overlay {} to {:.0}x{:.0}",
@@ -242,9 +269,142 @@ pub fn hide(app: &AppHandle) {
     }
 }
 
+#[cfg(target_os = "windows")]
+pub fn create(app: &AppHandle, _settings: &AppSettings) {
+    if let Err(error) = tauri::WebviewWindowBuilder::new(
+        app,
+        "meeting-overlay",
+        WebviewUrl::App("/?overlay=1".into()),
+    )
+    .title("Savvy")
+    .inner_size(COLLAPSED_WIDTH, COLLAPSED_HEIGHT)
+    .decorations(false)
+    .transparent(true)
+    .shadow(false)
+    .resizable(false)
+    .maximizable(false)
+    .minimizable(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    // Showing must not steal focus, but clicking can focus accessible controls.
+    .focused(false)
+    .focusable(true)
+    .visible(false)
+    .build()
+    {
+        log::error!("meeting overlay creation failed: {error}");
+    }
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn windows_bounds(
+    work_position: PhysicalPosition<i32>,
+    work_size: PhysicalSize<u32>,
+    scale: f64,
+    size: (f64, f64),
+    anchor_top: bool,
+) -> (i32, i32, i32, i32) {
+    let width = (size.0 * scale).round() as i32;
+    let height = (size.1 * scale).round() as i32;
+    let margin = (BOTTOM_OFFSET * scale).round() as i32;
+    let x = work_position.x + (work_size.width as i32 - width) / 2;
+    let y = if anchor_top {
+        work_position.y + margin
+    } else {
+        work_position.y + work_size.height as i32 - height - margin
+    };
+    (x, y, width, height)
+}
+
+#[cfg(target_os = "windows")]
+fn set_windows_bounds(
+    window: &tauri::WebviewWindow,
+    bounds: (i32, i32, i32, i32),
+    show: bool,
+) -> Result<(), String> {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_SHOWWINDOW,
+    };
+    let hwnd = window.hwnd().map_err(|error| error.to_string())?;
+    let mut flags = SWP_NOACTIVATE;
+    if show {
+        flags |= SWP_SHOWWINDOW;
+    }
+    // Called on the UI thread with a live window. Physical coordinates avoid
+    // conversion through the previous monitor's DPI, as in Handy's overlay.
+    unsafe {
+        SetWindowPos(
+            hwnd,
+            Some(HWND_TOPMOST),
+            bounds.0,
+            bounds.1,
+            bounds.2,
+            bounds.3,
+            flags,
+        )
+    }
+    .map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "windows")]
+pub fn show(app: &AppHandle, settings: &AppSettings) {
+    let handle = app.clone();
+    let anchor_top = settings.overlay_position == "top";
+    if let Err(error) = app.run_on_main_thread(move || {
+        let Some(window) = handle.get_webview_window("meeting-overlay") else {
+            return;
+        };
+        let Some(monitor) = monitor_with_cursor(&handle) else {
+            return;
+        };
+        let size = current_logical_size(&window).unwrap_or((COLLAPSED_WIDTH, COLLAPSED_HEIGHT));
+        let area = monitor.work_area();
+        let bounds = windows_bounds(
+            area.position,
+            area.size,
+            monitor.scale_factor(),
+            size,
+            anchor_top,
+        );
+        // Crossing a DPI boundary can resize the window during the first move.
+        // Reassert the destination bounds after showing, as Handy does.
+        if let Err(error) = set_windows_bounds(&window, bounds, true)
+            .and_then(|()| set_windows_bounds(&window, bounds, false))
+        {
+            log::error!("meeting overlay show failed: {error}");
+        }
+    }) {
+        log::error!("meeting overlay main-thread dispatch failed: {error}");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn windows_position_uses_destination_dpi_and_taskbar_work_area() {
+        assert_eq!(
+            windows_bounds(
+                PhysicalPosition::new(-2560, 0),
+                PhysicalSize::new(2560, 1400),
+                1.5,
+                (420.0, 340.0),
+                false
+            ),
+            (-1595, 867, 630, 510)
+        );
+        assert_eq!(
+            windows_bounds(
+                PhysicalPosition::new(1920, 40),
+                PhysicalSize::new(1920, 1040),
+                1.0,
+                (244.0, 96.0),
+                true
+            ),
+            (2758, 55, 244, 96)
+        );
+    }
 
     #[test]
     fn retina_bottom_position_uses_logical_coordinates() {

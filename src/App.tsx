@@ -93,6 +93,11 @@ import {
   updateAppSettings,
 } from "./lib/api";
 import Onboarding from "./Onboarding";
+import {
+  isWindows,
+  defaultListeningShortcut,
+  formatShortcut,
+} from "./lib/platform";
 import { requestPermissionDecision } from "./lib/permissions";
 import {
   mergeTranscriptTurn,
@@ -2971,7 +2976,7 @@ function HistoryView() {
               <span className="large-mark">
                 <History width={23} height={23} />
               </span>
-              <h1>Your recordings stay on this Mac</h1>
+              <h1>Your recordings stay on this {isWindows() ? "PC" : "Mac"}</h1>
               <p>Completed meeting transcripts and insights appear here.</p>
             </div>
           ) : (
@@ -3461,6 +3466,21 @@ function SettingsView({
               })
             }
           />
+          {isWindows() && (
+            <SettingSelect
+              title="System Audio Output"
+              detail="Choose the playback device your meeting app uses. Stop the meeting before changing it."
+              value={settings.selectedSystemOutputDevice ?? ""}
+              disabled={saving}
+              options={outputs.map((device) => ({
+                value: device.isDefault ? "" : device.name,
+                label: device.name,
+              }))}
+              onChange={(value) =>
+                onSave({ selectedSystemOutputDevice: value || null })
+              }
+            />
+          )}
           <ToggleSetting
             title="Audio Feedback"
             detail="Play a short cue when listening starts and stops."
@@ -3634,7 +3654,7 @@ function SettingsView({
           />
           <PreferenceRow
             title="API Key"
-            detail="Checked directly with your provider before saving in macOS Keychain. No audio is sent during this check."
+            detail={`Checked directly with your provider before saving in ${isWindows() ? "Windows Credential Manager" : "macOS Keychain"}. No audio is sent during this check.`}
             disabled={keyBusy}
           >
             <span className="credential-control">
@@ -3821,21 +3841,29 @@ function SettingsView({
         <SettingsGroup title="App">
           <ToggleSetting
             title="Start Hidden"
-            detail="Launch to the menu bar without opening the window."
+            detail={
+              isWindows()
+                ? "Launch to the system tray. Requires Show Tray Icon."
+                : "Launch to the menu bar without opening the window."
+            }
             checked={settings.startHidden}
             disabled={saving}
             onChange={(startHidden) => onSave({ startHidden })}
           />
           <ToggleSetting
             title="Launch on Startup"
-            detail="Automatically start Savvy when you log in to this Mac."
+            detail="Automatically start Savvy when you log in."
             checked={settings.launchOnStartup}
             disabled={saving}
             onChange={(launchOnStartup) => onSave({ launchOnStartup })}
           />
           <ToggleSetting
             title="Show Tray Icon"
-            detail="Show Savvy in the macOS menu bar."
+            detail={
+              isWindows()
+                ? "Show Savvy in the Windows system tray. Without it, closing the window quits Savvy."
+                : "Show Savvy in the macOS menu bar."
+            }
             checked={settings.showTrayIcon}
             disabled={saving}
             onChange={(showTrayIcon) => onSave({ showTrayIcon })}
@@ -4203,7 +4231,7 @@ function ShortcutEditor({
       pendingShortcut.current = [
         event.metaKey ? "Command" : "",
         event.ctrlKey ? "Control" : "",
-        event.altKey ? "Option" : "",
+        event.altKey ? (isWindows() ? "Alt" : "Option") : "",
         event.shiftKey ? "Shift" : "",
         event.key === " "
           ? "Space"
@@ -4266,22 +4294,12 @@ function ShortcutEditor({
         title="Reset shortcut"
         aria-label="Reset shortcut"
         disabled={disabled || recording}
-        onClick={() => void onChange("Command+Shift+M")}
+        onClick={() => void onChange(defaultListeningShortcut())}
       >
         <RotateCcw width={13} height={13} />
       </button>
     </span>
   );
-}
-
-function formatShortcut(value: string) {
-  return value
-    .replace("Command", "⌘")
-    .replace("Control", "⌃")
-    .replace("Option", "⌥")
-    .replace("Shift", "⇧")
-    .split("+")
-    .join(" ");
 }
 
 function PreferenceValue({

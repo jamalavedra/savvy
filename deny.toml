@@ -1,5 +1,5 @@
 [graph]
-targets = [{ triple = "aarch64-apple-darwin" }]
+targets = [{ triple = "aarch64-apple-darwin" }, { triple = "x86_64-pc-windows-msvc" }]
 
 [advisories]
 version = 2

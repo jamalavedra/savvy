@@ -234,6 +234,7 @@ export type AppSettings = {
   microphoneOnly: boolean;
   audioFeedback: boolean;
   selectedOutputDevice: string | null;
+  selectedSystemOutputDevice: string | null;
   audioFeedbackVolume: number;
   recommendationProvider: "codex" | "claude";
   codexModel: "default" | "gpt-5.6-sol" | "gpt-5.6-terra";

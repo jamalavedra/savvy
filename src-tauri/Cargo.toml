@@ -48,14 +48,19 @@ tauri-plugin-deep-link = "2"
 base64 = "0.22"
 tokio = { workspace = true, features = ["process", "io-util"] }
 
-[target.'cfg(target_os = "macos")'.dependencies]
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
 savvy-audio = { path = "../crates/audio" }
 savvy-transcription = { path = "../crates/transcription" }
+tauri-plugin-autostart = "2"
+tauri-plugin-global-shortcut = "2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
 security-framework = "3"
 libc = "0.2"
 tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", rev = "a3122e894383aa068ec5365a42994e3ac94ba1b6" }
-tauri-plugin-autostart = "2"
-tauri-plugin-global-shortcut = "2"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.61.3", features = ["Win32_Security_Credentials", "Win32_UI_WindowsAndMessaging", "Win32_System_Threading"] }
 
 [dev-dependencies]
 tauri = { version = "2", features = ["test"] }

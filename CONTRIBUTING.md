@@ -6,9 +6,9 @@ Build prerequisites are in the [README](README.md#building-from-source). Run `pn
 opening a pull request — it runs formatting, typecheck, lint, the frontend and Rust test suites,
 a production build, and Clippy with warnings denied. CI runs the same command.
 
-CI runs the full test suite on macOS and `cargo check` on Linux and Windows. The workspace
-compiles on all three platforms. Audio capture, Keychain access, the overlay window, and the
-tray are macOS-only, so changes touching those need a Mac to verify.
+CI runs the full test suite on macOS and Windows, produces a Windows preview installer, and
+runs `cargo check` on Linux. Native audio and window behavior require testing on the target
+OS. Complete the Windows release acceptance checklist in the README before publishing.
 
 ## Implementation rules
 
@@ -17,8 +17,8 @@ good reason in the pull request description.
 
 - Never commit real client data, meeting recordings, transcripts, provider credentials, or Apple
   signing credentials. Test fixtures are synthetic, and must stay that way.
-- Keep platform-specific macOS code behind interfaces and `cfg(target_os = "macos")` guards, so
-  the portable crates keep compiling and testing everywhere.
+- Keep native integrations behind platform `cfg` guards. Share meeting logic across macOS
+  and Windows; Linux remains compile-only.
 - Preserve source locators through ingestion, retrieval, prompting, and recommendation
   validation. A recommendation that cannot be traced back to a source is a bug.
 - Provider failures must never stop local recording. Transcription reconnects on its own; a

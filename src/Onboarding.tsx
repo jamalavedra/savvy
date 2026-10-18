@@ -59,7 +59,12 @@ async function macosPermissions() {
   return import("tauri-plugin-macos-permissions-api");
 }
 
-type PermissionReading = { macos: boolean; mic: boolean; capture: boolean };
+type PermissionReading = {
+  platform: string;
+  macos: boolean;
+  mic: boolean;
+  capture: boolean;
+};
 
 /** Returns null when permission status cannot be read. */
 async function readPermissions(
@@ -70,7 +75,12 @@ async function readPermissions(
     if (status.platform !== "macos") {
       // Nothing to grant off macOS; report satisfied rather than showing controls
       // that cannot do anything.
-      return { macos: false, mic: true, capture: true };
+      return {
+        platform: status.platform,
+        macos: false,
+        mic: true,
+        capture: true,
+      };
     }
     const { checkMicrophonePermission, checkScreenRecordingPermission } =
       await macosPermissions();
@@ -81,12 +91,12 @@ async function readPermissions(
     if (probeCapture && !capture) {
       try {
         await probeSystemAudioPermission();
-        return { macos: true, mic, capture: true };
+        return { platform: status.platform, macos: true, mic, capture: true };
       } catch {
         // A failed capture probe must not erase the microphone result.
       }
     }
-    return { macos: true, mic, capture };
+    return { platform: status.platform, macos: true, mic, capture };
   } catch {
     return null;
   }
@@ -105,6 +115,7 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
   const [step, setStep] = useState<Step>("path");
   const [signInUrl, setSignInUrl] = useState("");
   const [isMacos, setIsMacos] = useState(false);
+  const [platform, setPlatform] = useState("");
   const [microphone, setMicrophone] = useState<PermissionStatus>("checking");
   const [screen, setScreen] = useState<PermissionStatus>("checking");
   const [provider, setProvider] = useState<ProviderId>("deepgram");
@@ -125,6 +136,8 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
   const applyPermissions = useCallback((reading: PermissionReading | null) => {
     if (!reading) return false;
     setIsMacos(reading.macos);
+    setPlatform(reading.platform);
+    if (reading.platform === "windows") setStep("transcription");
     setMicrophone(reading.mic ? "granted" : "needed");
     setScreen(reading.capture ? "granted" : "needed");
     return true;
@@ -628,7 +641,7 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
       </a>
       <p className="onboarding-note">
         <FileText /> Savvy checks the key directly with your provider before
-        saving it in macOS Keychain. This does not capture or send audio.
+        saving it in {platform === "windows" ? "Windows Credential Manager" : "macOS Keychain"}. This does not capture or send audio.
       </p>
       {!window.__TAURI_INTERNALS__ && (
         <p className="onboarding-note">

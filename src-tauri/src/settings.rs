@@ -33,6 +33,7 @@ pub struct AppSettings {
     pub microphone_only: bool,
     pub audio_feedback: bool,
     pub selected_output_device: Option<String>,
+    pub selected_system_output_device: Option<String>,
     pub audio_feedback_volume: f32,
     pub recommendation_provider: String,
     pub codex_model: String,
@@ -58,12 +59,18 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             service_mode: ServiceMode::Byok,
-            start_listening_shortcut: "Command+Shift+M".into(),
+            start_listening_shortcut: if cfg!(target_os = "windows") {
+                "Control+Shift+M"
+            } else {
+                "Command+Shift+M"
+            }
+            .into(),
             selected_microphone: None,
             selected_channel: None,
             microphone_only: false,
             audio_feedback: false,
             selected_output_device: None,
+            selected_system_output_device: None,
             audio_feedback_volume: 0.5,
             recommendation_provider: "codex".into(),
             codex_model: "gpt-5.6-sol".into(),
@@ -157,10 +164,34 @@ mod tests {
         assert_eq!(settings.claude_model, "claude-sonnet-5");
         assert_eq!(settings.claude_context_window, "200k");
         assert_eq!(settings.guidance_folder, None);
+        assert_eq!(settings.selected_system_output_device, None);
+        assert_eq!(
+            settings.start_listening_shortcut,
+            if cfg!(target_os = "windows") {
+                "Control+Shift+M"
+            } else {
+                "Command+Shift+M"
+            }
+        );
         assert_eq!(
             settings.brief_generation_prompt,
             DEFAULT_BRIEF_GENERATION_PROMPT
         );
+    }
+
+    #[test]
+    fn settings_can_be_replaced_without_losing_the_system_output() {
+        let directory =
+            std::env::temp_dir().join(format!("savvy-settings-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("settings.json");
+        let mut settings = AppSettings::default();
+        save(&path, &settings).unwrap();
+        settings.selected_system_output_device = Some("Meeting headphones".into());
+        save(&path, &settings).unwrap();
+        assert_eq!(load(&path), settings);
+        assert!(!path.with_extension("json.tmp").exists());
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
