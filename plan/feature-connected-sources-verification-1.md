@@ -70,6 +70,18 @@ Complete the checks left open by the 2026-10-16 connected-source run. Use fictio
 | TASK-012 | Restore original local app data byte for byte. Remove the test app, test Keychain item, disposable recordings, and any temporary staging firewall entry. Verify staging session state is stopped with zero reservation. | ✅ | 2026-10-18 |
 | TASK-013 | Write `docs/verification/connected-sources-2026-10.md` with a result for each task, safe evidence references, exact limitations, and no secrets or real conversation. Commit the feature on the branch and open a PR against `main` with that report linked. | ✅ | 2026-10-18 |
 
+### Implementation Phase 5: Windows branch integration
+
+- GOAL-005: Verify the connected-source change together with `feat/windows-support` on Windows 11 and open a PR against that branch.
+
+| Task | Description | Completed | Date |
+|------|-------------|-----------|------|
+| TASK-014 | Merge both feature branches in an isolated worktree and fix Windows compilation and platform-specific test setup. | ✅ | 2026-10-18 |
+| TASK-015 | Run the managed CRM plus document fixture on Windows: local import, meeting evidence, citation, Composio outage, stale copy, and exclusion. | ✅ | 2026-10-18 |
+| TASK-016 | Run Windows React, backend, Rust, typecheck, formatting, and build checks; fix failures. | | |
+| TASK-017 | Launch the built Windows app in an interactive session and verify live OAuth, connected source selection, two-channel audio, and an actual managed call when staging access is available. Record any unmet external gate exactly. | | |
+| TASK-018 | Push the combined branch and open a PR against `feat/windows-support` with the Windows verification record. | | |
+
 ## 3. Alternatives
 
 - **ALT-001**: Mocking all providers is insufficient because provider scopes and tool response shapes caused the remaining uncertainty.

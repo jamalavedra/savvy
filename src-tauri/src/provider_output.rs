@@ -1,7 +1,9 @@
 #[cfg(target_os = "macos")]
+use std::io;
+#[cfg(target_os = "macos")]
 use std::os::unix::process::CommandExt;
 use std::{
-    io::{self, BufRead, Read},
+    io::{BufRead, Read},
     path::Path,
     process::Command,
 };

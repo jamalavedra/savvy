@@ -36,3 +36,11 @@ The fictional Drive brief and Gmail thread are saved in the authorized test acco
 The latest connection-status test verifies that Gmail and Outlook grants without message-body read scope show `PERMISSION_REQUIRED`, as the existing Drive check does. This prevents a partial OAuth grant from appearing ready for import.
 
 Composio documents [managed auth scope overrides](https://docs.composio.dev/docs/authentication/controlling-scopes), but the staging project key returns HTTP 403 for `auth_configs` read access. The pinned SDK's `session.authorize()` has no per-link scope override, so a project administrator must supply a scoped auth config or grant the required config permission before Savvy can test narrower Gmail and Drive grants.
+
+## Windows 11 integration with `feat/windows-support`
+
+The combined branch was tested on Windows 11 x64 build 26300.9711 in an isolated checkout. The combined managed CRM and document fixture passed with native Windows code: it imported a synthetic HubSpot company and Google Drive document into the client folder, indexed their Markdown copies, sent excerpts through the managed recommendation path, and verified a citation to the imported local source. With the Composio fixture unavailable, the same test marked the retained copy stale, excluded it when chosen, and completed advice without a provider request during the meeting. `pnpm --dir backend test:connected-e2e` passed 1/1. The Windows React suite passed 141/141 with `pnpm exec vitest run --maxWorkers=2`; the Windows audio crate passed 7/7 tests.
+
+This identified and fixed three Windows-specific blockers in the integration branch: the native test executable lacked a Common Controls v6 manifest, Tauri mock IPC tests used the macOS origin, and the Windows document scanner had no verified file-open implementation. The verified open checks reparse points and the opened handle's resolved path so imported files can be indexed without following redirected paths.
+
+These are fixture results. They use fictional records and a controlled AI supplier; they do not prove a live Windows OAuth connection, live Composio response, physical audio capture, or an installed managed call. The live provider and staging access gates above still apply. Additional Windows suite and packaging results are being recorded here as they finish.

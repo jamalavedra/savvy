@@ -189,7 +189,11 @@ pub fn open_verified(path: &Path) -> io::Result<File> {
 }
 #[cfg(windows)]
 pub fn open_verified(path: &Path) -> io::Result<File> {
-    use std::os::windows::{ffi::OsStringExt, fs::{MetadataExt, OpenOptionsExt}, io::AsRawHandle};
+    use std::os::windows::{
+        ffi::OsStringExt,
+        fs::{MetadataExt, OpenOptionsExt},
+        io::AsRawHandle,
+    };
     use windows_sys::Win32::Storage::FileSystem::{
         GetFinalPathNameByHandleW, FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_OPEN_REPARSE_POINT,
     };
@@ -207,7 +211,8 @@ pub fn open_verified(path: &Path) -> io::Result<File> {
         component_path.push(component);
         if matches!(component, Component::Normal(_))
             && std::fs::symlink_metadata(&component_path)?.file_attributes()
-                & FILE_ATTRIBUTE_REPARSE_POINT != 0
+                & FILE_ATTRIBUTE_REPARSE_POINT
+                != 0
         {
             return Err(io::Error::other("document path contains a reparse point"));
         }
@@ -251,7 +256,9 @@ pub fn open_verified(path: &Path) -> io::Result<File> {
 
 #[cfg(not(any(unix, windows)))]
 pub fn open_verified(_path: &Path) -> io::Result<File> {
-    Err(io::Error::other("verified document opening requires a supported platform"))
+    Err(io::Error::other(
+        "verified document opening requires a supported platform",
+    ))
 }
 
 fn hash_file(
