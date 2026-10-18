@@ -6,7 +6,7 @@ Branch: `feature/composio-connected-sources` (based on `720ab64`); draft [PR #39
 
 | Check | Result | Evidence |
 | --- | --- | --- |
-| Local backend suite | Pass: 114 tests, 1 opt-in live test skipped | `pnpm --dir backend test`; private log in `target/connected-e2e-20261018/backend-tests.log` |
+| Local backend suite | Pass: 115 tests, 1 opt-in live test skipped | `pnpm --dir backend test`; the new mail-scope check passed on 2026-10-18. The earlier run's private log remains in `target/connected-e2e-20261018/backend-tests.log`. |
 | Local managed CRM + document + outage bridge | Pass: 1 native/backend E2E | `pnpm --dir backend test:connected-e2e` |
 | React suite and TypeScript | Pass: 140 UI tests; root and backend typechecks | `vitest run`, `tsc --noEmit`, `pnpm --dir backend typecheck` |
 | Rust workspace | Pass; 4 environment-dependent tests ignored | `cargo test --workspace --locked` |
@@ -30,5 +30,7 @@ Branch: `feature/composio-connected-sources` (based on `720ab64`); draft [PR #39
 The Integration app's eight existing data files were copied and SHA-256 hashed in ignored `target/connected-e2e-20261018/`. After the blocked sign-in attempt, the original data directory was restored and all eight hashes matched; the clean test profile remains only in ignored `target/`. The temporary signed app was moved from `/Applications` to Trash; its build artifact remains available for a resumed test. No new Keychain item or recording was created. The staging test account has zero active meetings and zero reserved milliseconds. The production `/Applications/Savvy.app` and production service have not been changed. No provider token is in the repository.
 
 The managed recommendation request uses local evidence excerpts and source IDs. The local native/backend bridge verified that changing an imported CRM or document excerpt changes the managed answer, that advice cites the local source, and that a Composio outage offers marked stale-copy or exclusion behavior without a provider call during advice. A live installed CRM-plus-document call remains the acceptance gate. The Prepare view, Settings, and privacy page now disclose the broad Google and Microsoft grants before a user connects.
+
+The latest connection-status test verifies that Gmail and Outlook grants without message-body read scope show `PERMISSION_REQUIRED`, as the existing Drive check does. This prevents a partial OAuth grant from appearing ready for import.
 
 Composio documents [managed auth scope overrides](https://docs.composio.dev/docs/authentication/controlling-scopes), but the staging project key returns HTTP 403 for `auth_configs` read access. A project administrator must supply a scoped auth config or grant the required config permission before Savvy can test narrower Gmail and Drive grants.
