@@ -6,6 +6,7 @@ pub struct SystemAudioCapture {
     sender: Sender<AudioFrame>,
     receiver: Receiver<AudioFrame>,
     last_error: Arc<Mutex<Option<String>>>,
+    level: Arc<AtomicU32>,
 }
 
 impl Default for SystemAudioCapture {
@@ -23,7 +24,22 @@ impl SystemAudioCapture {
             sender,
             receiver,
             last_error: Arc::new(Mutex::new(None)),
+            level: Arc::new(AtomicU32::new(0)),
         }
+    }
+
+    pub fn level(&self) -> Result<f32, AudioError> {
+        if let Some(error) = self
+            .last_error
+            .lock()
+            .map_err(|_| AudioError::Capture("system audio error lock poisoned".into()))?
+            .as_ref()
+        {
+            return Err(AudioError::Capture(format!(
+                "System audio capture stopped: {error}"
+            )));
+        }
+        Ok(f32::from_bits(self.level.load(Ordering::Relaxed)))
     }
 
     pub fn configure(&mut self, selected_device: Option<String>) -> Result<(), AudioError> {
@@ -57,17 +73,20 @@ impl SystemAudioCapture {
         let sample_rate = config.sample_rate;
         let channels = config.channels;
         let started = Instant::now();
+        let level = self.level.clone();
         // CPAL enables WASAPI loopback when an output device is opened for input.
         device
             .build_input_stream(
                 config,
                 move |data: &[T], _| {
-                    let _ = sender.try_send(loopback_frame(
+                    let frame = loopback_frame(
                         data,
                         sample_rate,
                         channels,
                         started.elapsed().as_millis() as u64,
-                    ));
+                    );
+                    level.store(rms_level(&frame.samples).to_bits(), Ordering::Relaxed);
+                    let _ = sender.try_send(frame);
                 },
                 capture_error(self.last_error.clone()),
                 None,
@@ -105,6 +124,7 @@ impl AudioCapture for SystemAudioCapture {
         // Discard frames from a stopped/paused stream before reopening it.
         while self.receiver.try_recv().is_ok() {}
         self.take_error();
+        self.level.store(0, Ordering::Relaxed);
         let device = find_device(
             &cpal::default_host(),
             self.selected_device.as_deref(),
@@ -140,6 +160,7 @@ impl AudioCapture for SystemAudioCapture {
     fn stop(&mut self) -> Result<(), AudioError> {
         drop(self.stream.take());
         while self.receiver.try_recv().is_ok() {}
+        self.level.store(0, Ordering::Relaxed);
         Ok(())
     }
     fn is_running(&self) -> bool {

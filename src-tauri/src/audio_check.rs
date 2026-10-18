@@ -103,6 +103,10 @@ pub fn start(
             let system_frames = if settings.microphone_only {
                 None
             } else {
+                #[cfg(target_os = "windows")]
+                system
+                    .configure(settings.selected_system_output_device.clone())
+                    .map_err(|e| e.to_string())?;
                 system.start().map_err(|e| e.to_string())?;
                 Some(system.frames())
             };

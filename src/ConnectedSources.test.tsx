@@ -38,7 +38,9 @@ it("connects, searches, and explicitly attaches a record to the current client",
     .mockResolvedValue([
       { provider: "salesforce", accountId: "account-1", connected: true },
     ]);
-  const connect = vi.spyOn(api, "sourceConnect").mockResolvedValue();
+  const connect = vi
+    .spyOn(api, "sourceConnect")
+    .mockResolvedValue("https://connect.example.test/link");
   const search = vi
     .spyOn(api, "sourceSearch")
     .mockResolvedValue({ records: [record], nextCursor: null });
@@ -65,6 +67,9 @@ it("connects, searches, and explicitly attaches a record to the current client",
   await screen.findByRole("button", { name: "Connect" });
   fireEvent.click(screen.getByRole("button", { name: "Connect" }));
   await waitFor(() => expect(connect).toHaveBeenCalledWith("salesforce"));
+  expect(await screen.findByLabelText("Connection link")).toHaveValue(
+    "https://connect.example.test/link",
+  );
   await waitFor(() => expect(connections).toHaveBeenCalledTimes(2));
   fireEvent(window, new Event("focus"));
   await screen.findByRole("button", { name: "Disconnect" });

@@ -556,8 +556,8 @@ export async function sourceConnections(): Promise<SourceConnection[]> {
   );
   return result.connections;
 }
-export async function sourceConnect(provider: string): Promise<void> {
-  if (!window.__TAURI_INTERNALS__) return;
+export async function sourceConnect(provider: string): Promise<string> {
+  if (!window.__TAURI_INTERNALS__) return "";
   return invoke("source_connect", { provider });
 }
 export async function sourceDisconnect(provider: string): Promise<void> {

@@ -39,6 +39,7 @@ export default function ConnectedSources({
   const [cursor, setCursor] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [connectUrl, setConnectUrl] = useState("");
   const connection = connections.find((item) => item.provider === provider);
   const availableKinds = providers.find(
     (item) => item[0] === provider,
@@ -136,6 +137,7 @@ export default function ConnectedSources({
               );
               setRecords([]);
               setCursor(null);
+              setConnectUrl("");
             }}
           >
             {providers.map(([id, label]) => (
@@ -172,6 +174,7 @@ export default function ConnectedSources({
                 await sourceDisconnect(provider);
                 setConnections(await sourceConnections());
                 setRecords([]);
+                setConnectUrl("");
               })
             }
           >
@@ -183,7 +186,7 @@ export default function ConnectedSources({
             disabled={disabled || working}
             onClick={() =>
               void run(async () => {
-                await sourceConnect(provider);
+                setConnectUrl(await sourceConnect(provider));
                 setConnections(await sourceConnections());
               })
             }
@@ -192,6 +195,20 @@ export default function ConnectedSources({
           </button>
         )}
       </div>
+      {connectUrl && !connection?.connected && (
+        <details>
+          <summary>Browser didn’t open?</summary>
+          <label>
+            Copy this connection link into your browser
+            <input
+              aria-label="Connection link"
+              readOnly
+              value={connectUrl}
+              onFocus={(event) => event.currentTarget.select()}
+            />
+          </label>
+        </details>
+      )}
       {connection?.status && connection.status !== "DISCONNECTED" && (
         <p role="status">
           Connection: {connection.status.toLowerCase().replace(/_/g, " ")}

@@ -120,7 +120,7 @@ impl ServiceOperation {
     fn begin() -> Result<Self, String> {
         Self::register(false)
     }
-    #[cfg(any(target_os = "macos", test))]
+    #[cfg(any(target_os = "macos", target_os = "windows", test))]
     pub(crate) fn begin_audio_check() -> Result<Self, String> {
         Self::register(true)
     }
