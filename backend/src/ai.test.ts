@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
 import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { generateKeyPair, exportJWK, SignJWT } from "jose";
 import { openServiceDatabase, type Db } from "./db.js";
@@ -117,6 +121,7 @@ import {
   attachSource,
   healthyAudio,
 } from "./sessions.js";
+import { sources } from "./composio.js";
 import {
   briefRequest,
   briefPrompt,
@@ -383,6 +388,462 @@ async function fixture(
     },
   };
 }
+
+test("connected CRM and document reach managed advice; outage uses a marked local copy", async (t) => {
+  const h = await fixture(t, { env: { COMPOSIO_API_KEY: "synthetic" } });
+  const connected = new Set<string>();
+  let unavailable = false;
+  let proxyCalls = 0;
+  const session = {
+    sessionId: "connected-session",
+    authorize: async (toolkit: string) => {
+      connected.add(toolkit);
+      return { redirectUrl: `https://connect.composio.dev/${toolkit}` };
+    },
+    proxyExecute: async ({
+      toolkit,
+      endpoint,
+      parameters,
+    }: {
+      toolkit: string;
+      endpoint: string;
+      parameters?: { name: string }[];
+    }) => {
+      proxyCalls++;
+      if (unavailable) throw new Error("synthetic Composio outage");
+      if (toolkit === "hubspot")
+        return {
+          status: 200,
+          data: endpoint.endsWith("/search")
+            ? { results: [{ id: "crm-1", properties: { name: "Acme" } }] }
+            : {
+                id: "crm-1",
+                properties: {
+                  name: "Acme",
+                  description: "Renewal price is 24,000 euros",
+                },
+              },
+        };
+      return {
+        status: 200,
+        data: endpoint.endsWith("/files")
+          ? {
+              files: [
+                { id: "doc-1", name: "Playbook", mimeType: "text/plain" },
+              ],
+            }
+          : parameters?.some((parameter) => parameter.name === "alt")
+            ? "Protect implementation capacity"
+            : {
+                id: "doc-1",
+                name: "Playbook",
+                mimeType: "text/plain",
+                webViewLink: "https://drive.google.com/file/doc-1",
+              },
+      };
+    },
+  };
+  const connector = sources(h.state) as unknown as { client: unknown };
+  connector.client = {
+    sessions: { create: async () => session, use: async () => session },
+    connectedAccounts: {
+      list: async ({
+        userIds,
+        toolkitSlugs,
+      }: {
+        userIds: string[];
+        toolkitSlugs: string[];
+      }) => ({
+        items: [...connected]
+          .filter((toolkit) => toolkitSlugs.includes(toolkit))
+          .map((toolkit) => ({
+            id: `${toolkit}-account`,
+            toolkit: { slug: toolkit },
+            status: "ACTIVE",
+            isDisabled: false,
+            userId: userIds[0],
+          })),
+        nextCursor: null,
+      }),
+      revoke: async (id: string) => {
+        connected.delete(id.replace(/-account$/, ""));
+      },
+    },
+  };
+  for (const provider of ["hubspot", "googledrive"]) {
+    const link = await h.post("/v1/sources/connect", { provider });
+    assert.equal(link.status, 200);
+    assert.match(link.body.url, /^https:\/\//);
+  }
+  const status = await fetch(h.base + "/v1/sources/connections", {
+    headers: { authorization: "Bearer a" },
+  });
+  assert.equal(status.status, 200);
+  assert.equal(
+    (await status.json()).connections.filter(
+      (item: { connected: boolean }) => item.connected,
+    ).length,
+    2,
+  );
+  const chosen = [];
+  for (const [provider, kind, query] of [
+    ["hubspot", "company", "Acme"],
+    ["googledrive", "document", "Playbook"],
+  ]) {
+    const accountId = `${provider}-account`;
+    const search = await h.post("/v1/sources/search", {
+      provider,
+      kind,
+      accountId,
+      query,
+    });
+    assert.equal(search.status, 200, JSON.stringify(search.body));
+    assert.equal(search.body.records.length, 1);
+    const result = await h.post("/v1/sources/fetch", search.body.records[0]);
+    assert.equal(result.status, 200, JSON.stringify(result.body));
+    chosen.push(result.body);
+  }
+  const [crm, doc] = chosen;
+  assert.match(crm.content, /Renewal price is 24,000 euros/);
+  assert.match(doc.content, /Protect implementation capacity/);
+  let evidence = chosen.map((item, index) => ({
+    id: index ? "00000000-0000-0000-0000-000000000005" : SOURCE,
+    kind: "client",
+    relativePath: index ? "savvy-source-drive.md" : "savvy-source-crm.md",
+    locator: { label: item.title },
+    excerpt: item.content,
+  }));
+  let runNative:
+    | ((phase: string) => Promise<{
+        evidence: typeof evidence;
+        excluded: typeof evidence;
+        refresh: { status: string }[];
+      }>)
+    | undefined;
+  if (process.env.SAVVY_CONNECTED_E2E_NATIVE === "1") {
+    const directory = await mkdtemp(join(tmpdir(), "savvy-connected-e2e-"));
+    t.after(() => rm(directory, { recursive: true, force: true }));
+    const input = join(directory, "input.json"),
+      output = join(directory, "evidence.json");
+    runNative = async (phase) => {
+      await writeFile(
+        input,
+        JSON.stringify({ directory, service_url: h.base, phase }),
+      );
+      const native = spawn(
+        "cargo",
+        [
+          "test",
+          "-p",
+          "savvy",
+          "--lib",
+          "connected_source_e2e_bridge",
+          "--locked",
+          "--",
+          "--ignored",
+        ],
+        {
+          cwd: resolve(".."),
+          env: {
+            ...process.env,
+            SAVVY_CONNECTED_E2E_IN: input,
+            SAVVY_CONNECTED_E2E_OUT: output,
+          },
+          stdio: ["ignore", "pipe", "pipe"],
+        },
+      );
+      let log = "";
+      native.stdout.on("data", (chunk) => {
+        log = (log + chunk).slice(-10000);
+      });
+      native.stderr.on("data", (chunk) => {
+        log = (log + chunk).slice(-10000);
+      });
+      const [code] = await once(native, "exit");
+      assert.equal(code, 0, log);
+      return JSON.parse(await readFile(output, "utf8"));
+    };
+    const native = await runNative("fresh");
+    assert.ok(native.refresh.every((item) => item.status === "fresh"));
+    evidence = native.evidence;
+    assert.equal(evidence.length, 2);
+    assert.ok(
+      evidence.every((item) => item.relativePath.startsWith("savvy-source-")),
+    );
+  }
+  assert.equal(
+    (await h.post("/v1/sessions", { sessionId: SESSION })).status,
+    200,
+  );
+  h.audio();
+  const request = { ...adviceRequest, evidence };
+  assert.equal(
+    (
+      await h.post(`/v1/sessions/${SESSION}/context`, {
+        request: {
+          ...request,
+          generationId: 0,
+          transcriptRevision: 0,
+          recentTurns: [],
+          focalTurnIds: [],
+        },
+      })
+    ).status,
+    200,
+  );
+  h.setOutput({ ...advice, evidenceIds: evidence.map((item) => item.id) });
+  const recommendation = await h.post(
+    `/v1/sessions/${SESSION}/recommendations`,
+    {
+      idempotencyKey: "connected-advice",
+      leaseVersion: 1,
+      request,
+    },
+  );
+  assert.equal(recommendation.status, 200, JSON.stringify(recommendation.body));
+  assert.deepEqual(
+    recommendation.body.advice.evidenceIds,
+    evidence.map((item) => item.id),
+  );
+  assert.match(
+    JSON.stringify(h.calls.at(-1)?.body),
+    /Renewal price is 24,000 euros/,
+  );
+  assert.match(
+    JSON.stringify(h.calls.at(-1)?.body),
+    /Protect implementation capacity/,
+  );
+
+  unavailable = true;
+  const failed = await h.post("/v1/sources/fetch", {
+    provider: "hubspot",
+    kind: "company",
+    accountId: "hubspot-account",
+    recordId: "crm-1",
+  });
+  assert.equal(failed.status, 503);
+  const unavailableSnapshot = await runNative?.("outage");
+  if (unavailableSnapshot) {
+    assert.ok(
+      unavailableSnapshot.refresh.every((item) => item.status === "failed"),
+    );
+    assert.equal(unavailableSnapshot.excluded.length, 1);
+  }
+  const beforeAdvice = proxyCalls;
+  const crmEvidence = (unavailableSnapshot?.evidence ?? evidence).find((item) =>
+    item.excerpt.includes("Renewal price"),
+  );
+  assert.ok(crmEvidence);
+  const stale = unavailableSnapshot
+    ? crmEvidence
+    : {
+        ...crmEvidence,
+        locator: { ...crmEvidence.locator, label: "Acme (stale copy)" },
+      };
+  h.setOutput({ ...advice, evidenceIds: [stale.id] });
+  h.advance(5_000n);
+  h.audio();
+  const fallback = await h.post(`/v1/sessions/${SESSION}/recommendations`, {
+    idempotencyKey: "stale-advice",
+    leaseVersion: 1,
+    request: {
+      ...request,
+      generationId: 2,
+      transcriptRevision: 2,
+      evidence: [stale],
+    },
+  });
+  assert.equal(fallback.status, 200, JSON.stringify(fallback.body));
+  assert.equal(proxyCalls, beforeAdvice);
+  assert.match(JSON.stringify(h.calls.at(-1)?.body), /stale copy/);
+  if (unavailableSnapshot) {
+    h.advance(5_000n);
+    h.audio();
+    h.setOutput({
+      ...advice,
+      evidenceIds: [unavailableSnapshot.excluded[0].id],
+    });
+    const excluded = await h.post(`/v1/sessions/${SESSION}/recommendations`, {
+      idempotencyKey: "excluded-advice",
+      leaseVersion: 1,
+      request: {
+        ...request,
+        generationId: 3,
+        transcriptRevision: 3,
+        evidence: unavailableSnapshot.excluded,
+      },
+    });
+    assert.equal(excluded.status, 200, JSON.stringify(excluded.body));
+    assert.equal(proxyCalls, beforeAdvice);
+    assert.doesNotMatch(
+      JSON.stringify(h.calls.at(-1)?.body),
+      /Renewal price is 24,000 euros/,
+    );
+  }
+});
+
+test(
+  "live Notion record reaches native meeting advice and survives a Composio outage",
+  {
+    skip:
+      !process.env.SAVVY_CONNECTED_E2E_LIVE_NOTION ||
+      !process.env.SAVVY_CONNECTED_E2E_MODEL,
+  },
+  async (t) => {
+    const h = await fixture(t, {
+      env: { COMPOSIO_API_KEY: process.env.COMPOSIO_API_KEY },
+    });
+    const status = await fetch(h.base + "/v1/sources/connections", {
+      headers: { authorization: "Bearer a" },
+    });
+    assert.equal(status.status, 200);
+    const notion = (await status.json()).connections.find(
+      (item: { provider: string }) => item.provider === "notion",
+    );
+    assert.equal(notion.connected, true);
+    const selected = {
+      provider: "notion",
+      kind: "page",
+      accountId: notion.accountId as string,
+      query: "Savvy connector test",
+    };
+    const search = await h.post("/v1/sources/search", selected);
+    assert.equal(search.status, 200, JSON.stringify(search.body));
+    const page = search.body.records.find(
+      (item: { title: string }) =>
+        item.title === "Savvy connector test — Acme renewal",
+    );
+    assert.ok(page);
+    const fetched = await h.post("/v1/sources/fetch", page);
+    assert.equal(fetched.status, 200, JSON.stringify(fetched.body));
+    assert.match(fetched.body.content, /Maya Chen/);
+    assert.match(fetched.body.content, /24000/);
+
+    const directory = await mkdtemp(join(tmpdir(), "savvy-live-notion-e2e-"));
+    t.after(() => rm(directory, { recursive: true, force: true }));
+    const input = join(directory, "input.json");
+    const output = join(directory, "evidence.json");
+    const runNative = async (phase: string) => {
+      await writeFile(
+        input,
+        JSON.stringify({
+          directory,
+          service_url: h.base,
+          phase,
+          sources: [selected],
+          model_question: "Who is the buyer for the Acme renewal?",
+          model_expected: "Maya Chen",
+          model_alternative: "Olivia Park",
+        }),
+      );
+      const native = spawn(
+        "cargo",
+        [
+          "test",
+          "-p",
+          "savvy",
+          "--lib",
+          "connected_source_e2e_bridge",
+          "--locked",
+          "--",
+          "--ignored",
+        ],
+        {
+          cwd: resolve(".."),
+          env: {
+            ...process.env,
+            SAVVY_CONNECTED_E2E_IN: input,
+            SAVVY_CONNECTED_E2E_OUT: output,
+          },
+          stdio: ["ignore", "pipe", "pipe"],
+        },
+      );
+      let log = "";
+      native.stdout.on("data", (chunk) => {
+        log = (log + chunk).slice(-10000);
+      });
+      native.stderr.on("data", (chunk) => {
+        log = (log + chunk).slice(-10000);
+      });
+      const [code] = await once(native, "exit");
+      assert.equal(code, 0, log);
+      return JSON.parse(await readFile(output, "utf8"));
+    };
+    const fresh = await runNative("fresh");
+    assert.equal(fresh.refresh[0].status, "fresh");
+    assert.equal(fresh.evidence.length, 1);
+    assert.match(fresh.evidence[0].excerpt, /Maya Chen/);
+    assert.match(fresh.evidence[0].relativePath, /^savvy-source-/);
+
+    const meetingRequest = fresh.modelRequest;
+    assert.ok(meetingRequest);
+    assert.match(
+      JSON.stringify(meetingRequest.recentTurns),
+      /Who is the buyer/,
+    );
+    assert.equal(
+      (await h.post("/v1/sessions", { sessionId: meetingRequest.sessionId }))
+        .status,
+      200,
+    );
+    h.audio(meetingRequest.sessionId);
+    assert.equal(
+      (
+        await h.post(`/v1/sessions/${meetingRequest.sessionId}/context`, {
+          request: {
+            ...meetingRequest,
+            generationId: 0,
+            transcriptRevision: 0,
+            recentTurns: [],
+            focalTurnIds: [],
+          },
+        })
+      ).status,
+      200,
+    );
+    h.setOutput(fresh.modelAdvice);
+    const recommendation = await h.post(
+      `/v1/sessions/${meetingRequest.sessionId}/recommendations`,
+      {
+        idempotencyKey: "live-notion-advice",
+        leaseVersion: 1,
+        request: meetingRequest,
+      },
+    );
+    assert.equal(
+      recommendation.status,
+      200,
+      JSON.stringify(recommendation.body),
+    );
+    assert.deepEqual(recommendation.body.advice.evidenceIds, [
+      fresh.evidence[0].id,
+    ]);
+    assert.match(
+      `${recommendation.body.advice.say} ${recommendation.body.advice.rationale}`,
+      /Maya Chen/,
+    );
+    assert.match(JSON.stringify(h.calls.at(-1)?.body), /Maya Chen/);
+
+    const connector = sources(h.state) as unknown as {
+      client: {
+        sessions: {
+          use: () => Promise<{ proxyExecute: () => Promise<never> }>;
+        };
+      };
+    };
+    connector.client.sessions.use = async () => ({
+      proxyExecute: async () => {
+        throw new Error("synthetic Composio outage");
+      },
+    });
+    const failed = await h.post("/v1/sources/fetch", page);
+    assert.equal(failed.status, 503);
+    const outage = await runNative("outage");
+    assert.equal(outage.refresh[0].status, "failed");
+    assert.match(outage.evidence[0].locator.label, /stale copy/);
+    assert.equal(outage.excluded.length, 0);
+  },
+);
 
 test("brief output schema permits only client citations and no facts for guidance-only requests", async (t) => {
   const input = briefRequest.parse(request);

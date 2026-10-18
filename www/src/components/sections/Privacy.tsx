@@ -226,7 +226,7 @@ export function Privacy() {
           </p>
           <StatList
             items={[
-              { icon: FolderIcon, label: "Source files remain unchanged" },
+              { icon: FolderIcon, label: "Existing source files remain unchanged" },
               { icon: KeyIcon, label: "Provider keys in the macOS Keychain" },
               { icon: ClockIcon, label: "30-day local retention, cleaned up at startup" },
               {

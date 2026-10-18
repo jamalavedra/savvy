@@ -186,6 +186,33 @@ test("fractional PCM carry settles the same duration regardless of frame boundar
   }
 });
 
+test("abnormal audio disconnect releases the reservation and allows a same-lease reconnect", (t) => {
+  const h = fixture(t);
+  const row = h.create();
+  const first = attachSource(h.state, row, "microphone", h.state.clock());
+  onAudio(h.state, 1n, ID, "microphone", 32_000, h.state.clock(), {
+    version: row.lease_version,
+    generation: first,
+  });
+  settleDisconnectedSource(h.state, 1n, ID, "microphone", first, true);
+  assert.equal(h.view().state, "active");
+  assert.equal(h.view().settledMs, 1000n);
+  assert.equal(balance(h.db, 1n, h.state.clock()).meetingMsReserved, 0n);
+  h.advance(1000n);
+  const second = attachSource(
+    h.state,
+    requireSession(h.db, 1n, ID),
+    "microphone",
+    h.state.clock(),
+  );
+  assert.notEqual(second, first);
+  onAudio(h.state, 1n, ID, "microphone", 1600, h.state.clock(), {
+    version: row.lease_version,
+    generation: second,
+  });
+  assert.equal(h.view().state, "active");
+});
+
 test("account pacing survives reconnect and stale owners cannot mutate health or metering", (t) => {
   const h = fixture(t),
     row = h.create();

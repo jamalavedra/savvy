@@ -212,7 +212,6 @@
       "evidenceIds": {
         "type": "array",
         "maxItems": 32,
-        "uniqueItems": true,
         "items": {
           "type": "string",
           "format": "uuid"
@@ -221,7 +220,6 @@
       "turnIds": {
         "type": "array",
         "maxItems": 32,
-        "uniqueItems": true,
         "items": {
           "type": "string",
           "format": "uuid"
@@ -251,7 +249,6 @@
             "sourceTurnIds": {
               "type": "array",
               "maxItems": 32,
-              "uniqueItems": true,
               "items": {
                 "type": "string",
                 "format": "uuid"

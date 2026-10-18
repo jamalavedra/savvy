@@ -9,6 +9,37 @@ export type ClientWorkspace = {
   lastIndexedAt: string | null;
   activeBriefId: string | null;
   excludedPaths: string[];
+  connectedSources?: ConnectedSource[];
+};
+
+export type ConnectedSource = {
+  provider: string;
+  kind: string;
+  accountId: string;
+  recordId: string;
+  title: string;
+  url: string;
+  modifiedAt: string | null;
+  relativePath: string;
+  contentHash: string | null;
+  refreshedAt: string | null;
+};
+
+export type SourceRecord = Omit<
+  ConnectedSource,
+  "relativePath" | "contentHash" | "refreshedAt"
+>;
+
+export type SourceRefresh = {
+  provider: string;
+  kind: string;
+  accountId: string;
+  recordId: string;
+  title: string;
+  relativePath: string;
+  status: "fresh" | "conflict" | "failed";
+  refreshedAt: string | null;
+  error?: string;
 };
 
 export type DocumentKind =

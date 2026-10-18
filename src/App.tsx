@@ -9,6 +9,7 @@ import {
   briefReviewPages,
 } from "./lib/briefReview";
 import ManagedAccount from "./ManagedAccount";
+import ConnectedSources from "./ConnectedSources";
 import {
   useCallback,
   useEffect,
@@ -87,6 +88,7 @@ import {
   setTranscriptionApiKey,
   setShortcutRecording,
   startMeeting,
+  refreshConnectedSources,
   stopMeeting,
   updateAppSettings,
 } from "./lib/api";
@@ -117,6 +119,7 @@ import type {
   TranscriptionKeyStatus,
   ClientDocument,
   DocumentKind,
+  SourceRefresh,
 } from "./types";
 
 type View =
@@ -215,6 +218,7 @@ function App() {
   const contextSelectionInFlight = useRef(false);
   const preparationRead = useRef(0);
   const [busy, setBusy] = useState(false);
+  const [sourceRefreshes, setSourceRefreshes] = useState<SourceRefresh[]>([]);
   const [readinessOpen, setReadinessOpen] = useState(false);
   const [readinessBrief, setReadinessBrief] = useState<NegotiationBrief | null>(
     null,
@@ -889,11 +893,35 @@ function App() {
           }
         }
       }
+      const excludeSourcePaths: string[] = [];
+      const staleSourcePaths: string[] = [];
+      if (
+        appSettings?.serviceMode === "managed" &&
+        activeClient?.connectedSources?.length
+      ) {
+        const results = await refreshConnectedSources(activeClient.id);
+        setSourceRefreshes(results);
+        for (const result of results) {
+          if (result.status === "fresh") continue;
+          if (
+            !result.refreshedAt ||
+            !window.confirm(
+              `${result.title} could not be refreshed (${result.error ?? result.status}). Use its existing local copy for this meeting? It will be marked stale.`,
+            )
+          ) {
+            excludeSourcePaths.push(result.relativePath);
+          } else {
+            staleSourcePaths.push(result.relativePath);
+          }
+        }
+      }
       const meetingBrief = brief;
       const session = await startMeeting(
         activeClient?.id ?? null,
         meetingBrief?.id ?? null,
         meetingBrief?.documentContent,
+        excludeSourcePaths,
+        staleSourcePaths,
       );
       setReadinessOpen(false);
       setTranscriptTurns([]);
@@ -1206,6 +1234,25 @@ function App() {
                   setPendingRemoval({ kind: "client", client });
                 }}
                 onSelectionChange={saveContextSelection}
+                sourceRefreshes={sourceRefreshes}
+                onClientChange={(updated) => {
+                  setDashboard((current) =>
+                    current
+                      ? {
+                          ...current,
+                          clients: current.clients.map((item) =>
+                            item.id === updated.id ? updated : item,
+                          ),
+                        }
+                      : current,
+                  );
+                  setPreparation((current) =>
+                    current?.client?.id === updated.id
+                      ? { ...current, client: updated }
+                      : current,
+                  );
+                  setSourceRefreshes([]);
+                }}
                 objective={meetingObjective}
                 onObjectiveChange={setMeetingObjective}
                 generationPrompt={appSettings?.briefGenerationPrompt ?? ""}
@@ -1329,6 +1376,8 @@ function PrepareView({
   onAddClient,
   onRemoveClient,
   onSelectionChange,
+  sourceRefreshes,
+  onClientChange,
   objective,
   onObjectiveChange,
   generationPrompt,
@@ -1360,6 +1409,8 @@ function PrepareView({
     clientId: string,
     excludedPaths: string[],
   ) => Promise<void>;
+  sourceRefreshes: SourceRefresh[];
+  onClientChange: (client: ClientWorkspace) => void;
   objective: string;
   onObjectiveChange: (value: string) => void;
   generationPrompt: string;
@@ -1444,11 +1495,19 @@ function PrepareView({
           {activeClient && documentsOpen && (
             <div id="client-documents-panel" className="prepare-card-body">
               <ClientDocumentList
-                key={activeClient.id}
+                key={`${activeClient.id}:${activeClient.lastIndexedAt ?? ""}`}
                 client={activeClient}
                 disabled={busy || settingsBusy}
                 onSelectionChange={onSelectionChange}
               />
+              {provider === "managed" && (
+                <ConnectedSources
+                  client={activeClient}
+                  disabled={busy || settingsBusy}
+                  refreshes={sourceRefreshes}
+                  onClientChange={onClientChange}
+                />
+              )}
               <div className="prepare-card-actions">
                 <button
                   className="button secondary"
@@ -3505,11 +3564,20 @@ function SettingsView({
         </SettingsGroup>
         <ManagedAccount />
         {settings.serviceMode === "managed" ? (
-          <p>
-            Savvy supplies Deepgram Nova-3 transcription and Fireworks GLM-5.3
-            reasoning. Personal provider settings below apply only when you
-            select your own providers.
-          </p>
+          <>
+            <p>
+              Savvy supplies Deepgram Nova-3 transcription and Fireworks GLM-5.3
+              reasoning. Personal provider settings below apply only when you
+              select your own providers.
+            </p>
+            <p>
+              Connected sales apps use Composio to hold app credentials. Records
+              you select in Prepare pass through Savvy's backend to this Mac and
+              remain as Markdown files in the client folder. Cited excerpts can
+              reach Savvy's AI supplier during advice. Disconnect an app in
+              Prepare to revoke access.
+            </p>
+          </>
         ) : null}
         <SettingsGroup title="Live Transcript">
           <SettingSelect

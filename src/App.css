@@ -380,6 +380,54 @@ button.setting-row:hover {
   gap: 18px;
 }
 
+.connected-sources {
+  border-top: 1px solid var(--border);
+  margin-top: 16px;
+  padding-top: 16px;
+}
+.connected-sources h3,
+.connected-sources h4 {
+  margin: 0 0 8px;
+}
+.connected-sources p {
+  margin: 0 0 12px;
+}
+.connected-source-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px;
+  margin: 10px 0;
+}
+.connected-source-controls label {
+  display: grid;
+  gap: 4px;
+}
+.connected-source-controls input,
+.connected-source-controls select {
+  min-height: 36px;
+}
+.connected-source-list {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0;
+}
+.connected-source-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+.connected-source-list span {
+  overflow-wrap: anywhere;
+}
+.connected-source-list small {
+  display: block;
+  color: var(--muted);
+}
+
 .prepare-objective label {
   font-size: 14px;
   font-weight: 650;

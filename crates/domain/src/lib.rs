@@ -19,6 +19,23 @@ pub struct ClientWorkspace {
     /// paths so the choice survives re-indexing and content changes.
     #[serde(default)]
     pub excluded_paths: Vec<PathBuf>,
+    #[serde(default)]
+    pub connected_sources: Vec<ConnectedSource>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectedSource {
+    pub provider: String,
+    pub kind: String,
+    pub account_id: String,
+    pub record_id: String,
+    pub title: String,
+    pub url: String,
+    pub modified_at: Option<String>,
+    pub relative_path: PathBuf,
+    pub content_hash: Option<String>,
+    pub refreshed_at: Option<DateTime<Utc>>,
 }
 
 /// One file in a client folder as the Prepare tab lists it.
@@ -42,6 +59,7 @@ impl ClientWorkspace {
             last_indexed_at: None,
             active_brief_id: None,
             excluded_paths: Vec::new(),
+            connected_sources: Vec::new(),
         }
     }
 }

@@ -63,6 +63,7 @@ export function configuration(env: NodeJS.ProcessEnv = process.env) {
       (fireworks ? "accounts/fireworks/models/glm-5p3" : "claude-sonnet-5-5"),
     deepgramUrl: env.SAVVY_DEEPGRAM_URL ?? "wss://api.deepgram.com/v1/listen",
     deepgramKey: required("SAVVY_DEEPGRAM_API_KEY"),
+    composioKey: env.COMPOSIO_API_KEY ?? null,
     stripeBaseUrl: env.SAVVY_STRIPE_BASE_URL ?? "https://api.stripe.com",
     billing,
     checkoutReturnUrl:

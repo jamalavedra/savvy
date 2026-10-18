@@ -69,6 +69,8 @@ it("sends the reviewed content hash through the native start command and rejects
         clientId: "client",
         briefId: "brief",
         expectedBriefHash: expected,
+        excludeSourcePaths: [],
+        staleSourcePaths: [],
       },
       undefined,
     );
@@ -628,9 +630,82 @@ describe("App", () => {
         client.id,
         preparation.brief?.id,
         preparation.brief?.documentContent,
+        [],
+        [],
       ),
     );
   });
+
+  it.each([false, true])(
+    "applies the rep's stale-source choice (%s)",
+    async (useStale) => {
+      const snapshot = await api.getDashboard();
+      const client = {
+        ...snapshot.clients[0],
+        connectedSources: [
+          {
+            provider: "salesforce",
+            kind: "account",
+            accountId: "connected-1",
+            recordId: "crm-1",
+            title: "Acme",
+            url: "",
+            modifiedAt: null,
+            relativePath: "savvy-source-salesforce-1.md",
+            contentHash: "hash",
+            refreshedAt: "2026-10-01T00:00:00Z",
+          },
+        ],
+      };
+      const settings = await api.getAppSettings();
+      const preparation = await api.getPreparationSnapshot(client.id);
+      vi.spyOn(api, "getDashboard").mockResolvedValue({
+        ...snapshot,
+        clients: [client],
+      });
+      vi.spyOn(api, "getAppSettings").mockResolvedValue({
+        ...settings,
+        serviceMode: "managed",
+      });
+      vi.spyOn(api, "getPreparationSnapshot").mockResolvedValue({
+        ...preparation,
+        client,
+      });
+      vi.spyOn(api, "refreshConnectedSources").mockResolvedValue([
+        {
+          provider: "salesforce",
+          kind: "account",
+          accountId: "connected-1",
+          recordId: "crm-1",
+          title: "Acme",
+          relativePath: "savvy-source-salesforce-1.md",
+          status: "failed",
+          refreshedAt: "2026-10-01T00:00:00Z",
+          error: "Composio unavailable",
+        },
+      ]);
+      const confirm = vi.spyOn(window, "confirm").mockReturnValue(useStale);
+      const start = vi.spyOn(api, "startMeeting");
+      render(<App />);
+      await screen.findByRole("button", { name: "Review brief" });
+      fireEvent.click(screen.getByRole("button", { name: "Check readiness" }));
+      await screen.findByRole("heading", { name: "Your meeting brief" });
+      fireEvent.click(screen.getByRole("button", { name: "Check readiness" }));
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Start meeting" }),
+      );
+      await waitFor(() =>
+        expect(start).toHaveBeenCalledWith(
+          client.id,
+          expect.any(String),
+          expect.any(String),
+          useStale ? [] : ["savvy-source-salesforce-1.md"],
+          useStale ? ["savvy-source-salesforce-1.md"] : [],
+        ),
+      );
+      expect(confirm).toHaveBeenCalledWith(expect.stringContaining("stale"));
+    },
+  );
 
   it("keeps an idle overlay unmounted and applies saved settings from the main window", async () => {
     const snapshot = await api.getDashboard();

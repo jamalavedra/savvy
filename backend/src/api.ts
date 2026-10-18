@@ -12,6 +12,7 @@ import {
 import { adviceRequest } from "./context.js";
 import { ApiError, json } from "./errors.js";
 import { accountSummary, grantFixture } from "./billing.js";
+import { sourceResult, sources } from "./composio.js";
 import { checkout, portal, webhook, refreshRenewal } from "./stripe.js";
 import {
   validateSessionId,
@@ -116,6 +117,57 @@ export async function managedRequest(
   path: string,
 ) {
   try {
+    if (path === "/v1/sources/connections" && req.method === "GET") {
+      const account = await state.authorize(req.headers);
+      send(res, {
+        connections: await sourceResult(() =>
+          sources(state).connections(account.accountId),
+        ),
+      });
+      return;
+    }
+    if (path === "/v1/sources/connect" && req.method === "POST") {
+      const account = await state.authorize(req.headers);
+      const body = await readObject(req);
+      send(
+        res,
+        await sourceResult(() =>
+          sources(state).connect(account.accountId, body.provider),
+        ),
+      );
+      return;
+    }
+    if (path === "/v1/sources/disconnect" && req.method === "POST") {
+      const account = await state.authorize(req.headers);
+      const body = await readObject(req);
+      send(
+        res,
+        await sourceResult(() =>
+          sources(state).disconnect(account.accountId, body.provider),
+        ),
+      );
+      return;
+    }
+    if (path === "/v1/sources/search" && req.method === "POST") {
+      const account = await state.authorize(req.headers);
+      const body = await readObject(req);
+      send(
+        res,
+        await sourceResult(() =>
+          sources(state).search(account.accountId, body),
+        ),
+      );
+      return;
+    }
+    if (path === "/v1/sources/fetch" && req.method === "POST") {
+      const account = await state.authorize(req.headers);
+      const body = await readObject(req);
+      send(
+        res,
+        await sourceResult(() => sources(state).fetch(account.accountId, body)),
+      );
+      return;
+    }
     if (path.startsWith("/v1/billing/") && !state.config.billing)
       throw new ApiError(
         "invalid_request",

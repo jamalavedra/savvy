@@ -411,6 +411,31 @@ fn test_context() -> Option<TestContext> {
 }
 
 #[cfg(test)]
+pub(crate) fn install_connected_e2e_service(url: &str, access_token: &str) {
+    *ASYNC_TEST_CONTEXT.lock().unwrap() = Some(TestContext {
+        config: ManagedConfig {
+            service_url: url.into(),
+            issuer_url: url.into(),
+            client_id: "connected-e2e".into(),
+            audience: "connected-e2e".into(),
+        },
+        credential: std::sync::Arc::new(Mutex::new(Some("synthetic-refresh".into()))),
+        revocations: std::sync::Arc::new(Mutex::new(vec![])),
+        revocation_write_failure: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+    });
+    *ACCESS_TOKEN.lock().unwrap() = Some(CachedToken {
+        access_token: access_token.into(),
+        expires_at: Instant::now() + Duration::from_secs(120),
+    });
+}
+
+#[cfg(test)]
+pub(crate) fn clear_connected_e2e_service() {
+    *ASYNC_TEST_CONTEXT.lock().unwrap() = None;
+    *ACCESS_TOKEN.lock().unwrap() = None;
+}
+
+#[cfg(test)]
 fn read_refresh_token() -> Result<Option<String>, String> {
     Ok(test_context().and_then(|context| context.credential.lock().unwrap().clone()))
 }
@@ -1174,9 +1199,44 @@ pub fn service_get(path: &str) -> Result<serde_json::Value, String> {
             config.service_url.trim_end_matches('/')
         ))
         .bearer_auth(token)
+        .timeout(Duration::from_secs(15))
         .send()
         .map_err(|error| format!("could not reach the Savvy service: {error}"))?;
     read_service_response(response)
+}
+
+pub fn source_connections() -> Result<serde_json::Value, String> {
+    service_get("/v1/sources/connections")
+}
+
+pub fn source_connect(provider: &str) -> Result<String, String> {
+    let response = service_post(
+        "/v1/sources/connect",
+        &serde_json::json!({"provider": provider}),
+    )?;
+    let url = response["url"]
+        .as_str()
+        .ok_or("connection link is missing")?;
+    if !url.starts_with("https://") {
+        return Err("connection link is invalid".into());
+    }
+    Ok(url.to_owned())
+}
+
+pub fn source_disconnect(provider: &str) -> Result<(), String> {
+    service_post(
+        "/v1/sources/disconnect",
+        &serde_json::json!({"provider": provider}),
+    )?;
+    Ok(())
+}
+
+pub fn source_search(body: &serde_json::Value) -> Result<serde_json::Value, String> {
+    service_post("/v1/sources/search", body)
+}
+
+pub fn source_fetch(body: &serde_json::Value) -> Result<serde_json::Value, String> {
+    service_post("/v1/sources/fetch", body)
 }
 
 fn read_service_response(
@@ -1928,9 +1988,16 @@ mod issuer_tests {
                     Some(&crate::sha256(&brief.document_content)),
                 )
                 .unwrap();
-                let context =
-                    crate::build_context_pack(&state, None, Some(brief.id), &reviewed, "en")
-                        .unwrap();
+                let context = crate::build_context_pack(
+                    &state,
+                    None,
+                    Some(brief.id),
+                    &reviewed,
+                    "en",
+                    &[],
+                    &[],
+                )
+                .unwrap();
                 let session_id = uuid::Uuid::new_v4();
                 prepare_session(&session_id.to_string()).unwrap();
                 let error = meeting_context_request(session_id, &reviewed, &context)

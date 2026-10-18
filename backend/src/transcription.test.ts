@@ -338,6 +338,32 @@ test("reconnecting after supplier loss never debits the abandoned audio tail", a
   assert.equal(h.view().settledMs, 20n);
 });
 
+test("abnormal client drop can reconnect without pausing the meeting", async (t) => {
+  const h = await fixture(t);
+  const first = h.connect();
+  await once(first, "open");
+  const received = once(first, "message");
+  first.send(Buffer.alloc(640));
+  await received;
+  const closed = once(first, "close");
+  first.terminate();
+  await closed;
+  await waitFor(
+    () =>
+      h.view().state === "active" &&
+      balance(h.db, 1n, h.state.clock()).meetingMsReserved === 0n,
+  );
+  const next = h.connect();
+  await once(next, "open");
+  const transcript = once(next, "message");
+  next.send(Buffer.alloc(640));
+  await transcript;
+  const nextClosed = once(next, "close");
+  next.close();
+  await nextClosed;
+  await waitFor(() => h.view().state === "paused");
+});
+
 test("upstream language selection fixes the supplier model and replaces caller query options", () => {
   const url = new URL(
     upstreamUrl("wss://supplier/listen?model=other", "klingon"),
@@ -394,8 +420,11 @@ test("idle and disabled accounts close supplier work without charging a silent t
         "upstreamState",
         "clientCloseCode",
         "supplierCloseCode",
+        "upstreamBufferedBytes",
+        "upstreamWriteFailure",
       ].sort(),
     );
+    assert.equal(diagnostic.upstreamWriteFailure, null);
     assert.ok(!logs.join(" ").includes("Synthetic transcript"));
     assert.ok(!logs.join(" ").includes("Bearer"));
   }

@@ -14,14 +14,14 @@ Managed audio passes through Savvy to Deepgram; selected brief evidence and meet
 
 Savvy keeps your documents and history on your Mac, but live transcription is not local. Read this before pointing it at anything confidential.
 
-| Data                       | Stays on your Mac                  | Sent to a third party                             |
-| -------------------------- | ---------------------------------- | ------------------------------------------------- |
-| Source documents           | Referenced read-only, never copied | Selected excerpts only, at recommendation time    |
-| Derived chunks and indexes | Private local SQLite               | Selected excerpts only                            |
-| **Meeting audio**          | Retention-controlled local files   | **Yes — streamed to your transcription provider** |
-| Transcript                 | Retention-controlled local files   | Recent relevant turns, at recommendation time     |
-| Meeting brief              | Private and versioned              | The whole brief document, at recommendation time  |
-| Provider credentials       | macOS Keychain                     | Authorization header only                         |
+| Data                       | Stays on your Mac                                                            | Sent to a third party                             |
+| -------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------- |
+| Source documents           | Local files read in place; chosen connected records copied to client folders | Selected excerpts only, at recommendation time    |
+| Derived chunks and indexes | Private local SQLite                                                         | Selected excerpts only                            |
+| **Meeting audio**          | Retention-controlled local files                                             | **Yes — streamed to your transcription provider** |
+| Transcript                 | Retention-controlled local files                                             | Recent relevant turns, at recommendation time     |
+| Meeting brief              | Private and versioned                                                        | The whole brief document, at recommendation time  |
+| Provider credentials       | macOS Keychain                                                               | Authorization header only                         |
 
 **Transcription** requires a Deepgram or AssemblyAI account. Meeting audio is streamed to that provider as it is captured — there is no offline transcription mode in the current build. Savvy sets Deepgram's `mip_opt_out=true` so your audio is not used to train their models; check AssemblyAI's terms for their equivalent.
 

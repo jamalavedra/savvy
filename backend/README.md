@@ -71,6 +71,19 @@ includes cached input, and costs use the standard GLM-5.3 rates. Other Fireworks
 models require verification before configuration. An empty Fireworks key retains
 the Anthropic variables and Claude path.
 
+Set `COMPOSIO_API_KEY` to enable connected sources for signed-in managed users.
+Savvy stores one toolkit-limited Composio session per internal account and allows
+Salesforce, HubSpot, Gong, Gmail, Outlook, Notion, and Google Drive. Search and
+fetch requests are rate limited per account. The backend keeps the Composio key;
+selected record text returns to the desktop for a local Markdown copy. The
+Composio project API key must permit session creation and proxy execution.
+Composio disables proxy execution when a session has a tool allowlist, so
+Savvy enforces read-only access through its fixed authenticated search/fetch
+routes. Some provider OAuth grants can still give Composio broader rights.
+For Google Drive, a grant containing only identity scope reports
+`PERMISSION_REQUIRED` and can be reconnected; listing files needs a Drive
+read scope.
+
 The native client uses `com.alamaslabs.savvy:/oauth/callback`, authorization code
 with S256 PKCE, RS256 access tokens and rotating refresh tokens. Dynamic OAuth client
 registration is closed; any email address can create an account from the sign-in page. Auth migrations keep the registered client and resource rows. Billing identity remains
@@ -98,6 +111,8 @@ pnpm --dir backend test
 pnpm --dir backend build
 pnpm --dir backend test:browser
 pnpm --dir backend test:desktop
+pnpm --dir backend test:connected-e2e
+pnpm --dir backend test:connected-live
 pnpm --dir backend test:native-auth
 pnpm --dir backend test:package
 pnpm --dir backend test:web-return
@@ -110,6 +125,54 @@ SMTP catcher. Set `SAVVY_CHROMIUM` to an installed Chromium executable or instal
 Playwright Chromium. The desktop browser demo is synthetic and does not invoke
 native capture or Tauri commands. Installed macOS and live provider acceptance remain
 separate checks.
+
+`test:connected-e2e` runs synthetic Composio and AI suppliers through the real
+backend HTTP routes and the native source commands. It saves CRM and Drive copies,
+scans the client folder, starts a managed backend session, and verifies advice
+citations. It repeats the meeting with Composio unavailable, checking both stale
+and excluded local snapshots. Live app permissions and provider accounts remain
+separate acceptance checks.
+Set `SAVVY_CONNECTED_E2E_MODEL=1` when an authenticated Codex CLI is available
+to also send the imported evidence and a simulated call turn through Savvy's
+native advice prompt, then change the CRM price and verify the advice changes
+with it while citing the CRM source. The managed AI
+supplier remains synthetic in this fixture.
+
+For the live Notion acceptance test, connect the dedicated account to a
+fictional page titled `Savvy connector test — Acme renewal` containing
+`Maya Chen` and `24000`. From `backend/`, run
+`SAVVY_CONNECTED_E2E_LIVE_NOTION=1 SAVVY_CONNECTED_E2E_MODEL=1 node --env-file=.env.connected-live --test --import tsx --test-name-pattern='live Notion record' src/ai.test.ts`.
+This uses the real Composio page and Codex CLI, imports it through the native
+source commands, builds a call recommendation from a transcript turn, checks
+the answer changes when the buyer changes, passes that real advice through the
+managed backend contract, and repeats refresh with a simulated Composio outage.
+It does not capture live microphone audio or call the managed AI supplier.
+
+`node e2e/connected-staging.mjs` is the opt-in hosted call check. Set
+`SAVVY_E2E_TOKEN_FILE`, `SAVVY_E2E_OAUTH_FILE`, `SAVVY_E2E_MIC_PCM`, and
+`SAVVY_E2E_SYSTEM_PCM` to private test files; the PCM inputs must be invented
+16 kHz mono signed 16-bit speech. A dedicated staging account needs meeting
+allowance and the fictional Notion page connected. The script refreshes the
+account token, fetches the live page through Savvy, streams both audio channels
+through Deepgram, and requires managed advice to cite the page and name its buyer.
+It defaults to a 725-second meeting with a mid-call token rotation and explicit
+pause/resume; set `SAVVY_E2E_DURATION_MS=45000` for a short smoke. It exercises
+hosted audio transport, not installed Mac microphone or system capture. Set
+`SAVVY_E2E_NATIVE_FILE` to the private JSON output of the
+`connected_source_e2e_bridge` Rust test to require the real local source copy and
+scanner evidence in the hosted recommendation.
+Set `SAVVY_E2E_ALLOW_RECONNECT=1` to exercise the managed stream's 15-second
+reconnect path after a public transport interruption; the result reports the
+number of reconnects. Leave it unset when checking uninterrupted transport.
+
+For live adapter acceptance, connect all seven providers to a dedicated Savvy test
+account through Settings. Copy `e2e/connected-live.example.json` outside the repo,
+replace the account ID with that account's stable internal numeric ID, and enter one
+known, searchable record per kind. Set `COMPOSIO_API_KEY` and
+`SAVVY_CONNECTED_LIVE_FIXTURE` to the private fixture path, then run
+`test:connected-live`. It checks account status, search and fetch for all 11 kinds,
+including source URL, modification time, expected text and size. It prints only case
+names and pass/fail status; keep the fixture and key outside version control.
 
 `test:native-auth` runs the real sign-in page with delivered local email, then hands
 the callback to the Rust transport test. Rust owns PKCE and token exchange.

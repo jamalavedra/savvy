@@ -1,3 +1,6 @@
 allowBuilds:
   better-sqlite3: true
   esbuild: true
+overrides:
+  source-map-js: 1.2.2
+  nodemailer: 10.0.9
