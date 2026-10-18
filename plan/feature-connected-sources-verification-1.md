@@ -68,7 +68,7 @@ Complete the checks left open by the 2026-10-16 connected-source run. Use fictio
 |------|-------------|-----------|------|
 | TASK-011 | Run backend full tests and typecheck, React tests, Rust workspace tests, and Prettier. Fix failures or document a specific external blocker with a reproducible command and equivalent clean run. | ✅ | 2026-10-18 |
 | TASK-012 | Restore original local app data byte for byte. Remove the test app, test Keychain item, disposable recordings, and any temporary staging firewall entry. Verify staging session state is stopped with zero reservation. | ✅ | 2026-10-18 |
-| TASK-013 | Write `docs/verification/connected-sources-2026-10.md` with a result for each task, safe evidence references, exact limitations, and no secrets or real conversation. Commit the feature on the branch and open a PR against `main` with that report linked. | | |
+| TASK-013 | Write `docs/verification/connected-sources-2026-10.md` with a result for each task, safe evidence references, exact limitations, and no secrets or real conversation. Commit the feature on the branch and open a PR against `main` with that report linked. | ✅ | 2026-10-18 |
 
 ## 3. Alternatives
 

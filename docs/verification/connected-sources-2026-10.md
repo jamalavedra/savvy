@@ -1,6 +1,6 @@
 # Connected sources verification — 2026-10-18
 
-Branch: `feature/composio-connected-sources` (based on `720ab64`). This is an in-progress acceptance record for the staging backend and signed `Savvy Integration.app`. All test content is fictional. Private tokens, email codes, customer mail, and audio are excluded.
+Branch: `feature/composio-connected-sources` (based on `720ab64`); draft [PR #39](https://github.com/jamalavedra/savvy/pull/39). This is an in-progress acceptance record for the staging backend and signed `Savvy Integration.app`. All test content is fictional. Private tokens, email codes, customer mail, and audio are excluded.
 
 ## Results
 
@@ -12,6 +12,7 @@ Branch: `feature/composio-connected-sources` (based on `720ab64`). This is an in
 | Rust workspace | Pass; 4 environment-dependent tests ignored | `cargo test --workspace --locked` |
 | Rust lint and formatting | Pass | `cargo clippy --workspace --all-targets --locked -- -D warnings`, `cargo fmt --all -- --check` |
 | Backend production compilation | Pass | `pnpm --dir backend build:server` |
+| PR CI | Pass on `fcdbe61`: website, Windows, Linux, and full verify, including managed browser and desktop fixtures | [PR checks](https://github.com/jamalavedra/savvy/pull/39/checks) |
 | Signed staging app | Pass: Developer ID signature verified | Built at `target/release/bundle/macos/Savvy Integration.app`, installed temporarily at `/Applications/Savvy Integration.app`; `codesign --verify --deep --strict` |
 | Notion live search and fetch | Pass | Search found the exact fictional Acme page; fetch returned 321 bytes with the fictional buyer and amount, and a modification time. Verified through the pinned SDK on staging on 2026-10-18. |
 | Google Drive live document | Blocked: the previous account had only `userinfo.email openid`, so the backend correctly reported `PERMISSION_REQUIRED`. A reconnect reached Google's consent screen, which requests permission to view, edit, create, and delete every Drive file. Savvy's endpoints use reads, but the OAuth grant is broad. Action-time approval is pending; no Drive content was read. |
