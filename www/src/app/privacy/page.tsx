@@ -95,9 +95,9 @@ export default function PrivacyPolicy() {
       <p>
         The current desktop app reads source files from folders you choose and stores extracted
         text, indexes, briefs, recordings, and transcripts on your Mac. It leaves existing source
-        files unchanged, except for the connected-source copies you choose to import and refresh.
-        At startup, Savvy deletes local recordings and transcripts older than 30 days.
-        This startup cleanup does not delete copies held by providers or backups.
+        files unchanged, except for the connected-source copies you choose to import and refresh. At
+        startup, Savvy deletes local recordings and transcripts older than 30 days. This startup
+        cleanup does not delete copies held by providers or backups.
       </p>
       <p>
         When you use your own providers, Savvy streams audio to your Deepgram or AssemblyAI account
@@ -133,14 +133,14 @@ export default function PrivacyPolicy() {
 
       <h2>Managed meeting processing</h2>
       <p>
-        If you connect Salesforce, HubSpot, Gong, Gmail, Outlook, Notion or Google Drive,
-        Composio stores the connected app credentials. Savvy searches only when you ask and
-        fetches records you attach to a client. Selected records pass through Savvy's backend
-        to your Mac, where Savvy saves Markdown copies in that client's folder. Refreshing
-        a record before a meeting can update its copy; Savvy preserves a copy you edited
-        and asks whether to use an older copy after a failed refresh. Removing a selection
-        stops future refreshes but leaves its local file. Disconnecting revokes the app
-        connection. Signing out leaves connections available to the same Savvy account.
+        If you connect Salesforce, HubSpot, Gong, Gmail, Outlook, Notion or Google Drive, Composio
+        stores the connected app credentials. Savvy searches only when you ask and fetches records
+        you attach to a client. Selected records pass through Savvy's backend to your Mac, where
+        Savvy saves Markdown copies in that client's folder. Refreshing a record before a meeting
+        can update its copy; Savvy preserves a copy you edited and asks whether to use an older copy
+        after a failed refresh. Removing a selection stops future refreshes but leaves its local
+        file. Disconnecting revokes the app connection. Signing out leaves connections available to
+        the same Savvy account.
       </p>
       <p>
         When you explicitly start a managed meeting or transcription test, microphone audio and, if

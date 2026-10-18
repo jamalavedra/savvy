@@ -99,6 +99,7 @@ Complete the checks left open by the 2026-10-16 connected-source run. Use fictio
 
 - **RISK-001**: Some sales providers may not offer self-serve test accounts or required scopes. Record the exact provider gate and stop that specific account action before accepting legal terms or paying.
 - **RISK-002**: A clean long call does not prove every network fault is repaired; the induced disconnect must exercise the reconnect path.
+- **RISK-003**: Composio's managed Google Drive grant requests full-file write access even though Savvy calls read endpoints. Seek a narrower managed auth configuration before release if available.
 - **ASSUMPTION-001**: The user's authorization covers creating fictional records and test accounts with the authorized test identity, subject to action-time browser confirmations.
 
 ## 8. Related Specifications / Further Reading
