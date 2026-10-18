@@ -1,13 +1,15 @@
+import Image from "next/image";
 import type { CSSProperties, ReactNode } from "react";
 import { iconProps, MicIcon, StatusLine, WAVE } from "@/components/overlay/pieces";
 import { RecommendationCard } from "@/components/overlay/RecommendationCard";
 import { CHECK_PATH } from "@/components/sections/primitives";
 
-const delay = (seconds: number) => ({ "--i-delay": `${seconds}s` }) as CSSProperties;
+// Every vignette sits inside the white art card: a header line, then rows on
+// the inset grey. Labels are sentence case, figures and paths are mono.
 
 function Icon({ d, size = 16 }: { d: string; size?: number }) {
   return (
-    <svg {...iconProps} width={size} height={size} aria-hidden="true">
+    <svg {...iconProps} strokeWidth={1.5} width={size} height={size} aria-hidden="true">
       <path d={d} />
     </svg>
   );
@@ -28,116 +30,128 @@ const D = {
     "M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6",
 };
 
-function Bar({ w, strong = false }: { w: string; strong?: boolean }) {
+function Head({ icon, title, meta }: { icon: string; title: string; meta?: ReactNode }) {
   return (
-    <span
-      className={`block h-2 rounded-full ${w} ${
-        strong ? "bg-[color-mix(in_srgb,var(--text)_35%,transparent)]" : "bg-[var(--border)]"
-      }`}
-    />
+    <div className="flex items-center gap-2.5 pb-3">
+      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[11px] bg-[#f6f5f2] text-[#111]">
+        <Icon d={icon} />
+      </span>
+      <span className="text-[16px] font-semibold text-[#111]">{title}</span>
+      {meta && <span className="ml-auto">{meta}</span>}
+    </div>
   );
 }
 
-function Caption({ children }: { children: ReactNode }) {
+function Row({ children, className = "" }: { children: ReactNode; className?: string }) {
   return (
-    <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">
+    <div className={`flex items-center gap-3 rounded-[14px] bg-[#f6f5f2] px-3.5 py-3 ${className}`}>
+      {children}
+    </div>
+  );
+}
+
+function Label({ children }: { children: ReactNode }) {
+  return <span className="text-[13px] font-medium leading-tight text-black/55">{children}</span>;
+}
+
+function Tag({ children, tone = "neutral" }: { children: ReactNode; tone?: "neutral" | "up" }) {
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] font-medium leading-4 ${
+        tone === "up" ? "bg-[#1f7a35]/10 text-[#1f7a35]" : "bg-black/5 text-black/55"
+      }`}
+    >
       {children}
     </span>
   );
 }
 
-const FILES: [string, string][] = [
-  ["PDF", "#d85664"],
-  ["DOCX", "#3b6fd4"],
-  ["PPTX", "#cd8331"],
-  ["XLSX", "#368c66"],
-  ["MD", "#77736e"],
+const vignette = "sv w-full max-w-[380px]";
+
+// Official app logos where the format has one; CSV and EPUB get a plain page.
+const KINDS: { kind: string; logo?: string }[] = [
+  { kind: "PDF", logo: "/images/files/pdf.svg" },
+  { kind: "DOCX", logo: "/images/files/microsoft-word.svg" },
+  { kind: "PPTX", logo: "/images/files/microsoft-powerpoint.svg" },
+  { kind: "XLSX", logo: "/images/files/microsoft-excel.svg" },
+  { kind: "MD", logo: "/images/files/markdown-light.svg" },
+  { kind: "CSV" },
+  { kind: "EPUB" },
 ];
 
-function FileBadge({ kind, color }: { kind: string; color: string }) {
+function FileLogo({ kind, logo }: { kind: string; logo?: string }) {
   return (
-    <span className="flex h-11 w-9 flex-col items-center justify-end rounded-md border border-[var(--border)] bg-[var(--surface)] pb-1 shadow-sm [clip-path:polygon(0_0,68%_0,100%_24%,100%_100%,0_100%)]">
-      <span
-        className="rounded-sm px-1 text-[7px] font-extrabold tracking-wide text-white"
-        style={{ background: color }}
-      >
-        {kind}
+    <span className="flex flex-col items-center gap-1">
+      <span className="grid h-12 w-12 place-items-center rounded-[13px] bg-white ring-1 ring-black/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.06)]">
+        {logo ? (
+          <Image src={logo} alt="" width={28} height={28} className="h-7 w-7 object-contain" />
+        ) : (
+          <span className="grid h-7 w-[22px] place-items-end rounded-[3px] bg-[#f6f5f2] pb-0.5 font-mono text-[7px] font-semibold text-[#111] ring-1 ring-black/10">
+            <span className="w-full text-center">{kind}</span>
+          </span>
+        )}
       </span>
+      <span className="font-mono text-[10px] font-medium text-black/55">{kind}</span>
     </span>
   );
 }
 
 export function FolderVignette() {
   return (
-    <div className="sv flex w-full max-w-[280px] flex-col items-center">
-      <div className="flex h-12 items-end justify-center gap-2">
-        {FILES.map(([kind, color], i) => (
-          <span key={kind} className="file-drop" style={delay(i * 0.35)}>
-            <FileBadge kind={kind} color={color} />
-          </span>
+    <div className={vignette}>
+      <Head icon={D.folder} title="Sources" meta={<Tag tone="up">Read-only</Tag>} />
+      <Row className="flex-wrap justify-center gap-x-3.5 gap-y-2.5 px-2.5 py-3">
+        {KINDS.map((k) => (
+          <FileLogo key={k.kind} {...k} />
         ))}
-      </div>
-      <div className="folder-bump relative mt-3 grid h-16 w-20 place-items-center rounded-2xl bg-[var(--tile)] text-[var(--accent)]">
-        <Icon d={D.folder} size={34} />
-        <span className="badge-pop absolute -right-2 -top-2 rounded-full bg-[var(--text)] px-1.5 py-0.5 font-mono text-[10px] font-bold text-[var(--background)]">
-          14
-        </span>
-      </div>
-      <p className="mt-3 flex items-center gap-1.5">
-        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--success)]" />
-        <Caption>Read-only</Caption>
-      </p>
+      </Row>
+      <Row className="mt-2">
+        <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-[#1f7a35]" />
+        <Label>Indexed on your Mac</Label>
+        <span className="ml-auto font-mono text-[12px] text-black/55">14</span>
+      </Row>
     </div>
   );
 }
 
+// Example brief, same deal as the other demo cards.
 const BRIEF_ROWS = [
-  { icon: D.target, label: "Objective", tone: "text-[var(--accent)]", bars: ["w-32"] },
-  {
-    icon: D.flag,
-    label: "Red lines",
-    tone: "text-[var(--danger)]",
-    bars: ["w-28", "w-20", "w-24"],
-  },
-  { icon: D.question, label: "Questions", tone: "text-[var(--muted)]", bars: ["w-24", "w-16"] },
+  { icon: D.target, label: "Objective", lines: ["Renew the annual at net-60."] },
+  { icon: D.flag, label: "Red lines", lines: ["No Q1 go-live.", "Discount stays under 15%."] },
+  { icon: D.question, label: "Questions", lines: ["Ask them to rank the three."] },
 ];
 
 export function BriefVignette() {
   return (
-    <div className="sv w-full max-w-[260px]">
-      <div className="prepare-card relative p-3.5 shadow-sm">
-        <span className="check-pop absolute right-3 top-3 inline-flex items-center gap-1 rounded-full bg-[var(--success)] px-2 py-0.5 text-[10px] font-bold text-white">
-          <Icon d={CHECK_PATH} size={11} />
-          Approved
-        </span>
-        <div className="flex items-center gap-2.5">
-          <span className="tile-icon">
-            <Icon d={D.fileText} />
+    <div className={vignette}>
+      <Head
+        icon={D.fileText}
+        title="Brief"
+        meta={
+          <span className="check-pop inline-flex">
+            <Tag tone="up">
+              <Icon d={CHECK_PATH} size={12} />
+              Approved
+            </Tag>
           </span>
-          <span className="flex flex-col gap-1.5">
-            <Bar w="w-24" strong />
-            <Bar w="w-14" />
-          </span>
-        </div>
-        <div className="mt-3 border-t border-[var(--border-soft)] pt-2">
-          {BRIEF_ROWS.map((row, i) => (
-            <div
-              key={row.label}
-              className="row-in flex items-start gap-2.5 py-2"
-              style={delay(0.4 + i * 0.6)}
-            >
-              <span className={`mt-px ${row.tone}`}>
-                <Icon d={row.icon} size={14} />
-              </span>
-              <div className="flex flex-1 flex-col gap-1.5">
-                <Caption>{row.label}</Caption>
-                {row.bars.map((w) => (
-                  <Bar key={w} w={w} />
-                ))}
-              </div>
+        }
+      />
+      <div className="flex flex-col gap-2">
+        {BRIEF_ROWS.map((row) => (
+          <Row key={row.label} className="items-start">
+            <span className="mt-px text-black/55">
+              <Icon d={row.icon} size={14} />
+            </span>
+            <div className="flex flex-1 flex-col gap-1.5">
+              <Label>{row.label}</Label>
+              {row.lines.map((line) => (
+                <span key={line} className="text-[14px] font-medium leading-snug text-[#111]">
+                  {line}
+                </span>
+              ))}
             </div>
-          ))}
-        </div>
+          </Row>
+        ))}
       </div>
     </div>
   );
@@ -157,38 +171,50 @@ function Wave({ cls }: { cls: string }) {
   );
 }
 
-function Channel({ icon, label, cls }: { icon: ReactNode; label: string; cls: string }) {
-  return (
-    <div className="flex items-center gap-3 py-2">
-      <span className="tile-icon">{icon}</span>
-      <span className="w-20 shrink-0">
-        <Caption>{label}</Caption>
-      </span>
-      <Wave cls={cls} />
-    </div>
-  );
-}
-
-const LANGS = ["EN", "ES", "CA", "DE"];
+const LANGS = [
+  { code: "EN", flag: "/images/flags/gb.svg" },
+  { code: "ES", flag: "/images/flags/es.svg" },
+  { code: "CA", flag: "/images/flags/es-ct.svg" },
+  { code: "DE", flag: "/images/flags/de.svg" },
+];
 
 export function ChannelsVignette() {
   return (
-    <div className="sv w-full max-w-[290px] rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 shadow-sm">
-      <Channel icon={<Icon d={D.speaker} />} label="System audio" cls="talk-a" />
-      <Channel icon={<MicIcon size={16} />} label="Microphone" cls="talk-b" />
-      <div className="mt-2 flex items-center gap-1.5 border-t border-[var(--border-soft)] pt-3">
+    <div className={vignette}>
+      <Head icon={D.speaker} title="Audio" meta={<Label>Auto detect</Label>} />
+      <div className="flex flex-col gap-2">
+        <Row>
+          <span className="w-24 shrink-0">
+            <Label>System audio</Label>
+          </span>
+          <Wave cls="talk-a" />
+        </Row>
+        <Row>
+          <span className="flex w-24 shrink-0 items-center gap-1.5 text-black/55">
+            <MicIcon size={12} />
+            <Label>Microphone</Label>
+          </span>
+          <Wave cls="talk-b" />
+        </Row>
+      </div>
+      <div className="mt-3 flex items-center gap-1.5">
         {LANGS.map((lang, i) => (
           <span
-            key={lang}
-            className="pill-active rounded-full px-2 py-0.5 font-mono text-[10px] font-semibold"
-            style={delay(i * 1.5)}
+            key={lang.code}
+            className={`inline-flex items-center gap-1.5 rounded-full py-1 pl-1 pr-2.5 font-mono text-[11px] font-medium ${
+              i === 0 ? "bg-[#111] text-white" : "bg-black/5 text-black/55"
+            }`}
           >
-            {lang}
+            <Image
+              src={lang.flag}
+              alt=""
+              width={16}
+              height={16}
+              className="h-4 w-4 rounded-full ring-1 ring-black/10"
+            />
+            {lang.code}
           </span>
         ))}
-        <span className="ml-auto">
-          <Caption>Auto detect</Caption>
-        </span>
       </div>
     </div>
   );
@@ -196,7 +222,7 @@ export function ChannelsVignette() {
 
 export function SayAvoidVignette() {
   return (
-    <div className="sv sv-loop w-full max-w-[280px]">
+    <div className="sv sv-loop w-full max-w-[320px] [zoom:1.15]">
       <RecommendationCard
         rec={{
           title: "Answer",
@@ -206,7 +232,6 @@ export function SayAvoidVignette() {
           source: "payment-terms.pdf · p.2",
         }}
         lifetime="6s"
-        className="shadow-sm"
       />
     </div>
   );
@@ -214,8 +239,8 @@ export function SayAvoidVignette() {
 
 export function AdviceVignette() {
   return (
-    <div className="sv">
-      <div className="scard shadow-sm">
+    <div className="sv [zoom:1.3]">
+      <div className="scard">
         <div className="grid *:col-start-1 *:row-start-1">
           <div className="cycle-a">
             <StatusLine status="listening" advice />
@@ -232,7 +257,7 @@ export function AdviceVignette() {
           </div>
           <Wave cls="" />
           <div className="sbase-r">
-            <kbd className="press rounded border border-[var(--border)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--muted)]">
+            <kbd className="rounded-md bg-black/5 px-1.5 py-0.5 font-mono text-[11px] text-black/55">
               ⌥⇧S
             </kbd>
           </div>
@@ -242,79 +267,50 @@ export function AdviceVignette() {
   );
 }
 
-function CountdownRing() {
-  const r = 8;
-  const circ = 2 * Math.PI * r;
-  return (
-    <span className="relative grid h-7 w-7 place-items-center" aria-hidden="true">
-      <svg viewBox="0 0 24 24" width="28" height="28" className="-rotate-90" aria-hidden="true">
-        <circle cx="12" cy="12" r={r} fill="none" stroke="var(--border)" strokeWidth="2.5" />
-        <circle
-          className="ring-sweep"
-          cx="12"
-          cy="12"
-          r={r}
-          fill="none"
-          stroke="var(--accent)"
-          strokeWidth="2.5"
-          strokeLinecap="round"
-          strokeDasharray={circ}
-          style={{ "--circ": circ } as CSSProperties}
-        />
-      </svg>
-      <span className="absolute font-mono text-[7px] font-bold text-[var(--muted)]">30d</span>
-    </span>
-  );
-}
-
 function HistoryRow({
+  title,
   when,
   minutes,
-  width,
   playing = false,
   expiring = false,
 }: {
+  title: string;
   when: string;
   minutes: string;
-  width: string;
   playing?: boolean;
   expiring?: boolean;
 }) {
   return (
-    <div className={`flex items-center gap-3 px-3.5 py-3 ${expiring ? "row-expire" : ""}`}>
-      <span className="sx" aria-hidden="true">
-        <Icon d={expiring ? D.trash : D.play} size={11} />
+    <Row>
+      <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-white text-[#111] ring-1 ring-black/[0.06]">
+        <Icon d={expiring ? D.trash : D.play} size={12} />
       </span>
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <Bar w="w-20" strong />
-          <span className="rounded-full bg-[var(--background-ui)] px-1.5 py-px font-mono text-[9px] text-[var(--muted)]">
-            {when}
-          </span>
-        </div>
-        <div className="mt-2 h-1 rounded-full bg-[var(--background-ui)]">
-          <div
-            className={`h-1 rounded-full bg-[var(--accent)] ${playing ? "playhead" : ""}`}
-            style={{ width }}
-          />
+        <span className="block truncate text-[14px] font-semibold leading-tight text-[#111]">
+          {title}
+        </span>
+        <Label>{when}</Label>
+        <div className="mt-1.5 h-1 rounded-full bg-black/[0.08]">
+          {playing && (
+            <div className="playhead h-1 rounded-full bg-[#111]" style={{ width: "30%" }} />
+          )}
         </div>
       </div>
-      {expiring ? (
-        <CountdownRing />
-      ) : (
-        <span className="font-mono text-[10px] text-[var(--muted)]">{minutes}</span>
-      )}
-    </div>
+      <span className={`font-mono text-[12px] ${expiring ? "text-[#b4380a]" : "text-black/55"}`}>
+        {expiring ? "30d" : minutes}
+      </span>
+    </Row>
   );
 }
 
 export function HistoryVignette() {
   return (
-    <div className="sv w-full max-w-[280px]">
-      <div className="prepare-card divide-y divide-[var(--border-soft)] shadow-sm">
-        <HistoryRow when="Today" minutes="42 min" width="30%" playing />
-        <HistoryRow when="Yesterday" minutes="27 min" width="0%" />
-        <HistoryRow when="30 days ago" minutes="51 min" width="0%" expiring />
+    <div className={vignette}>
+      <Head icon={D.play} title="Meetings" meta={<Label>On your Mac</Label>} />
+      <div className="flex flex-col gap-2">
+        <HistoryRow title="Acme renewal" when="Today" minutes="42 min" playing />
+        <HistoryRow title="Northwind kickoff" when="Yesterday" minutes="27 min" />
+        <HistoryRow title="Pricing review" when="30 days ago" minutes="51 min" expiring />
       </div>
     </div>
   );

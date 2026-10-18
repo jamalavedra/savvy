@@ -11,7 +11,7 @@ export function FAQ() {
           <TwoLineHeading line1="Questions about Savvy" />
           <a
             href={LINKS.readme}
-            className="focus-ring mt-6 inline-flex rounded-full bg-foreground px-5 py-2.5 text-sm font-semibold text-background"
+            className="focus-ring press-feedback mt-6 inline-flex rounded-full bg-foreground px-5 py-2.5 text-sm font-semibold text-background"
           >
             Read the README
           </a>
@@ -22,12 +22,12 @@ export function FAQ() {
               key={item.question}
               name="faq"
               open={i === 0}
-              className="group px-6 py-1.5 open:bg-background-alt"
+              className="group rounded-2xl px-6 py-1.5 open:bg-background-alt"
             >
-              <summary className="focus-ring cursor-pointer py-3.5 text-[15px] font-medium">
+              <summary className="focus-ring cursor-pointer py-3.5 text-body font-semibold">
                 {item.question}
               </summary>
-              <p className="pb-4 text-sm leading-relaxed text-muted">{item.answer}</p>
+              <p className="pb-4 text-small text-muted">{item.answer}</p>
             </details>
           ))}
         </FadeInUp>

@@ -93,7 +93,7 @@ export default async function BlogPost({ params }: Params) {
                 {post.readingMinutes} min read
               </p>
               <TwoLineHeading as="h1" className="mt-3" line1={post.title} />
-              <p className="mt-5 text-lg leading-relaxed text-muted">{post.description}</p>
+              <p className="mt-4 text-lead text-muted">{post.description}</p>
               <div className="mt-10 text-[15px] leading-[1.75]">
                 <Markdown body={post.body} />
               </div>

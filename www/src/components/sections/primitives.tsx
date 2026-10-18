@@ -11,15 +11,6 @@ export function Divider() {
   );
 }
 
-export function Eyebrow({ children }: { children: ReactNode }) {
-  return (
-    <span className="inline-flex items-center gap-2 text-sm font-medium">
-      <span aria-hidden className="h-1.5 w-1.5 border border-foreground/50" />
-      {children}
-    </span>
-  );
-}
-
 export function TwoLineHeading({
   line1,
   line2,
@@ -32,9 +23,7 @@ export function TwoLineHeading({
   as?: "h1" | "h2";
 }) {
   return (
-    <Tag
-      className={`text-3xl font-medium leading-[1.12] tracking-tight lg:text-[40px] ${className}`}
-    >
+    <Tag className={`text-title text-balance ${className}`}>
       <span className="block">{line1}</span>
       {line2 && <span className="block text-muted">{line2}</span>}
     </Tag>
@@ -50,7 +39,7 @@ export function StatList({ items }: { items: Stat[] }) {
         <li
           // biome-ignore lint/suspicious/noArrayIndexKey: static list, never reordered
           key={i}
-          className="flex items-center gap-3 border-t border-border py-4 text-sm font-medium last:border-b"
+          className="flex items-center gap-3 border-t border-border py-4 text-small last:border-b"
         >
           <span className="text-muted">{item.icon}</span>
           {item.label}
@@ -78,7 +67,7 @@ export function MascotNote({
         height={112}
         className="h-14 w-14 shrink-0 select-none"
       />
-      <p className="font-hand text-[19px] leading-[1.2] text-muted">{note}</p>
+      <p className="text-small text-muted">{note}</p>
     </div>
   );
 }

@@ -1,49 +1,55 @@
+import Image from "next/image";
 import { FadeInUp } from "@/components/animations/FadeInUp";
 import { ScriptedOverlay } from "@/components/overlay/OverlayCard";
-import { iconProps, MicIcon } from "@/components/overlay/pieces";
-import { DownloadCTA, WindowsSoon } from "@/components/ui/DownloadCTA";
+import { DownloadCTA } from "@/components/ui/DownloadCTA";
 import { HERO_SCRIPT } from "@/content/scripts";
-import { REQUIREMENTS } from "@/lib/constants";
 import "./hero.css";
 
-// Footage: Mixkit clip 10457, Mixkit License, re-encoded as a loop.
+// Footage: Mixkit clip 48680, Mixkit License, re-encoded as a loop.
 // See public/videos/SOURCE.md. Swap these files to change the call.
 const CALL = { mp4: "/videos/hero-call.mp4", webm: "/videos/hero-call.webm" };
 const POSTER = "/videos/hero-call.jpg";
 
-function ControlBar() {
+// Savvy hears any call app through system audio; these are the common ones.
+// The name sets the flex baseline, so it lines up with the sentence in any
+// font; the icon centres on that line and stays shorter than it.
+function App({ src, name }: { src: string; name: string }) {
   return (
-    <div
-      aria-hidden="true"
-      className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-2 bg-gradient-to-t from-black/55 to-transparent px-4 pb-3 pt-10 sm:gap-2.5 sm:pb-4"
-    >
-      <span className="grid h-8 w-8 place-items-center rounded-full bg-white/15 text-white backdrop-blur-sm sm:h-9 sm:w-9">
-        <MicIcon size={15} />
+    <span className="inline-flex gap-[0.3em] whitespace-nowrap">
+      <span className="grid h-[1.3em] w-[1.3em] place-items-center self-center rounded-full bg-surface ring-1 ring-black/[0.06]">
+        <Image src={src} alt="" width={20} height={20} className="h-[0.8em] w-[0.8em]" />
       </span>
-      <span className="grid h-8 w-8 place-items-center rounded-full bg-white/15 text-white backdrop-blur-sm sm:h-9 sm:w-9">
-        <svg {...iconProps} width="15" height="15" aria-hidden="true">
-          <path d="M15 10.5 22 7v10l-7-3.5M4 5h9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z" />
-        </svg>
-      </span>
-      <span className="grid h-8 w-8 place-items-center rounded-full bg-white/15 text-white backdrop-blur-sm sm:h-9 sm:w-9">
-        <svg {...iconProps} width="15" height="15" aria-hidden="true">
-          <path d="M3 4h18v12H3zM8 20h8M12 16v4" />
-        </svg>
-      </span>
-      <span className="grid h-8 w-12 place-items-center rounded-full bg-[#e5484d] text-white sm:h-9 sm:w-14">
-        <svg {...iconProps} width="16" height="16" aria-hidden="true">
-          <path d="M2.5 9.5a14 14 0 0 1 19 0v3l-4 1-1-3a11 11 0 0 0-9 0l-1 3-4-1Z" />
-        </svg>
-      </span>
+      <span className="self-baseline">{name}</span>
+    </span>
+  );
+}
+
+// MacBook frame: lid with bezel and notch, then the silver base.
+function MacBook({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="mx-auto mt-12 max-w-[920px]">
+      <div className="relative mx-auto w-[88%] rounded-t-[14px] bg-[#0d0d0d] p-[1.2%] pb-[2%] ring-1 ring-black/50 sm:rounded-t-[20px]">
+        <span
+          aria-hidden="true"
+          className="absolute left-1/2 top-0 z-10 h-[2.2%] w-[11%] -translate-x-1/2 rounded-b-[6px] bg-[#0d0d0d]"
+        />
+        {children}
+      </div>
+      <div
+        aria-hidden="true"
+        className="relative h-[10px] rounded-b-[14px] bg-gradient-to-b from-[#e4e5e7] to-[#a7a9ac] shadow-[0_20px_40px_-20px_rgba(0,0,0,0.45)] sm:h-[18px]"
+      >
+        <span className="absolute left-1/2 top-0 h-1/2 w-[14%] -translate-x-1/2 rounded-b-[8px] bg-[#c6c7ca]" />
+      </div>
     </div>
   );
 }
 
 function CallStage({ children }: { children: React.ReactNode }) {
   return (
-    <div className="relative overflow-hidden rounded-2xl bg-[#1d1c1a] shadow-[0_24px_60px_-24px_rgba(31,26,16,0.45)]">
+    <div className="relative overflow-hidden rounded-[4px] bg-[#1d1c1a] sm:rounded-[6px]">
       <div
-        className="relative aspect-[4/5] bg-cover bg-center sm:aspect-video"
+        className="relative aspect-[16/10] bg-cover bg-center"
         style={{ backgroundImage: `url(${POSTER})` }}
       >
         <video
@@ -53,113 +59,48 @@ function CallStage({ children }: { children: React.ReactNode }) {
           loop
           playsInline
           preload="metadata"
-          aria-label="Example call footage without audio"
+          aria-label="A woman talking on a video call at her laptop, without audio"
           poster={POSTER}
         >
           <source src={CALL.webm} type="video/webm" />
           <source src={CALL.mp4} type="video/mp4" />
         </video>
-
-        <div
-          aria-hidden="true"
-          className="absolute left-3 top-3 flex items-center gap-1.5 rounded-full bg-black/45 px-2.5 py-1 backdrop-blur-sm sm:left-4 sm:top-4"
-        >
-          <span className="hr-rec h-1.5 w-1.5 rounded-full bg-[#ff5f57]" />
-          <span className="font-mono text-[10px] uppercase tracking-wider text-white/90">
-            Rec 24:43
-          </span>
-        </div>
-        <span
-          aria-hidden="true"
-          className="absolute bottom-16 left-3 rounded-md bg-black/45 px-2 py-1 text-[11px] font-medium text-white/90 backdrop-blur-sm sm:left-4"
-        >
-          Acme Industrial
-        </span>
-
-        <ControlBar />
       </div>
 
-      <div className="absolute inset-x-0 bottom-14 flex justify-center px-3 sm:bottom-16 sm:justify-end sm:pr-5">
-        <div className="w-full origin-bottom scale-[.92] sm:w-auto sm:scale-100">{children}</div>
+      {/* Left side: the speaker sits centre-right in this footage. */}
+      <div className="absolute bottom-2 left-2 sm:bottom-5 sm:left-5">
+        <div className="origin-bottom-left scale-[.55] sm:scale-[.8] lg:scale-100">{children}</div>
       </div>
-    </div>
-  );
-}
-
-// Keep the note below the frame until the right gutter can fit it.
-function MarginNote() {
-  return (
-    <div className="mx-auto mt-8 max-w-xs text-center min-[1360px]:absolute min-[1360px]:left-full min-[1360px]:top-8 min-[1360px]:mt-0 min-[1360px]:w-[210px] min-[1360px]:pl-4 min-[1360px]:text-left">
-      <svg
-        className="hr-arrow mx-auto h-12 w-14 text-muted min-[1360px]:hidden"
-        viewBox="0 0 56 48"
-        aria-hidden="true"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M17 45c11-3 17-13 17-27 0-4-.5-8-1-12" />
-        <path d="M26 9 33 2l7 8" />
-      </svg>
-      <svg
-        className="hr-arrow hidden h-14 w-24 text-muted min-[1360px]:block"
-        viewBox="0 0 96 56"
-        aria-hidden="true"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M92 4c-2 20-14 33-34 38-9 2-19 3-30 2" />
-        <path d="M37 36 27 44l11 7" />
-      </svg>
-      <p className="mt-1 font-hand text-[20px] leading-[1.25] text-muted">
-        Reads your files first.
-        <br />
-        Then suggests what to say.
-      </p>
     </div>
   );
 }
 
 export function Hero() {
   return (
-    <section className="pt-8 pb-16 lg:pt-10">
+    <section className="pt-10 pb-20 lg:pt-16">
       <div className="page-column">
         <FadeInUp>
-          <h1 className="mx-auto max-w-3xl text-center text-[42px] font-medium leading-[1.04] tracking-tighter sm:text-6xl lg:text-[76px]">
-            Your notes,
-            <br />
-            when you need them.
+          <h1 className="text-display mx-auto max-w-2xl text-center text-balance">
+            Your notes, when you need them.
           </h1>
-          <p className="mx-auto mt-6 max-w-xl text-center text-lg leading-8 text-muted">
-            A real-time AI meeting assistant for Mac. Nothing joins the call: Savvy reads your own
-            documents first, then tells you what to say and which file says so.
+          <p className="mx-auto mt-4 max-w-2xl text-center text-lead text-balance text-muted">
+            Savvy reads your files, then speaks up in{" "}
+            <App src="/images/logos/google-meet.svg" name="Google Meet," />{" "}
+            <App src="/images/logos/microsoft-teams.svg" name="Teams" /> and{" "}
+            <App src="/images/logos/zoom.svg" name="Zoom" /> calls the moment you need it. No bot
+            joins.
           </p>
+          <div className="mt-6 flex justify-center">
+            <DownloadCTA />
+          </div>
         </FadeInUp>
 
-        <FadeInUp delay={0.1}>
-          <div className="relative mx-auto mt-10 w-full max-w-[680px]">
-            <div aria-hidden="true" className="hr-desk" />
+        <FadeInUp delay={0.08}>
+          <MacBook>
             <CallStage>
               <ScriptedOverlay script={HERO_SCRIPT} startElapsed={1483} />
             </CallStage>
-            <MarginNote />
-          </div>
-        </FadeInUp>
-
-        <FadeInUp delay={0.2}>
-          <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
-            <DownloadCTA />
-            <WindowsSoon />
-          </div>
-          <p className="mt-4 text-center font-mono text-[11px] text-muted">{REQUIREMENTS}</p>
-          <p className="mt-2 text-center text-xs text-muted">
-            Illustrative demo with example documents and guidance.
-          </p>
+          </MacBook>
         </FadeInUp>
       </div>
     </section>

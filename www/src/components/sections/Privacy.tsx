@@ -2,7 +2,6 @@ import type { CSSProperties } from "react";
 import { FadeInUp } from "@/components/animations/FadeInUp";
 import {
   ClockIcon,
-  Eyebrow,
   FolderIcon,
   KeyIcon,
   MascotNote,
@@ -34,7 +33,7 @@ function Icon({ d, size = 14 }: { d: string; size?: number }) {
       height={size}
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.75"
+      strokeWidth="1.5"
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
@@ -64,14 +63,14 @@ function Chip({
 }) {
   return (
     <div
-      className={`flex min-w-0 items-center gap-2.5 rounded-lg border border-border-soft bg-background px-2.5 py-2 ${className}`}
+      className={`flex min-w-0 items-center gap-2.5 rounded-xl bg-white px-2.5 py-2 ring-1 ring-black/[0.06] ${className}`}
     >
       <span className="shrink-0 text-muted">
         <Icon d={icon} />
       </span>
       <span className="min-w-0">
-        <span className="block truncate text-[12px] font-medium leading-tight">{name}</span>
-        <span className="block truncate font-mono text-[10px] leading-tight text-muted">{sub}</span>
+        <span className="block truncate text-[13px] font-semibold leading-tight">{name}</span>
+        <span className="mt-0.5 block truncate text-[12px] leading-tight text-muted">{sub}</span>
       </span>
     </div>
   );
@@ -95,7 +94,7 @@ const LANES = [
     line: "pv-line",
     dot: "bg-danger",
     burst: false,
-    card: "border-danger/40",
+    card: "border-danger/25",
     tone: "text-danger",
   },
   {
@@ -107,99 +106,81 @@ const LANES = [
     line: "pv-line-dashed",
     dot: "bg-muted",
     burst: true,
-    card: "border-border",
+    card: "border-black/[0.08]",
     tone: "text-foreground",
   },
 ];
 
 function Diagram() {
   return (
-    <div className="panel p-5 sm:p-8" style={vars({ "--hue": "var(--color-hue-sky)" })}>
-      <div className="relative">
-        <div
-          aria-hidden="true"
-          className="pv-ring pointer-events-none absolute -inset-1 rounded-[18px] border border-accent/40"
-        />
-        <div className="relative rounded-2xl border border-border bg-surface p-3.5 sm:p-4">
-          <div className="flex items-center gap-2 pb-3">
-            <span className="text-muted">
-              <Icon d={D.laptop} size={16} />
-            </span>
-            <span className="text-[13px] font-medium">Your Mac</span>
-            <span className="ml-auto flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-wider text-muted">
-              <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-success" />
-              Stays here
-            </span>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            {STAYS.map((item) => (
-              <Chip key={item.name} icon={item.icon} name={item.name} sub={item.sub} />
-            ))}
-            <Chip
-              className="col-span-2"
-              icon={D.wave}
-              name="Recordings + transcripts"
-              sub="Deleted after 30 days"
-            />
+    <div className="art-panel art-night p-5 sm:p-8">
+      <div className="art-card p-4 sm:p-5">
+        <div>
+          <div className="rounded-2xl bg-card-inset p-3 sm:p-3.5">
+            <div className="flex items-center gap-2 pb-3">
+              <span className="text-muted">
+                <Icon d={D.laptop} size={16} />
+              </span>
+              <span className="text-[14px] font-semibold">Your Mac</span>
+              <span className="ml-auto rounded-md bg-success/10 px-1.5 py-0.5 text-[12px] font-medium text-success">
+                Stays here
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {STAYS.map((item) => (
+                <Chip key={item.name} icon={item.icon} name={item.name} sub={item.sub} />
+              ))}
+              <Chip
+                className="col-span-2"
+                icon={D.wave}
+                name="Recordings + transcripts"
+                sub="Deleted after 30 days"
+              />
+            </div>
           </div>
         </div>
-      </div>
 
-      <p className="pt-4 text-center font-mono text-[9px] uppercase tracking-wider text-muted">
-        Leaves your Mac
-      </p>
+        <p className="pt-4 text-center text-[12px] font-medium text-muted">Leaves your Mac</p>
 
-      <div className="grid grid-cols-2 gap-3 sm:gap-4">
-        {LANES.map((lane) => (
-          <div key={lane.key} className="flex flex-col items-center">
-            <div className="relative h-12 w-6" style={vars({ "--pv-len": "42px" })}>
-              <span aria-hidden="true" className={lane.line} />
-              {PACKETS.map((p) => (
-                <span
-                  key={p.park}
-                  aria-hidden="true"
-                  className={`pv-packet ${lane.dot} ${lane.burst ? "pv-burst" : ""}`}
-                  style={vars({
-                    "--pv-d": lane.burst ? p.burst : p.d,
-                    "--pv-park": p.park,
-                  })}
-                />
-              ))}
-            </div>
-            <span className={`-mt-1.5 ${lane.tone}`}>
-              <Icon d={D.chevron} size={16} />
-            </span>
-            <div
-              className={`mt-1 flex w-full flex-1 flex-col rounded-xl border bg-surface p-3 ${lane.card}`}
-            >
-              <div className={`flex items-center gap-2 ${lane.tone}`}>
-                <Icon d={lane.icon} />
-                <span className="text-[12px] font-semibold leading-tight">{lane.title}</span>
+        <div className="grid grid-cols-2 gap-3 sm:gap-4">
+          {LANES.map((lane) => (
+            <div key={lane.key} className="flex flex-col items-center">
+              <div className="relative h-12 w-6" style={vars({ "--pv-len": "42px" })}>
+                <span aria-hidden="true" className={lane.line} />
+                {PACKETS.map((p) => (
+                  <span
+                    key={p.park}
+                    aria-hidden="true"
+                    className={`pv-packet ${lane.dot} ${lane.burst ? "pv-burst" : ""}`}
+                    style={vars({
+                      "--pv-d": lane.burst ? p.burst : p.d,
+                      "--pv-park": p.park,
+                    })}
+                  />
+                ))}
               </div>
-              <p className="mt-1.5 mb-2.5 text-[11px] leading-snug text-muted">{lane.dest}</p>
-              <div className="mt-auto flex items-center gap-2 border-t border-border-soft pt-2">
-                {lane.burst ? null : (
-                  <span aria-hidden="true" className="flex h-3 items-center gap-[3px]">
-                    {PACKETS.map((p, i) => (
-                      <span
-                        key={p.park}
-                        className="pv-bar h-3 w-[3px] rounded-full bg-danger"
-                        style={vars({ "--pv-d": `${i * 0.18}s` })}
-                      />
-                    ))}
-                  </span>
-                )}
+              <span className={`-mt-1.5 ${lane.tone}`}>
+                <Icon d={D.chevron} size={16} />
+              </span>
+              <div
+                className={`mt-1 flex w-full flex-1 flex-col rounded-2xl border p-3 ${lane.card}`}
+              >
+                <div className={`flex items-center gap-2 ${lane.tone}`}>
+                  <Icon d={lane.icon} />
+                  <span className="text-[13px] font-semibold leading-tight">{lane.title}</span>
+                </div>
+                <p className="mt-1.5 mb-2.5 text-[12px] leading-snug text-muted">{lane.dest}</p>
                 <span
-                  className={`font-mono text-[9px] uppercase tracking-wider ${
-                    lane.burst ? "text-muted" : "text-danger"
+                  className={`mt-auto self-start rounded-md px-1.5 py-0.5 text-[12px] font-medium ${
+                    lane.burst ? "bg-black/5 text-muted" : "bg-danger/10 text-danger"
                   }`}
                 >
                   {lane.note}
                 </span>
               </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -210,13 +191,11 @@ export function Privacy() {
     <section id="privacy" className="py-20 lg:py-28">
       <div className="page-column grid items-center gap-12 lg:grid-cols-2">
         <FadeInUp>
-          <Eyebrow>Local-first</Eyebrow>
           <TwoLineHeading
-            className="mt-4"
             line1="Know where your data goes"
             line2="Local storage, external AI providers"
           />
-          <p className="mt-6 max-w-md text-sm leading-relaxed text-muted">
+          <p className="mt-4 max-w-md text-small text-muted">
             Source files stay in their folders. Savvy stores extracted text and indexes in a local
             database. With personal providers, audio streams to your transcription provider. AI
             tasks send selected excerpts, your brief and recent transcript turns to your model

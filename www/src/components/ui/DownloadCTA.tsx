@@ -14,34 +14,13 @@ export function DownloadCTA({ size = "md" }: { size?: "md" | "sm" }) {
       href={LINKS.download}
       target="_blank"
       rel="noopener noreferrer"
-      className={`focus-ring inline-flex items-center justify-center gap-2 rounded-full bg-foreground font-semibold text-background transition-opacity duration-200 hover:opacity-80 ${
+      className={`focus-ring press-feedback inline-flex items-center justify-center gap-2 rounded-full bg-foreground font-semibold text-background ${
         size === "sm" ? "px-4 py-2 text-[13px]" : "px-5 py-2.5 text-sm"
       }`}
     >
       <AppleIcon size={size === "sm" ? 12 : 14} />
       Download for Mac
     </a>
-  );
-}
-
-function WindowsIcon({ size = 14 }: { size?: number }) {
-  return (
-    <svg aria-hidden="true" width={size} height={size} viewBox="0 0 18 18" fill="currentColor">
-      <path d="M0 2.55 7.35 1.55v6.9H0V2.55ZM8.25 1.42 18 0v8.45H8.25V1.42ZM0 9.55h7.35v6.9L0 15.45v-5.9ZM8.25 9.55H18V18l-9.75-1.42V9.55Z" />
-    </svg>
-  );
-}
-
-export function WindowsSoon() {
-  return (
-    <button
-      type="button"
-      disabled
-      className="inline-flex cursor-not-allowed items-center justify-center gap-2 rounded-full border border-border px-5 py-2.5 text-sm font-semibold text-muted"
-    >
-      <WindowsIcon />
-      Windows coming soon
-    </button>
   );
 }
 
@@ -59,7 +38,7 @@ export function GitHubCTA() {
       href={REPO_URL}
       target="_blank"
       rel="noopener noreferrer"
-      className="focus-ring inline-flex items-center justify-center gap-2 rounded-full border border-border px-4 py-2 text-[13px] font-semibold transition-colors hover:bg-background-alt"
+      className="focus-ring press-feedback inline-flex items-center justify-center gap-2 rounded-full border border-border px-4 py-2 text-[13px] font-semibold"
     >
       <GitHubIcon size={12} />
       View on GitHub
