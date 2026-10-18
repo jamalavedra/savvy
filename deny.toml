@@ -3,8 +3,9 @@ targets = [{ triple = "aarch64-apple-darwin" }]
 
 [advisories]
 version = 2
-# There are no vulnerability advisories against this tree. Everything below is
-# `unmaintained`, reached transitively and only at build time. The `[graph]` target
+# Three zip vulnerability advisories are ignored below because Savvy never reaches the
+# affected functions. The rest are `unmaintained`, reached transitively and only at build time.
+# The `[graph]` target
 # above already excludes Tauri's Linux GTK3 stack, which is the other source of
 # unmaintained warnings and is unreachable in a macOS build.
 ignore = [
@@ -15,6 +16,12 @@ ignore = [
   "RUSTSEC-2025-0081", # unic-char-property
   "RUSTSEC-2025-0098", # unic-ucd-version
   "RUSTSEC-2025-0100", # unic-ucd-ident
+  # zip 8.6 via calamine 0.36.1, which requires zip ^8.6. All three flaws are in
+  # ZipArchive::extract and ZipStreamReader::extract; calamine and Savvy only read
+  # entries in memory and never call either. Drop these once calamine moves to zip 9.
+  "RUSTSEC-2026-0367", # SUID/SGID bits kept on extract
+  "RUSTSEC-2026-0368", # symlink targets outside the destination
+  "RUSTSEC-2026-0369", # permissions applied through symlinks
 ]
 
 [licenses]
