@@ -49,10 +49,17 @@ jobs:
       - name: Install website dependencies
         run: pnpm --dir www install --frozen-lockfile
 
-      # Same gate developers run locally: prettier, tsc, eslint, vitest, cargo test,
-      # backend typecheck/tests/build, vite build, and clippy with warnings denied.
-      - name: Verify
-        run: pnpm verify
+      - name: Format and frontend checks
+        run: pnpm format:check && pnpm typecheck && pnpm lint && pnpm test
+
+      - name: Rust tests
+        run: pnpm test:rust
+
+      - name: Backend checks
+        run: pnpm --dir backend typecheck && pnpm --dir backend test
+
+      - name: Build and lint
+        run: pnpm build && cargo clippy --workspace --all-targets --locked -- -D warnings && pnpm --dir backend build
 
       - name: Audit frontend dependencies
         run: pnpm audit --audit-level=moderate
