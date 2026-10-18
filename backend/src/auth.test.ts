@@ -336,7 +336,8 @@ test("real Better Auth: delivered OTP, persistent limits, discovery, PKCE and si
         JSON.stringify(manifest).includes(env.BETTER_AUTH_SECRET),
         false,
       );
-      assert.equal((await stat(snapshot)).mode & 0o777, 0o700);
+      if (process.platform !== "win32")
+        assert.equal((await stat(snapshot)).mode & 0o777, 0o700);
       const restoreDir = join(directory, "restored");
       await mkdir(restoreDir, { mode: 0o700 });
       for (const file of manifest.files) {
@@ -347,7 +348,8 @@ test("real Better Auth: delivered OTP, persistent limits, discovery, PKCE and si
             .digest("hex"),
           file.sha256,
         );
-        assert.equal((await stat(source)).mode & 0o777, 0o600);
+        if (process.platform !== "win32")
+          assert.equal((await stat(source)).mode & 0o777, 0o600);
         await copyFile(source, join(restoreDir, file.file));
       }
       const restored = createAuth({
