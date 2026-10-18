@@ -3,7 +3,6 @@ import { FadeInUp } from "@/components/animations/FadeInUp";
 import { ScriptedOverlay } from "@/components/overlay/OverlayCard";
 import { DownloadCTA } from "@/components/ui/DownloadCTA";
 import { HERO_SCRIPT } from "@/content/scripts";
-import "./hero.css";
 
 // Footage: Mixkit clip 48680, Mixkit License, re-encoded as a loop.
 // See public/videos/SOURCE.md. Swap these files to change the call.
@@ -84,11 +83,10 @@ export function Hero() {
             Your notes, when you need them.
           </h1>
           <p className="mx-auto mt-4 max-w-2xl text-center text-lead text-balance text-muted">
-            Savvy reads your files, then speaks up in{" "}
+            Savvy reads your files, then suggests what to say in{" "}
             <App src="/images/logos/google-meet.svg" name="Google Meet," />{" "}
             <App src="/images/logos/microsoft-teams.svg" name="Teams" /> and{" "}
-            <App src="/images/logos/zoom.svg" name="Zoom" /> calls the moment you need it. No bot
-            joins.
+            <App src="/images/logos/zoom.svg" name="Zoom" /> calls. No bot joins.
           </p>
           <div className="mt-6 flex justify-center">
             <DownloadCTA />

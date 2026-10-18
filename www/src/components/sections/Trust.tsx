@@ -12,17 +12,17 @@ const PROOFS = [
   {
     icon: FolderIcon,
     title: "Your files stay put.",
-    body: "Indexed in a local database. Only selected excerpts reach your AI provider.",
+    body: "Indexed in a local database. Your AI provider gets selected excerpts, not whole files.",
   },
   {
     icon: KeyIcon,
     title: "Your keys, your models.",
-    body: "Claude Code or Codex CLI on your own account. Keys live in the Keychain.",
+    body: "Claude Code or Codex CLI on your own account, keys in the Keychain. Or use Savvy managed.",
   },
   {
     icon: TerminalIcon,
     title: "Every line is public.",
-    body: "Open source under MIT. Read it, build it, audit it.",
+    body: "MIT-licensed. The source is on GitHub.",
   },
 ];
 

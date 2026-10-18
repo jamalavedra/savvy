@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 @theme {
-  /* Farao design language: warm light ground, ink text, AA-safe muted */
+  /* Warm light ground, ink text, AA-safe muted */
   --color-background: #fafaf7;
   --color-background-alt: #f2efea;
   --color-surface: #ffffff;
@@ -176,89 +176,6 @@ body {
   animation-direction: reverse;
 }
 
-@keyframes file-drop {
-  0%,
-  4% {
-    opacity: 0;
-    transform: translateY(-30px) scale(0.9);
-  }
-  14%,
-  46% {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-  60%,
-  100% {
-    opacity: 0;
-    transform: translateY(52px) scale(0.5);
-  }
-}
-
-.file-drop {
-  display: inline-block;
-  opacity: 0;
-  animation: file-drop 6s var(--ease-spring) infinite;
-  animation-delay: var(--i-delay, 0s);
-}
-
-@keyframes folder-bump {
-  0%,
-  70%,
-  84%,
-  100% {
-    transform: scale(1);
-  }
-  76% {
-    transform: scale(1.07);
-  }
-}
-
-.folder-bump {
-  animation: folder-bump 6s ease-in-out infinite;
-}
-
-@keyframes badge-pop {
-  0%,
-  72% {
-    opacity: 0;
-    transform: scale(0.5);
-  }
-  80%,
-  96% {
-    opacity: 1;
-    transform: scale(1);
-  }
-  100% {
-    opacity: 0;
-  }
-}
-
-.badge-pop {
-  animation: badge-pop 6s var(--ease-spring) infinite;
-}
-
-@keyframes row-in {
-  0% {
-    opacity: 0;
-    transform: translateX(-8px);
-  }
-  8%,
-  86% {
-    opacity: 1;
-    transform: none;
-  }
-  94%,
-  100% {
-    opacity: 0;
-  }
-}
-
-.row-in {
-  opacity: 0;
-  animation: row-in 7s ease infinite;
-  animation-delay: var(--i-delay, 0s);
-}
-
 @keyframes check-pop {
   0%,
   46% {
@@ -322,26 +239,6 @@ body {
   animation: talk-b 6s ease-in-out infinite;
 }
 
-@keyframes pill-active {
-  0%,
-  24% {
-    background: var(--color-foreground);
-    color: var(--color-background);
-  }
-  25%,
-  100% {
-    background: var(--color-background-alt);
-    color: var(--color-muted);
-  }
-}
-
-.pill-active {
-  background: var(--color-background-alt);
-  color: var(--color-muted);
-  animation: pill-active 6s steps(1) infinite;
-  animation-delay: var(--i-delay, 0s);
-}
-
 @keyframes cycle-a {
   0%,
   42% {
@@ -379,22 +276,6 @@ body {
   animation: cycle-b 5s ease infinite;
 }
 
-@keyframes press {
-  0%,
-  40%,
-  52%,
-  100% {
-    transform: none;
-  }
-  46% {
-    transform: scale(0.9);
-  }
-}
-
-.press {
-  animation: press 5s ease infinite;
-}
-
 @keyframes playhead {
   from {
     width: 6%;
@@ -406,41 +287,6 @@ body {
 
 .playhead {
   animation: playhead 8s linear infinite;
-}
-
-@keyframes row-expire {
-  0%,
-  66% {
-    opacity: 1;
-    transform: none;
-  }
-  76%,
-  92% {
-    opacity: 0;
-    transform: translateX(14px);
-  }
-  100% {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-.row-expire {
-  animation: row-expire 8s ease infinite;
-}
-
-@keyframes ring-sweep {
-  0% {
-    stroke-dashoffset: 0;
-  }
-  66%,
-  100% {
-    stroke-dashoffset: var(--circ);
-  }
-}
-
-.ring-sweep {
-  animation: ring-sweep 8s linear infinite;
 }
 
 /* Hero: the call footage is decorative; still users get the poster. */
@@ -496,25 +342,14 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .pod-orbit,
-  .file-drop,
-  .folder-bump,
-  .badge-pop,
-  .row-in,
   .check-pop,
   .talk-a,
   .talk-b,
-  .pill-active,
   .cycle-a,
   .cycle-b,
-  .press,
-  .playhead,
-  .row-expire,
-  .ring-sweep {
+  .playhead {
     animation: none;
   }
-  .file-drop,
-  .row-in,
-  .badge-pop,
   .check-pop {
     opacity: 1;
     transform: none;
