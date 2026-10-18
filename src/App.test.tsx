@@ -685,7 +685,6 @@ describe("App", () => {
           error: "Composio unavailable",
         },
       ]);
-      const confirm = vi.spyOn(window, "confirm").mockReturnValue(useStale);
       const start = vi.spyOn(api, "startMeeting");
       render(<App />);
       await screen.findByRole("button", { name: "Review brief" });
@@ -694,6 +693,16 @@ describe("App", () => {
       fireEvent.click(screen.getByRole("button", { name: "Check readiness" }));
       fireEvent.click(
         await screen.findByRole("button", { name: "Start meeting" }),
+      );
+      const choice = await screen.findByRole("dialog", {
+        name: "Source refresh failed",
+      });
+      expect(choice).toHaveTextContent("Composio unavailable");
+      expect(start).not.toHaveBeenCalled();
+      fireEvent.click(
+        within(choice).getByRole("button", {
+          name: useStale ? "Use saved copy" : "Exclude for this call",
+        }),
       );
       await waitFor(() =>
         expect(start).toHaveBeenCalledWith(
@@ -704,7 +713,6 @@ describe("App", () => {
           useStale ? ["savvy-source-salesforce-1.md"] : [],
         ),
       );
-      expect(confirm).toHaveBeenCalledWith(expect.stringContaining("stale"));
     },
   );
 

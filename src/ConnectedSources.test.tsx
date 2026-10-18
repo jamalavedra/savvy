@@ -98,3 +98,55 @@ it("connects, searches, and explicitly attaches a record to the current client",
   );
   expect(connections).toHaveBeenCalled();
 });
+
+it("explains how to replace a selection after reconnecting", async () => {
+  vi.spyOn(api, "sourceConnections").mockResolvedValue([
+    { provider: "notion", accountId: "new-account", connected: true },
+  ]);
+  render(
+    <ConnectedSources
+      client={{
+        id: "client-1",
+        name: "Acme",
+        folderPath: "/tmp/acme",
+        indexStatus: "ready",
+        documentCount: 1,
+        lastIndexedAt: null,
+        activeBriefId: null,
+        excludedPaths: [],
+        connectedSources: [
+          {
+            provider: "notion",
+            kind: "page",
+            accountId: "old-account",
+            recordId: "page-1",
+            title: "Acme page",
+            url: "https://notion.so/page-1",
+            modifiedAt: null,
+            relativePath: "savvy-source-notion-old.md",
+            contentHash: "hash",
+            refreshedAt: "2026-10-18T00:00:00Z",
+          },
+        ],
+      }}
+      disabled={false}
+      refreshes={[
+        {
+          provider: "notion",
+          kind: "page",
+          accountId: "old-account",
+          recordId: "page-1",
+          title: "Acme page",
+          relativePath: "savvy-source-notion-old.md",
+          status: "failed",
+          refreshedAt: "2026-10-18T00:00:00Z",
+          error: "sign_in_required: connected account is no longer available",
+        },
+      ]}
+      onClientChange={vi.fn()}
+    />,
+  );
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "search and attach the record again",
+  );
+});

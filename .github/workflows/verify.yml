@@ -18,7 +18,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: [macos-26, windows-2025]
+        # pnpm 10's node-gyp 11 cannot build better-sqlite3 with the VS 2026-only image.
+        platform: [macos-26, windows-2022]
     runs-on: ${{ matrix.platform }}
     steps:
       - name: Checkout repository
@@ -42,10 +43,11 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       # The backend and website keep their own lockfiles; verify runs their checks too.
-      - name: Install backend and website dependencies
-        run: |
-          pnpm --dir backend install --frozen-lockfile
-          pnpm --dir www install --frozen-lockfile
+      - name: Install backend dependencies
+        run: pnpm --dir backend install --frozen-lockfile
+
+      - name: Install website dependencies
+        run: pnpm --dir www install --frozen-lockfile
 
       # Same gate developers run locally: prettier, tsc, eslint, vitest, cargo test,
       # backend typecheck/tests/build, vite build, and clippy with warnings denied.

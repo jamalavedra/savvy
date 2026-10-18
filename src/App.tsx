@@ -224,6 +224,10 @@ function App() {
   const preparationRead = useRef(0);
   const [busy, setBusy] = useState(false);
   const [sourceRefreshes, setSourceRefreshes] = useState<SourceRefresh[]>([]);
+  const [staleDecision, setStaleDecision] = useState<{
+    source: SourceRefresh;
+    resolve: (useCopy: boolean) => void;
+  } | null>(null);
   const [readinessOpen, setReadinessOpen] = useState(false);
   const [readinessBrief, setReadinessBrief] = useState<NegotiationBrief | null>(
     null,
@@ -906,14 +910,15 @@ function App() {
       ) {
         const results = await refreshConnectedSources(activeClient.id);
         setSourceRefreshes(results);
+        await refreshDashboard();
         for (const result of results) {
           if (result.status === "fresh") continue;
-          if (
-            !result.refreshedAt ||
-            !window.confirm(
-              `${result.title} could not be refreshed (${result.error ?? result.status}). Use its existing local copy for this meeting? It will be marked stale.`,
-            )
-          ) {
+          const useCopy = result.refreshedAt
+            ? await new Promise<boolean>((resolve) =>
+                setStaleDecision({ source: result, resolve }),
+              )
+            : false;
+          if (!useCopy) {
             excludeSourcePaths.push(result.relativePath);
           } else {
             staleSourcePaths.push(result.relativePath);
@@ -1334,6 +1339,30 @@ function App() {
               : "The meeting will run on general guidelines only. The Markdown file stays on disk."}
           </p>
           {error && <p role="alert">{error}</p>}
+        </ConfirmDialog>
+      )}
+      {staleDecision && (
+        <ConfirmDialog
+          key={staleDecision.source.relativePath}
+          title="Source refresh failed"
+          confirm="Use saved copy"
+          cancelLabel="Exclude for this call"
+          onCancel={() => {
+            setStaleDecision(null);
+            staleDecision.resolve(false);
+          }}
+          onConfirm={() => {
+            setStaleDecision(null);
+            staleDecision.resolve(true);
+          }}
+        >
+          <p>
+            {staleDecision.source.title} could not be refreshed:{" "}
+            {staleDecision.source.error ?? staleDecision.source.status}. The
+            saved copy from{" "}
+            {new Date(staleDecision.source.refreshedAt!).toLocaleString()} will
+            be marked stale if you use it in this meeting.
+          </p>
         </ConfirmDialog>
       )}
       <AppFooter

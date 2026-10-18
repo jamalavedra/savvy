@@ -310,7 +310,11 @@ export default function ConnectedSources({
                           : "Not refreshed"}
                     </small>
                     {status?.error && (
-                      <small role="alert">{status.error}</small>
+                      <small role="alert">
+                        {status.error.startsWith("sign_in_required:")
+                          ? "This selection belongs to a disconnected account. Reconnect the app, search and attach the record again, then remove this selection."
+                          : status.error}
+                      </small>
                     )}
                   </span>
                   <button

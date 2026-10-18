@@ -78,8 +78,8 @@ Complete the checks left open by the 2026-10-16 connected-source run. Use fictio
 |------|-------------|-----------|------|
 | TASK-014 | Merge both feature branches in an isolated worktree and fix Windows compilation and platform-specific test setup. | ✅ | 2026-10-18 |
 | TASK-015 | Run the managed CRM plus document fixture on Windows: local import, meeting evidence, citation, Composio outage, stale copy, and exclusion. | ✅ | 2026-10-18 |
-| TASK-016 | Run Windows React, backend, Rust, typecheck, formatting, and build checks; fix failures. | | |
-| TASK-017 | Launch the built Windows app in an interactive session and verify live OAuth, connected source selection, two-channel audio, and an actual managed call when staging access is available. Record any unmet external gate exactly. | | |
+| TASK-016 | Run Windows React, backend, Rust, typecheck, formatting, and build checks; fix failures. | ✅ | 2026-10-18 |
+| TASK-017 | Launch the built Windows app in an interactive session and verify live OAuth, connected source selection, two-channel audio, and an actual managed call when staging access is available. Record any unmet external gate exactly. | ✅ | 2026-10-18 |
 | TASK-018 | Push the combined branch and open [PR #40](https://github.com/jamalavedra/savvy/pull/40) against `feat/windows-support` with the Windows verification record. | ✅ | 2026-10-18 |
 
 ## 3. Alternatives
