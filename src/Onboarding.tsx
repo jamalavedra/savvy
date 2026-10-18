@@ -295,7 +295,9 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
     setError(null);
     try {
       const settings = await getAppSettings();
+      const status = await getAppStatus().catch(() => null);
       setProvider(settings.transcriptionProvider);
+      if (status) setPlatform(status.platform);
       setManaged(false);
       setStep("transcription");
     } catch (reason) {
@@ -530,7 +532,7 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
       <OnboardingShell
         subtitle="Welcome to Savvy"
         className="onboarding-welcome"
-        footer="Your meeting history stays on this Mac."
+        footer="Your meeting history stays on this computer."
       >
         <h2>Your next meeting, prepared.</h2>
         <p>Savvy handles transcription and AI setup.</p>
@@ -641,7 +643,11 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
       </a>
       <p className="onboarding-note">
         <FileText /> Savvy checks the key directly with your provider before
-        saving it in {platform === "windows" ? "Windows Credential Manager" : "macOS Keychain"}. This does not capture or send audio.
+        saving it in{" "}
+        {platform === "windows"
+          ? "Windows Credential Manager"
+          : "macOS Keychain"}
+        . This does not capture or send audio.
       </p>
       {!window.__TAURI_INTERNALS__ && (
         <p className="onboarding-note">
@@ -737,7 +743,7 @@ function PersonalAISetup({
     <OnboardingShell subtitle="Connect your AI">
       <p>
         Choose the account you use for meeting guidance. Savvy checks
-        installation and sign-in on this Mac.
+        installation and sign-in on this computer.
       </p>
       <div
         className="onboarding-providers"

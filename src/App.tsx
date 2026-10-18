@@ -3592,13 +3592,13 @@ function SettingsView({
             </p>
             <p>
               Connected sales apps use Composio to hold app credentials. Records
-              you select in Prepare pass through Savvy's backend to this Mac and
-              remain as Markdown files in the client folder. Cited excerpts can
-              reach Savvy's AI supplier during advice. Disconnect an app in
-              Prepare to revoke access. Google and Microsoft may grant Composio
-              broader mail, calendar, contact, and Drive permissions than
-              Savvy's read-only connectors use; review the provider's consent
-              screen before connecting.
+              you select in Prepare pass through Savvy's backend to this
+              computer and remain as Markdown files in the client folder. Cited
+              excerpts can reach Savvy's AI supplier during advice. Disconnect
+              an app in Prepare to revoke access. Google and Microsoft may grant
+              Composio broader mail, calendar, contact, and Drive permissions
+              than Savvy's read-only connectors use; review the provider's
+              consent screen before connecting.
             </p>
           </>
         ) : null}

@@ -922,10 +922,13 @@ describe("Onboarding off macOS", () => {
 
   it("takes Windows users directly to credentials without claiming permissions were checked", async () => {
     getAppStatus.mockResolvedValue({ version: "0.1.0", platform: "windows" });
-    renderOnboarding();
-    expect(
-      await screen.findByPlaceholderText("Paste your API key"),
-    ).toBeVisible();
+    await renderOnboarding(false);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Use your own providers" }),
+    );
+    await waitFor(() =>
+      expect(screen.getByPlaceholderText("Paste your API key")).toBeVisible(),
+    );
     expect(screen.getByText(/Windows Credential Manager/)).toBeVisible();
     expect(screen.queryByText("Allowed")).not.toBeInTheDocument();
     expect(screen.queryByText("Screen & system audio")).not.toBeInTheDocument();

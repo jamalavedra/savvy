@@ -53,6 +53,8 @@ export function openPrivateDatabase(path: string): Db {
       "Database directory must be owned by this user and not writable by others",
     );
   for (const file of [path, `${path}-wal`, `${path}-shm`, `${path}-journal`]) {
+    if (lstatSync(file, { throwIfNoEntry: false })?.isSymbolicLink())
+      throw new Error("Database files must not be symbolic links");
     let fd: number;
     try {
       fd = openSync(
@@ -72,7 +74,8 @@ export function openPrivateDatabase(path: string): Db {
       const info = fstatSync(fd);
       if (
         !info.isFile() ||
-        (posix && (info.uid !== process.getuid?.() || info.nlink !== 1))
+        info.nlink !== 1 ||
+        (posix && info.uid !== process.getuid?.())
       )
         throw new Error(
           "Database files must be regular, owned files without hardlinks",
