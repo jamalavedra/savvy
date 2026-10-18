@@ -6912,6 +6912,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(target_os = "macos")]
     #[test]
     #[ignore = "driven by the backend connected-source E2E fixture"]
     fn connected_source_e2e_bridge() {
