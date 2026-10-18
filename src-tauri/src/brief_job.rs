@@ -132,7 +132,13 @@ mod tests {
                     cmd: "cancel_brief_draft".into(),
                     callback: tauri::ipc::CallbackFn(0),
                     error: tauri::ipc::CallbackFn(1),
-                    url: "tauri://localhost".parse().unwrap(),
+                    url: if cfg!(target_os = "windows") {
+                        "http://tauri.localhost"
+                    } else {
+                        "tauri://localhost"
+                    }
+                    .parse()
+                    .unwrap(),
                     body: tauri::ipc::InvokeBody::Json(
                         serde_json::json!({"clientId":client,"requestId":request}),
                     ),
