@@ -1,3 +1,4 @@
+#[cfg(target_os = "macos")]
 use std::os::unix::process::CommandExt;
 use std::{
     io::{self, BufRead, Read},
@@ -9,6 +10,7 @@ pub const MAX_OUTPUT_BYTES: usize = 4 * 1024 * 1024;
 const MAX_LINE_BYTES: usize = 1024 * 1024;
 pub const QUEUE_CAPACITY: usize = 8;
 
+#[cfg(target_os = "macos")]
 pub fn limit_files(command: &mut Command) {
     // SAFETY: the child hook calls libc directly with stack data, without allocation or locking.
     unsafe {
@@ -25,6 +27,10 @@ pub fn limit_files(command: &mut Command) {
         });
     }
 }
+
+// shortcut: Windows has no equivalent process file limit here; use a Job Object before enabling untrusted local CLI output at scale.
+#[cfg(target_os = "windows")]
+pub fn limit_files(_command: &mut Command) {}
 
 pub fn read_file(path: &Path) -> Result<Vec<u8>, String> {
     let file = std::fs::File::open(path).map_err(|error| error.to_string())?;
@@ -68,7 +74,7 @@ pub fn account_bytes(total: &mut usize, next: usize) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos"))]
 mod tests {
     use super::*;
     #[test]
