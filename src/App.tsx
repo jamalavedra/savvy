@@ -1237,7 +1237,10 @@ function App() {
                 dashboard={dashboard}
                 activeClient={activeClient}
                 preparation={preparation}
-                onSelectClient={setActiveClientId}
+                onSelectClient={(id) => {
+                  setActiveClientId(id);
+                  setSourceRefreshes([]);
+                }}
                 onAddClient={addClient}
                 onRemoveClient={(client) => {
                   setError(null);
