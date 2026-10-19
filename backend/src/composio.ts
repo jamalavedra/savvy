@@ -587,6 +587,7 @@ export class ComposioSources {
         data.results ??
         data.calls ??
         data.threads ??
+        (name === "gmail" && data.resultSizeEstimate === 0 ? [] : undefined) ??
         data.files ??
         data.value,
     );

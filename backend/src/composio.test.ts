@@ -394,6 +394,22 @@ test("search cursor, malformed records, size cap and request rate are enforced",
   );
 });
 
+test("Gmail search accepts its empty result response", async (t) => {
+  const h = fixture(t);
+  h.setToolkit("gmail");
+  h.setScope("https://www.googleapis.com/auth/gmail.readonly");
+  h.setResponse({ resultSizeEstimate: 0 });
+  assert.deepEqual(
+    await h.service.search(1n, {
+      provider: "gmail",
+      kind: "thread",
+      accountId: "account-one",
+      query: "missing subject",
+    }),
+    { records: [], nextCursor: null },
+  );
+});
+
 test("Notion search uses the page title property", async (t) => {
   const h = fixture(t);
   h.setResponse({
