@@ -911,13 +911,8 @@ export class ComposioSources {
                   )
                   .join(" | "),
               );
-            else if (!["paragraph", "divider", "table"].includes(type))
-              throw new ApiError(
-                "invalid_request",
-                `unsupported Notion block: ${type}`,
-                undefined,
-                422,
-              );
+            // Blocks without text (image, file, child page's own body, ...)
+            // are skipped; their readable children still import below.
             if (block.has_children)
               lines.push(...(await readBlocks(str(block.id), depth + 1)));
           }

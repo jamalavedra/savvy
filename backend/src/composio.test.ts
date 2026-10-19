@@ -597,6 +597,59 @@ test("CRM, mail, page and Drive adapters retain provider text", async (t) => {
   }
 });
 
+test("Notion import skips blocks without text and still reads nested children", async (t) => {
+  const h = fixture(t);
+  h.setResponse(({ endpoint }: { endpoint: string }) =>
+    endpoint.includes("/blocks/root-page/")
+      ? {
+          results: [
+            {
+              id: "b1",
+              type: "paragraph",
+              paragraph: {
+                rich_text: [{ plain_text: "Implementation starts Monday" }],
+              },
+              has_children: false,
+            },
+            { id: "b2", type: "image", image: {}, has_children: false },
+            {
+              id: "sub-page",
+              type: "child_page",
+              child_page: { title: "Details" },
+              has_children: true,
+            },
+          ],
+          next_cursor: null,
+        }
+      : endpoint.includes("/blocks/sub-page/")
+        ? {
+            results: [
+              {
+                id: "b3",
+                type: "paragraph",
+                paragraph: {
+                  rich_text: [{ plain_text: "Pilot budget 24,000" }],
+                },
+                has_children: false,
+              },
+            ],
+            next_cursor: null,
+          }
+        : {
+            properties: { Name: { title: [{ plain_text: "Plan" }] } },
+            url: "https://notion.so/plan",
+          },
+  );
+  const result = await h.service.fetch(1n, {
+    provider: "notion",
+    kind: "page",
+    accountId: "account-one",
+    recordId: "root-page",
+  });
+  assert.match(result.content, /Implementation starts Monday/);
+  assert.match(result.content, /Pilot budget 24,000/);
+});
+
 test("Drive download stops at the source limit without a content-length header", async (t) => {
   const h = fixture(t);
   const session = await h.client.sessions.use();

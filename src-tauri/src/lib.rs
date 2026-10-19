@@ -1838,6 +1838,7 @@ struct SourceRefresh {
     relative_path: PathBuf,
     status: &'static str,
     refreshed_at: Option<DateTime<Utc>>,
+    saved_copy: bool,
     error: Option<String>,
 }
 
@@ -1904,9 +1905,14 @@ fn write_source_copy(
     check()?;
     let temporary = root.join(format!(".savvy-source-{}.tmp", Uuid::new_v4()));
     let result = (|| -> Result<String, String> {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options
             .open(&temporary)
             .map_err(|error| error.to_string())?;
         file.write_all(content.as_bytes())
@@ -2004,7 +2010,7 @@ fn attach_connected_source_inner(
     source: SourceRecord,
 ) -> Result<ClientWorkspace, String> {
     let client = find_client(state, client_id)?;
-    let relative = source_filename(&source)?;
+    let mut relative = source_filename(&source)?;
     let record = fetched(&source)?;
     let storage = state.storage.lock().map_err(|_| "storage lock poisoned")?;
     let mut current = storage
@@ -2020,6 +2026,23 @@ fn attach_connected_source_inner(
             && item.record_id == source.record_id
     }) {
         return Ok(current);
+    }
+    // A retained copy with different content is left untouched; the fresh
+    // import takes a numbered name instead of failing the attach.
+    if fs::read(current.folder_path.join(&relative))
+        .map(|existing| format!("{:x}", Sha256::digest(&existing)) != sha256(&record.content))
+        .unwrap_or(false)
+    {
+        let stem = relative
+            .file_stem()
+            .map(|value| value.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "savvy-source".into());
+        relative = (2..100)
+            .map(|suffix| PathBuf::from(format!("{stem}-{suffix}.md")))
+            .find(|candidate| !current.folder_path.join(candidate).exists())
+            .ok_or(
+                "a different local copy already exists; rename or remove it to attach this record",
+            )?;
     }
     let previous = current
         .folder_path
@@ -2048,7 +2071,17 @@ fn attach_connected_source_inner(
         .save_client(&current)
         .map_err(|error| error.to_string())?;
     drop(storage);
-    reindex_client(state, current.id, &current.folder_path)
+    match reindex_client(state, current.id, &current.folder_path) {
+        Ok(client) => Ok(client),
+        Err(error) => {
+            // Roll the selection back so a retry attaches and reindexes.
+            current.connected_sources.pop();
+            if let Ok(storage) = state.storage.lock() {
+                let _ = storage.save_client(&current);
+            }
+            Err(error)
+        }
+    }
 }
 
 #[tauri::command]
@@ -2125,6 +2158,8 @@ fn refresh_connected_sources_inner(
             Err(message) if message.contains("edited") => "conflict",
             Err(_) => "failed",
         };
+        let saved_copy = outcome.is_err()
+            && fs::File::open(client.folder_path.join(&item.relative_path)).is_ok();
         results.push(SourceRefresh {
             provider: item.provider.clone(),
             kind: item.kind.clone(),
@@ -2134,6 +2169,7 @@ fn refresh_connected_sources_inner(
             relative_path: item.relative_path.clone(),
             status,
             refreshed_at: item.refreshed_at,
+            saved_copy,
             error: outcome.err(),
         });
     }

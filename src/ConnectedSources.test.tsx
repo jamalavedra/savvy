@@ -140,6 +140,7 @@ it("explains how to replace a selection after reconnecting", async () => {
           relativePath: "savvy-source-notion-old.md",
           status: "failed",
           refreshedAt: "2026-10-18T00:00:00Z",
+          savedCopy: false,
           error: "sign_in_required: connected account is no longer available",
         },
       ]}

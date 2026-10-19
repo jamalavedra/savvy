@@ -39,6 +39,7 @@ export type SourceRefresh = {
   relativePath: string;
   status: "fresh" | "conflict" | "failed";
   refreshedAt: string | null;
+  savedCopy: boolean;
   error?: string;
 };
 
