@@ -22,6 +22,15 @@ const COLUMNS: { heading: string; links: FooterLink[] }[] = [
     ],
   },
   {
+    heading: "Compare",
+    links: [
+      { label: "Granola AI alternatives", href: "/blog/granola-alternatives/" },
+      { label: "Otter.ai alternatives", href: "/blog/otter-ai-alternatives/" },
+      { label: "Cluely alternatives", href: "/blog/cluely-alternatives/" },
+      { label: "Best AI note taker", href: "/blog/best-ai-note-taker-2026/" },
+    ],
+  },
+  {
     heading: "Support",
     links: [
       { label: "Privacy policy", href: "/privacy/" },
@@ -39,7 +48,7 @@ export function Footer() {
       <Divider />
 
       <div className="page-column pt-16 pb-12">
-        <div className="grid gap-x-10 gap-y-12 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-x-10 gap-y-12 sm:grid-cols-2 lg:grid-cols-4">
           {COLUMNS.map((column) => (
             <div key={column.heading}>
               <h2 className="text-sm font-medium">{column.heading}</h2>

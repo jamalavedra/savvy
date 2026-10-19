@@ -176,6 +176,8 @@ const LANGS = [
   { code: "ES", flag: "/images/flags/es.svg" },
   { code: "CA", flag: "/images/flags/es-ct.svg" },
   { code: "DE", flag: "/images/flags/de.svg" },
+  { code: "FR", flag: "/images/flags/fr.svg" },
+  { code: "PT", flag: "/images/flags/pt.svg" },
 ];
 
 export function ChannelsVignette() {
@@ -197,7 +199,7 @@ export function ChannelsVignette() {
           <Wave cls="talk-b" />
         </Row>
       </div>
-      <div className="mt-3 flex items-center gap-1.5">
+      <div className="mt-3 flex flex-wrap items-center gap-1.5">
         {LANGS.map((lang, i) => (
           <span
             key={lang.code}

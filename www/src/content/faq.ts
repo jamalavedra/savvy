@@ -5,6 +5,11 @@ export const faqItems = [
       "No. It listens through your Mac, so nobody sees an extra attendee. That also means telling people is up to you.",
   },
   {
+    question: "Does Savvy have a hidden mode?",
+    answer:
+      "No. Savvy does not try to hide from screen sharing or from the people on the call. Tell them you are using it.",
+  },
+  {
     question: "Does it work with Zoom, Google Meet and Microsoft Teams?",
     answer:
       "Yes, and with any other call app on your Mac: Savvy hears system audio plus your microphone. In-person meetings work through the microphone.",

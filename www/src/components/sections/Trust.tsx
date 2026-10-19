@@ -1,5 +1,11 @@
 import { FadeInUp } from "@/components/animations/FadeInUp";
-import { FolderIcon, KeyIcon, MuteIcon, TerminalIcon } from "@/components/sections/primitives";
+import {
+  FolderIcon,
+  KeyIcon,
+  MuteIcon,
+  TerminalIcon,
+  UserIcon,
+} from "@/components/sections/primitives";
 import { GitHubCTA } from "@/components/ui/DownloadCTA";
 import { REQUIREMENTS } from "@/lib/constants";
 
@@ -24,6 +30,11 @@ const PROOFS = [
     title: "Every line is public.",
     body: "MIT-licensed. The source is on GitHub.",
   },
+  {
+    icon: UserIcon,
+    title: "Nothing to hide.",
+    body: "No hidden mode. Savvy doesn't hide from screen share or the people on the call.",
+  },
 ];
 
 export function Trust() {
@@ -38,7 +49,7 @@ export function Trust() {
               </h2>
               <p className="text-small text-white/70">{REQUIREMENTS}</p>
             </div>
-            <ul className="mt-10 grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
+            <ul className="mt-10 grid gap-8 sm:grid-cols-2 lg:grid-cols-5">
               {PROOFS.map((p) => (
                 <li key={p.title} className="border-t border-white/15 pt-5">
                   <span className="text-white/70">{p.icon}</span>

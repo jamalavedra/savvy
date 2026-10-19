@@ -79,8 +79,11 @@ export function Hero() {
     <section className="pt-10 pb-20 lg:pt-16">
       <div className="page-column">
         <FadeInUp>
-          <h1 className="text-display mx-auto max-w-2xl text-center text-balance">
-            Your notes, when you need them.
+          <p className="text-center font-mono text-[11px] uppercase tracking-wider text-muted">
+            Real-time AI meeting assistant
+          </p>
+          <h1 className="text-display mx-auto mt-3 max-w-2xl text-center text-balance">
+            Know what to say, and which file says so.
           </h1>
           <p className="mx-auto mt-4 max-w-2xl text-center text-lead text-balance text-muted">
             Savvy reads your files, then suggests what to say in{" "}

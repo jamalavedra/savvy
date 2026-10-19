@@ -25,17 +25,19 @@ const H1 = t("h1", "other", "The total works for us.");
 const H2 = t("h2", "other", "But Q1 is tight. Could you do net-90?");
 const H3 = t("h3", "selfSpeaker", "Which Q1 line is the constraint?");
 
+// Opens on the answer so the first screen (and any screenshot) shows a card,
+// then replays how it got there.
 export const HERO_SCRIPT: ScriptStep[] = [
-  { at: 0, state: { turns: [], status: "listening", rec: null } },
-  { at: 1100, state: { turns: [H1] } },
-  { at: 2400, state: { turns: [H1, { ...H2, interim: true }] } },
-  { at: 3300, state: { turns: [H1, H2] } },
-  { at: 3700, state: { status: "checking" } },
-  { at: 5000, state: { status: "question" } },
-  { at: 6400, state: { status: "listening", rec: HERO_ANSWER } },
-  { at: 9000, state: { turns: [H1, H2, H3] } },
-  { at: 14200, state: { rec: null } },
-  { at: 15300, state: { turns: [] } },
+  { at: 0, state: { turns: [H1, H2], status: "listening", rec: HERO_ANSWER } },
+  { at: 2600, state: { turns: [H1, H2, H3] } },
+  { at: 8000, state: { rec: null } },
+  { at: 8800, state: { turns: [] } },
+  { at: 9600, state: { turns: [H1] } },
+  { at: 10600, state: { turns: [H1, { ...H2, interim: true }] } },
+  { at: 11400, state: { turns: [H1, H2] } },
+  { at: 11700, state: { status: "checking" } },
+  { at: 12700, state: { status: "question" } },
+  { at: 13800, state: { status: "listening", rec: HERO_ANSWER } },
 ];
 
 const RED_LINE: Rec = {

@@ -5,7 +5,9 @@ import {
   FolderIcon,
   KeyIcon,
   MascotNote,
+  SparkIcon,
   StatList,
+  TerminalIcon,
   TwoLineHeading,
   WaveIcon,
 } from "@/components/sections/primitives";
@@ -192,22 +194,41 @@ export function Privacy() {
       <div className="page-column grid items-center gap-12 lg:grid-cols-2">
         <FadeInUp>
           <TwoLineHeading
-            line1="Know where your data goes"
-            line2="Local storage, external AI providers"
+            line1="Your accounts, your data"
+            line2="Choose your providers, see where data goes"
           />
-          <p className="mt-4 max-w-md text-small text-muted">
-            Source files stay in their folders. Savvy stores extracted text and indexes in a local
-            database. With personal providers, audio streams to your transcription provider. AI
-            tasks send selected excerpts, your brief and recent transcript turns to your model
-            provider. With managed assistance, Savvy relays audio to Deepgram and selected context
-            to Fireworks GLM-5.3. At startup, Savvy removes local recordings and transcripts older
-            than 30 days.
-          </p>
           <StatList
             items={[
-              { icon: FolderIcon, label: "Existing source files remain unchanged" },
-              { icon: KeyIcon, label: "Provider keys in the macOS Keychain" },
-              { icon: ClockIcon, label: "30-day local retention, cleaned up at startup" },
+              {
+                icon: TerminalIcon,
+                label: (
+                  <span>
+                    <strong className="font-semibold">Your own:</strong> Claude Code or Codex CLI,
+                    on your account
+                  </span>
+                ),
+              },
+              {
+                icon: KeyIcon,
+                label: (
+                  <span>
+                    <strong className="font-semibold">Your own:</strong> Deepgram or AssemblyAI key,
+                    kept in the macOS Keychain
+                  </span>
+                ),
+              },
+              {
+                icon: SparkIcon,
+                label: (
+                  <span>
+                    <strong className="font-semibold">Managed:</strong> a top-performing model on EU
+                    servers, no keys to set up
+                  </span>
+                ),
+              },
+              { icon: KeyIcon, label: "Composio stores connected-app credentials" },
+              { icon: FolderIcon, label: "Source files stay on your Mac; imported copies can refresh" },
+              { icon: ClockIcon, label: "Recordings and transcripts deleted after 30 days" },
               {
                 icon: WaveIcon,
                 label: "Audio streams to transcription, through Savvy in managed mode",

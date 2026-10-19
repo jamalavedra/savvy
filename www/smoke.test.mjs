@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, readFile } from "node:fs/promises";
+import { access, readdir, readFile } from "node:fs/promises";
 import { test } from "node:test";
 import { faqItems } from "./src/content/faq.ts";
 import { getAllPosts } from "./src/lib/blog.ts";
@@ -23,6 +23,18 @@ test("static export has metadata, FAQ answers and referenced assets", async () =
     assert.match(await readFile(`out/${file}`, "utf8"), /https:\/\/www\.savvycopilot\.com/);
   }
   await access("out/404.html");
+});
+
+test("every exported page has a keyboard skip link and focusable main content", async () => {
+  const pages = (await readdir("out", { recursive: true })).filter((file) =>
+    file.endsWith(".html"),
+  );
+  assert.ok(pages.length > 0);
+  for (const page of pages) {
+    const html = await readFile(`out/${page}`, "utf8");
+    assert.match(html, /<a[^>]*href="#main"[^>]*>Skip to content<\/a>/, page);
+    assert.match(html, /<main[^>]*id="main"[^>]*tabindex="-1"/, page);
+  }
 });
 
 test("analytics requires a valid unexpired explicit choice", () => {
@@ -70,7 +82,7 @@ test("privacy notice is linked and analytics is absent from initial HTML", async
 
 test("static export includes the blog and generated llms.txt", async () => {
   const posts = getAllPosts();
-  assert.equal(posts.length, 11);
+  assert.equal(posts.length, 13);
   const llms = await readFile("out/llms.txt", "utf8");
   const sitemap = await readFile("out/sitemap.xml", "utf8");
   await access("out/blog/index.html");
@@ -104,10 +116,10 @@ test("managed pricing uses the shared catalog and return page only requests refr
     assert.ok(text.includes(String(offer.amountCents / 100)));
     assert.ok(text.includes(`${offer.hours} meeting hours and ${offer.briefs} briefs`));
   }
-  assert.match(pricing, /Personal providers/);
+  assert.match(pricing, /Your own providers/);
   assert.match(pricing, /nothing to Savvy/);
   assert.match(pricing, /No scheduled expiry/);
-  assert.match(pricing, /paid period end/);
+  assert.match(pricing, /end of the paid period/);
   assert.match(returned, /This page does not confirm payment/);
   assert.match(returned, /Refresh account/);
   assert.doesNotMatch(returned, /Payment successful|purchase complete|checkout\.stripe\.com/);
@@ -118,6 +130,8 @@ test("worker redirects the apex domain to www with a 308", async () => {
   const apex = await worker.fetch(new Request("https://savvycopilot.com/blog/?x=1"), env);
   assert.equal(apex.status, 308);
   assert.equal(apex.headers.get("location"), `${SITE_URL}/blog/?x=1`);
+  assert.equal(apex.headers.get("strict-transport-security"), "max-age=31536000");
   const www = await worker.fetch(new Request(`${SITE_URL}/`), env);
   assert.equal(await www.text(), "asset");
+  assert.equal(www.headers.get("strict-transport-security"), "max-age=31536000");
 });
