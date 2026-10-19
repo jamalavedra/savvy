@@ -12,6 +12,8 @@ export const PROVIDERS = [
   "outlook",
   "notion",
   "googledrive",
+  "one_drive",
+  "microsoft_teams",
 ] as const;
 export type Provider = (typeof PROVIDERS)[number];
 const KINDS: Record<Provider, readonly string[]> = {
@@ -22,6 +24,8 @@ const KINDS: Record<Provider, readonly string[]> = {
   outlook: ["thread"],
   notion: ["page"],
   googledrive: ["document"],
+  one_drive: ["document"],
+  microsoft_teams: ["chat"],
 };
 
 type RecordPreview = {
@@ -49,6 +53,18 @@ const READ_SCOPES: Record<string, readonly string[]> = {
     "mail.readwrite",
     "mail.read.shared",
     "mail.readwrite.shared",
+  ],
+  one_drive: [
+    "files.read",
+    "files.read.all",
+    "files.readwrite",
+    "files.readwrite.all",
+  ],
+  microsoft_teams: [
+    "chat.read",
+    "chat.readwrite",
+    "chat.readbasic",
+    "chat.readbasic.all",
   ],
 };
 
@@ -561,6 +577,26 @@ export class ComposioSources {
         page_size: 20,
         ...(cursor ? { start_cursor: cursor } : {}),
       });
+    } else if (name === "one_drive") {
+      data = await this.proxy(
+        account,
+        name,
+        `/v1.0/me/drive/root/search(q='${query.replaceAll("'", "''")}')`,
+        "GET",
+        [
+          { in: "query", name: "$top", value: 20 },
+          ...(offset
+            ? [{ in: "query" as const, name: "$skip", value: offset }]
+            : []),
+        ],
+      );
+    } else if (name === "microsoft_teams") {
+      data = await this.proxy(account, name, "/v1.0/me/chats", "GET", [
+        { in: "query", name: "$top", value: 20 },
+        ...(offset
+          ? [{ in: "query" as const, name: "$skip", value: offset }]
+          : []),
+      ]);
     } else {
       const escaped = query.replace(/[\\']/g, "\\$&");
       data = await this.proxy(account, name, "/files", "GET", [
@@ -618,6 +654,7 @@ export class ComposioSources {
           (item.title ??
             metadata.title ??
             item.name ??
+            item.topic ??
             item.subject ??
             props.name ??
             props.dealname ??
@@ -626,7 +663,7 @@ export class ComposioSources {
         "Untitled",
       );
       if (
-        ["gong", "notion"].includes(name) &&
+        ["gong", "notion", "microsoft_teams"].includes(name) &&
         !title.toLowerCase().includes(query.toLowerCase())
       )
         return [];
@@ -637,7 +674,12 @@ export class ComposioSources {
             "text/plain",
             "text/markdown",
             "application/vnd.google-apps.document",
-          ].includes(str(item.mimeType)))
+          ].includes(str(item.mimeType))) ||
+        (name === "one_drive" &&
+          (item.folder ||
+            !["text/plain", "text/markdown"].includes(
+              str(record(item.file ?? {}).mimeType),
+            )))
       )
         return [];
       return [
@@ -648,7 +690,11 @@ export class ComposioSources {
           recordId: name === "outlook" ? str(item.conversationId, id) : id,
           title: title.slice(0, 200),
           url: str(
-            item.webViewLink ?? item.webLink ?? item.url ?? metadata.url,
+            item.webViewLink ??
+              item.webUrl ??
+              item.webLink ??
+              item.url ??
+              metadata.url,
             "",
           ),
           modifiedAt:
@@ -658,7 +704,8 @@ export class ComposioSources {
                 item.last_edited_time ??
                 item.LastModifiedDate ??
                 item.updatedAt ??
-                item.lastModifiedDateTime,
+                item.lastModifiedDateTime ??
+                item.lastUpdatedDateTime,
             ) || null,
         },
       ];
@@ -679,18 +726,22 @@ export class ComposioSources {
       records: [
         ...new Map(records.map((item) => [item.recordId, item])).values(),
       ],
-      nextCursor:
-        name === "salesforce" || name === "outlook"
-          ? items.length === 20 && offset < 1980
-            ? String(offset + 20)
-            : null
-          : str(
-              data.nextPageToken ??
-                data.next_cursor ??
-                data.cursor ??
-                gongCursor ??
-                next,
-            ) || null,
+      nextCursor: [
+        "salesforce",
+        "outlook",
+        "one_drive",
+        "microsoft_teams",
+      ].includes(name)
+        ? items.length === 20 && offset < 1980
+          ? String(offset + 20)
+          : null
+        : str(
+            data.nextPageToken ??
+              data.next_cursor ??
+              data.cursor ??
+              gongCursor ??
+              next,
+          ) || null,
     };
   }
   async fetch(account: bigint, body: Record<string, unknown>) {
@@ -921,6 +972,82 @@ export class ComposioSources {
         return lines;
       };
       content = sourceText((await readBlocks(recordId, 0)).join("\n\n"));
+    } else if (name === "one_drive") {
+      data = await this.proxy(
+        account,
+        name,
+        `/v1.0/me/drive/items/${encodeURIComponent(recordId)}`,
+        "GET",
+        [
+          {
+            in: "query",
+            name: "$select",
+            value: "id,name,size,webUrl,lastModifiedDateTime,file",
+          },
+        ],
+      );
+      title = str(data.name, title);
+      modifiedAt = str(data.lastModifiedDateTime) || null;
+      url = str(data.webUrl);
+      const mime = str(record(data.file ?? {}).mimeType);
+      if (!["text/plain", "text/markdown"].includes(mime))
+        throw new ApiError(
+          "invalid_request",
+          "unsupported OneDrive document type",
+          undefined,
+          422,
+        );
+      if (Number(data.size ?? 0) > SOURCE_LIMIT)
+        throw new ApiError(
+          "context_too_large",
+          "record exceeds the 256 KiB import limit",
+        );
+      const document = await this.proxy(
+        account,
+        name,
+        `/v1.0/me/drive/items/${encodeURIComponent(recordId)}/content`,
+        "GET",
+      );
+      content = sourceText(str(document.text ?? document.content));
+    } else if (name === "microsoft_teams") {
+      const chat = await this.proxy(
+        account,
+        name,
+        `/v1.0/chats/${encodeURIComponent(recordId)}`,
+        "GET",
+      );
+      title = str(chat.topic, "Teams chat");
+      url = str(chat.webUrl);
+      modifiedAt = str(chat.lastUpdatedDateTime) || null;
+      data = await this.proxy(
+        account,
+        name,
+        `/v1.0/chats/${encodeURIComponent(recordId)}/messages`,
+        "GET",
+        [{ in: "query", name: "$top", value: 50 }],
+      );
+      const messages = list(data.value);
+      content = sourceText(
+        messages
+          .map((message) => {
+            const body = record(message.body ?? {});
+            const text =
+              str(body.contentType) === "text"
+                ? str(body.content)
+                : cleanHtml(str(body.content));
+            const author = str(
+              record(record(message.from ?? {}).user ?? {}).displayName,
+              "unknown",
+            );
+            return `${author}: ${text}`;
+          })
+          .join("\n\n---\n\n"),
+      );
+      if (data["@odata.nextLink"])
+        throw new ApiError(
+          "context_too_large",
+          "chat has more than 50 messages",
+        );
     } else {
       data = await this.proxy(
         account,

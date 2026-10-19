@@ -77,6 +77,20 @@
       "query": "Test",
       "recordId": "REPLACE",
       "expectedText": "REPLACE"
+    },
+    {
+      "provider": "one_drive",
+      "kind": "document",
+      "query": "Test",
+      "recordId": "REPLACE",
+      "expectedText": "REPLACE"
+    },
+    {
+      "provider": "microsoft_teams",
+      "kind": "chat",
+      "query": "Test",
+      "recordId": "REPLACE",
+      "expectedText": "REPLACE"
     }
   ]
 }

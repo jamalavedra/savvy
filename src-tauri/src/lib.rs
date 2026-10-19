@@ -1851,6 +1851,8 @@ fn source_filename(source: &SourceRecord) -> Result<PathBuf, String> {
         "outlook",
         "notion",
         "googledrive",
+        "one_drive",
+        "microsoft_teams",
     ]
     .contains(&source.provider.as_str())
         || source.account_id.is_empty()

@@ -156,6 +156,8 @@ test("sessions expose only source toolkits and no remote sandbox", async (t) => 
       "outlook",
       "notion",
       "googledrive",
+      "one_drive",
+      "microsoft_teams",
     ],
     manageConnections: false,
     sandbox: { enable: false },
@@ -582,6 +584,46 @@ test("CRM, mail, page and Drive adapters retain provider text", async (t) => {
               name: "Playbook",
               mimeType: "text/plain",
               webViewLink: "https://drive.google.com/file/record-1",
+            },
+    },
+    {
+      provider: "one_drive",
+      kind: "document",
+      text: "Supplier renewal terms",
+      response: ({ endpoint }: { endpoint: string }) =>
+        endpoint.endsWith("/content")
+          ? { text: "Supplier renewal terms" }
+          : {
+              id: "record-1",
+              name: "Supplier.md",
+              size: 120,
+              webUrl: "https://onedrive.live.com/?id=record-1",
+              lastModifiedDateTime: "2026-10-01",
+              file: { mimeType: "text/markdown" },
+            },
+    },
+    {
+      provider: "microsoft_teams",
+      kind: "chat",
+      text: "kickoff moved to Friday",
+      response: ({ endpoint }: { endpoint: string }) =>
+        endpoint.endsWith("/messages")
+          ? {
+              value: [
+                {
+                  createdDateTime: "2026-10-01",
+                  from: { user: { displayName: "Maya" } },
+                  body: {
+                    contentType: "html",
+                    content: "<p>kickoff moved to Friday</p>",
+                  },
+                },
+              ],
+            }
+          : {
+              topic: "Acme kickoff",
+              webUrl: "https://teams.microsoft.com/l/chat/record-1",
+              lastUpdatedDateTime: "2026-10-02",
             },
     },
   ] as const;

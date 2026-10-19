@@ -17,6 +17,8 @@ const expected = [
   "outlook:thread",
   "notion:page",
   "googledrive:document",
+  "one_drive:document",
+  "microsoft_teams:chat",
 ];
 
 type Case = {
@@ -77,11 +79,7 @@ async function main() {
       process.stderr.write(
         `Disconnected: ${missing.map((connection) => `${connection.provider} (${connection.status})`).join(", ")}\n`,
       );
-    assert.equal(
-      missing.length,
-      0,
-      "all seven test connections must be active",
-    );
+    assert.equal(missing.length, 0, "all test connections must be active");
     let passed = 0;
     for (const item of cases) {
       const label = `${item.provider}:${item.kind}`;
