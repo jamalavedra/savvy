@@ -913,11 +913,12 @@ function App() {
         await refreshDashboard();
         for (const result of results) {
           if (result.status === "fresh") continue;
-          const useCopy = result.refreshedAt
-            ? await new Promise<boolean>((resolve) =>
-                setStaleDecision({ source: result, resolve }),
-              )
-            : false;
+          const useCopy =
+            result.refreshedAt && result.savedCopy
+              ? await new Promise<boolean>((resolve) =>
+                  setStaleDecision({ source: result, resolve }),
+                )
+              : false;
           if (!useCopy) {
             excludeSourcePaths.push(result.relativePath);
           } else {

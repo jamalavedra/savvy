@@ -86,3 +86,25 @@ The authorized Salesforce Developer Edition signup twice ended at Salesforce's g
 The signed PR #40 app also launched on the local unlocked Mac against a temporary loopback HTTP CONNECT proxy that resolves the staging host to IPv4 while preserving TLS verification. This worked around this Mac's staging IPv6 HTTP 403 and advanced sign-in to the browser handoff. The browser handoff was not completed, so no local installed call was counted. The proxy and app were stopped, temporary links and codes were removed, and the pre-test Integration app database and settings were restored with matching SHA-256 hashes.
 
 After `main` advanced, PR #40 merged it at `716c7fc`, resolved the website privacy-section conflict, and pushed `da0a206`. The PR is mergeable again. Root formatting and lint, root and backend typechecks, website lint, typecheck, build, and 7/7 website smoke checks passed locally. GitHub's Verify and Website checks for this head were queued at the time of this update. The SSH Mac session was still locked.
+
+## Review findings and citation fix on 2026-10-19
+
+Devin Review of `06471c9` listed nine findings; five were confirmed and fixed in `7559e34` on `devin/composio-review-fixes` ([joalavedra/savvy PR #1](https://github.com/joalavedra/savvy/pull/1), opened on the fork because Devin has no push access to `jamalavedra/savvy`):
+
+- Deleted copies no longer offer **Use saved copy**: `SourceRefresh` gains `savedCopy`, set only when the local copy is still readable; the App prompt requires it.
+- A failed reindex after attach now rolls back the pending `connected_sources` entry and persists the rollback instead of leaving an attached-but-unindexed record.
+- Reattaching a record whose provider content changed now writes to a deduped `name-N.md` path; the existing local copy and any edits to it are still never overwritten.
+- `write_source_copy` creates its temp file with mode `0600` on unix (SEC_0003).
+- Notion import skips non-text blocks while still recursing `has_children` (BUG_0005), so one image/file embed no longer fails a whole page.
+
+The live mixed-source gap noted above is also addressed in code: the advice prompt (Rust `BRIEF_OUTPUT_SCHEMA`/`PROVIDER_OUTPUT_SCHEMA` and the parity-checked `backend/src/provider-contracts.json`) now requires citing every evidence item whose content the advice uses. Whether the model complies per claim stays a live-call quality observation.
+
+Four findings were assessed rather than changed: BUG_0001 (excluding a source filters its chunks but the already-generated brief may still hold its facts — stripping them needs per-source fact tracking or brief regeneration, a design decision), BUG_0006 (the Gong search window is fixed at 365 days — widening it is a product call), SEC_0001 (assessed as a false positive: the Salesforce term escapes `\` and `'` in one pass and SOQL accepts `\'`; also only the signed-in rep reaches it), and SEC_0002 (broad Composio grants — already an open gate above; narrowing needs the Composio admin auth-config change).
+
+Local checks at `7559e34` on Linux: `cargo test --workspace --locked` 126 passed; `pnpm vitest run` 53 passed (new case covers the deleted-copy refresh path); `tsx --test src/composio.test.ts` 14 passed (new Notion case); root and backend `tsc --noEmit`, `cargo fmt --check`, and `prettier --check` clean. `cargo clippy -p savvy --all-targets -- -D warnings` reports only pre-existing dead-code warnings on platform-gated paths.
+
+## OneDrive and Microsoft Teams providers on 2026-10-19
+
+Two more Composio toolkits joined the supported set at Joan's request: `one_drive` (kind `document`, Microsoft Graph `/v1.0/me/drive` — `.txt`/`.md` files only, mirroring the Drive adapter's text gate and 256 KiB bound) and `microsoft_teams` (kind `chat`, Graph `/v1.0/me/chats` + `/v1.0/chats/{id}/messages` — the 50 most recent messages, HTML bodies cleaned). Chat search filters by topic client-side because `/me/chats` has no server-side query. Both get read-scope guards (`Files.*` and `Chat.*` families) and Prepare consent notes matching the existing Google/Microsoft disclosures.
+
+Verification: adapter fixtures in `composio.test.ts` cover metadata, content download, and message shaping (15/15 pass); the 13-case live fixture gains `one_drive:document` and `microsoft_teams:chat` entries but real Microsoft accounts remain an external gate — the Composio OAuth grants and record reads are unverified, same class as Salesforce/HubSpot/Gong. Other Microsoft tools (SharePoint — two API families with different token audiences, Dynamics 365, Excel, OneNote) were deliberately left out of scope.

@@ -551,6 +551,8 @@ export async function sourceConnections(): Promise<SourceConnection[]> {
       "outlook",
       "notion",
       "googledrive",
+      "one_drive",
+      "microsoft_teams",
     ].map((provider) => ({ provider, accountId: null, connected: false }));
   const result = await invoke<{ connections: SourceConnection[] }>(
     "source_connections",

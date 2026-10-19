@@ -156,6 +156,8 @@ test("sessions expose only source toolkits and no remote sandbox", async (t) => 
       "outlook",
       "notion",
       "googledrive",
+      "one_drive",
+      "microsoft_teams",
     ],
     manageConnections: false,
     sandbox: { enable: false },
@@ -584,6 +586,46 @@ test("CRM, mail, page and Drive adapters retain provider text", async (t) => {
               webViewLink: "https://drive.google.com/file/record-1",
             },
     },
+    {
+      provider: "one_drive",
+      kind: "document",
+      text: "Supplier renewal terms",
+      response: ({ endpoint }: { endpoint: string }) =>
+        endpoint.endsWith("/content")
+          ? { text: "Supplier renewal terms" }
+          : {
+              id: "record-1",
+              name: "Supplier.md",
+              size: 120,
+              webUrl: "https://onedrive.live.com/?id=record-1",
+              lastModifiedDateTime: "2026-10-01",
+              file: { mimeType: "text/markdown" },
+            },
+    },
+    {
+      provider: "microsoft_teams",
+      kind: "chat",
+      text: "kickoff moved to Friday",
+      response: ({ endpoint }: { endpoint: string }) =>
+        endpoint.endsWith("/messages")
+          ? {
+              value: [
+                {
+                  createdDateTime: "2026-10-01",
+                  from: { user: { displayName: "Maya" } },
+                  body: {
+                    contentType: "html",
+                    content: "<p>kickoff moved to Friday</p>",
+                  },
+                },
+              ],
+            }
+          : {
+              topic: "Acme kickoff",
+              webUrl: "https://teams.microsoft.com/l/chat/record-1",
+              lastUpdatedDateTime: "2026-10-02",
+            },
+    },
   ] as const;
   for (const item of cases) {
     h.setResponse(item.response);
@@ -595,6 +637,85 @@ test("CRM, mail, page and Drive adapters retain provider text", async (t) => {
     });
     assert.match(result.content, new RegExp(item.text));
   }
+});
+
+test("Notion import skips blocks without text and still reads nested children", async (t) => {
+  const h = fixture(t);
+  h.setResponse(({ endpoint }: { endpoint: string }) =>
+    endpoint.includes("/blocks/root-page/")
+      ? {
+          results: [
+            {
+              id: "b1",
+              type: "paragraph",
+              paragraph: {
+                rich_text: [{ plain_text: "Implementation starts Monday" }],
+              },
+              has_children: false,
+            },
+            { id: "b2", type: "image", image: {}, has_children: false },
+            {
+              id: "sub-page",
+              type: "child_page",
+              child_page: { title: "Details" },
+              has_children: true,
+            },
+          ],
+          next_cursor: null,
+        }
+      : endpoint.includes("/blocks/sub-page/")
+        ? {
+            results: [
+              {
+                id: "b3",
+                type: "paragraph",
+                paragraph: {
+                  rich_text: [{ plain_text: "Pilot budget 24,000" }],
+                },
+                has_children: false,
+              },
+            ],
+            next_cursor: null,
+          }
+        : {
+            properties: { Name: { title: [{ plain_text: "Plan" }] } },
+            url: "https://notion.so/plan",
+          },
+  );
+  const result = await h.service.fetch(1n, {
+    provider: "notion",
+    kind: "page",
+    accountId: "account-one",
+    recordId: "root-page",
+  });
+  assert.match(result.content, /Implementation starts Monday/);
+  assert.match(result.content, /Pilot budget 24,000/);
+});
+
+test("Notion import rejects a page with no readable text", async (t) => {
+  const h = fixture(t);
+  h.setResponse(({ endpoint }: { endpoint: string }) =>
+    endpoint.includes("/blocks/")
+      ? {
+          results: [
+            { id: "b1", type: "image", image: {}, has_children: false },
+          ],
+          next_cursor: null,
+        }
+      : {
+          properties: { Name: { title: [{ plain_text: "Assets" }] } },
+          url: "https://notion.so/assets",
+        },
+  );
+  await assert.rejects(
+    h.service.fetch(1n, {
+      provider: "notion",
+      kind: "page",
+      accountId: "account-one",
+      recordId: "page-1",
+    }),
+    (error: unknown) => error instanceof ApiError && error.status === 422,
+  );
 });
 
 test("Drive download stops at the source limit without a content-length header", async (t) => {

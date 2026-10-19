@@ -18,6 +18,8 @@ const providers = [
   ["outlook", "Outlook", ["thread"]],
   ["notion", "Notion", ["page"]],
   ["googledrive", "Google Drive", ["document"]],
+  ["one_drive", "OneDrive", ["document"]],
+  ["microsoft_teams", "Microsoft Teams", ["chat"]],
 ] as const;
 
 export default function ConnectedSources({
@@ -121,6 +123,18 @@ export default function ConnectedSources({
           Microsoft currently asks to let Composio send and delete mail and edit
           calendars, contacts, and mailbox settings. Savvy only reads threads
           you select.
+        </p>
+      )}
+      {!connection?.connected && provider === "one_drive" && (
+        <p>
+          Microsoft currently asks to let Composio read and write all your
+          OneDrive files. Savvy only reads documents you select.
+        </p>
+      )}
+      {!connection?.connected && provider === "microsoft_teams" && (
+        <p>
+          Microsoft currently asks to let Composio read and write chats. Savvy
+          only reads the chats you select.
         </p>
       )}
       <div className="connected-source-controls">
