@@ -221,13 +221,13 @@ export function Privacy() {
                 icon: SparkIcon,
                 label: (
                   <span>
-                    <strong className="font-semibold">Managed:</strong> a top-performing model on EU
-                    servers, no keys to set up
+                    <strong className="font-semibold">Managed:</strong> Savvy handles transcription
+                    and model access, no keys to set up
                   </span>
                 ),
               },
               { icon: FolderIcon, label: "Source files stay in their folders, unchanged" },
-              { icon: ClockIcon, label: "Recordings and transcripts deleted after 30 days" },
+              { icon: ClockIcon, label: "30-day local retention, cleaned up at startup" },
               {
                 icon: WaveIcon,
                 label: "Audio streams to transcription, through Savvy in managed mode",

@@ -70,7 +70,7 @@ test("privacy notice is linked and analytics is absent from initial HTML", async
 
 test("static export includes the blog and generated llms.txt", async () => {
   const posts = getAllPosts();
-  assert.equal(posts.length, 11);
+  assert.equal(posts.length, 13);
   const llms = await readFile("out/llms.txt", "utf8");
   const sitemap = await readFile("out/sitemap.xml", "utf8");
   await access("out/blog/index.html");
@@ -104,10 +104,10 @@ test("managed pricing uses the shared catalog and return page only requests refr
     assert.ok(text.includes(String(offer.amountCents / 100)));
     assert.ok(text.includes(`${offer.hours} meeting hours and ${offer.briefs} briefs`));
   }
-  assert.match(pricing, /Personal providers/);
+  assert.match(pricing, /Your own providers/);
   assert.match(pricing, /nothing to Savvy/);
   assert.match(pricing, /No scheduled expiry/);
-  assert.match(pricing, /paid period end/);
+  assert.match(pricing, /end of the paid period/);
   assert.match(returned, /This page does not confirm payment/);
   assert.match(returned, /Refresh account/);
   assert.doesNotMatch(returned, /Payment successful|purchase complete|checkout\.stripe\.com/);
