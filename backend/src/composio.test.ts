@@ -650,6 +650,32 @@ test("Notion import skips blocks without text and still reads nested children", 
   assert.match(result.content, /Pilot budget 24,000/);
 });
 
+test("Notion import rejects a page with no readable text", async (t) => {
+  const h = fixture(t);
+  h.setResponse(({ endpoint }: { endpoint: string }) =>
+    endpoint.includes("/blocks/")
+      ? {
+          results: [
+            { id: "b1", type: "image", image: {}, has_children: false },
+          ],
+          next_cursor: null,
+        }
+      : {
+          properties: { Name: { title: [{ plain_text: "Assets" }] } },
+          url: "https://notion.so/assets",
+        },
+  );
+  await assert.rejects(
+    h.service.fetch(1n, {
+      provider: "notion",
+      kind: "page",
+      accountId: "account-one",
+      recordId: "page-1",
+    }),
+    (error: unknown) => error instanceof ApiError && error.status === 422,
+  );
+});
+
 test("Drive download stops at the source limit without a content-length header", async (t) => {
   const h = fixture(t);
   const session = await h.client.sessions.use();

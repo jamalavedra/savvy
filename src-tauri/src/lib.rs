@@ -2028,7 +2028,8 @@ fn attach_connected_source_inner(
         return Ok(current);
     }
     // A retained copy with different content is left untouched; the fresh
-    // import takes a numbered name instead of failing the attach.
+    // import takes a numbered name instead of failing the attach. The stale
+    // copy moves to a non-indexed name so advice only sees the fresh record.
     if fs::read(current.folder_path.join(&relative))
         .map(|existing| format!("{:x}", Sha256::digest(&existing)) != sha256(&record.content))
         .unwrap_or(false)
@@ -2037,12 +2038,30 @@ fn attach_connected_source_inner(
             .file_stem()
             .map(|value| value.to_string_lossy().into_owned())
             .unwrap_or_else(|| "savvy-source".into());
-        relative = (2..100)
-            .map(|suffix| PathBuf::from(format!("{stem}-{suffix}.md")))
-            .find(|candidate| !current.folder_path.join(candidate).exists())
-            .ok_or(
-                "a different local copy already exists; rename or remove it to attach this record",
-            )?;
+        let spare = |pattern: &dyn Fn(usize) -> String| {
+            (1..100)
+                .map(pattern)
+                .find(|candidate: &String| !current.folder_path.join(candidate).exists())
+                .map(PathBuf::from)
+        };
+        let archived = spare(&|suffix: usize| {
+            if suffix == 1 {
+                format!("{stem}-replaced.bak")
+            } else {
+                format!("{stem}-replaced-{suffix}.bak")
+            }
+        })
+        .ok_or(
+            "a different local copy already exists; rename or remove it to attach this record",
+        )?;
+        fs::rename(
+            current.folder_path.join(&relative),
+            current.folder_path.join(&archived),
+        )
+        .map_err(|error| error.to_string())?;
+        relative = spare(&|suffix: usize| format!("{stem}-{suffix}.md")).ok_or(
+            "a different local copy already exists; rename or remove it to attach this record",
+        )?;
     }
     let previous = current
         .folder_path
@@ -2063,7 +2082,7 @@ fn attach_connected_source_inner(
         title: record.title,
         url: record.url,
         modified_at: record.modified_at,
-        relative_path: relative,
+        relative_path: relative.clone(),
         content_hash: Some(hash),
         refreshed_at: Some(Utc::now()),
     });
@@ -2074,8 +2093,13 @@ fn attach_connected_source_inner(
     match reindex_client(state, current.id, &current.folder_path) {
         Ok(client) => Ok(client),
         Err(error) => {
-            // Roll the selection back so a retry attaches and reindexes.
+            // Roll the selection back so a retry attaches and reindexes. A
+            // copy written by this call leaves with it; a pre-existing file
+            // is untouched.
             current.connected_sources.pop();
+            if previous.is_none() {
+                let _ = fs::remove_file(current.folder_path.join(&relative));
+            }
             if let Ok(storage) = state.storage.lock() {
                 let _ = storage.save_client(&current);
             }
@@ -2158,8 +2182,11 @@ fn refresh_connected_sources_inner(
             Err(message) if message.contains("edited") => "conflict",
             Err(_) => "failed",
         };
+        // Same contract as the verified scanner: a regular file, not a link.
         let saved_copy = outcome.is_err()
-            && fs::File::open(client.folder_path.join(&item.relative_path)).is_ok();
+            && fs::symlink_metadata(client.folder_path.join(&item.relative_path))
+                .map(|metadata| metadata.is_file())
+                .unwrap_or(false);
         results.push(SourceRefresh {
             provider: item.provider.clone(),
             kind: item.kind.clone(),
@@ -7406,6 +7433,29 @@ mod tests {
         fs::write(root.join(&relative), b"\xff").unwrap();
         assert!(write_source_copy(&root, &relative, "# Acme", Some(&first)).is_err());
         assert_eq!(fs::read(root.join(&relative)).unwrap(), b"\xff");
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn superseded_source_copy_leaves_the_index() {
+        use super::*;
+        let root = std::env::temp_dir().join(format!("savvy-replaced-source-{}", Uuid::new_v4()));
+        fs::create_dir(&root).unwrap();
+        fs::write(
+            root.join("savvy-source-acme-replaced.bak"),
+            "stale provider facts",
+        )
+        .unwrap();
+        fs::write(root.join("fresh.md"), "# Fresh\n\ncurrent facts").unwrap();
+        let (readiness, chunks) =
+            scan_source_scope(Some(&root), ContextSourceKind::Client, Uuid::new_v4());
+        assert_eq!(readiness.index_status, IndexStatus::Ready);
+        assert_eq!(
+            chunks
+                .iter()
+                .map(|chunk| chunk.source.relative_path.as_path())
+                .collect::<Vec<_>>(),
+            vec![Path::new("fresh.md")]
+        );
         fs::remove_dir_all(root).unwrap();
     }
     #[test]
