@@ -2031,7 +2031,10 @@ fn attach_connected_source_inner(
     }
     // A retained copy with different content is left untouched; the fresh
     // import takes a numbered name instead of failing the attach. The stale
-    // copy moves to a non-indexed name so advice only sees the fresh record.
+    // copy moves to a non-indexed name so advice only sees the fresh record;
+    // if the attach fails, it is renamed back.
+    let original = relative.clone();
+    let mut archived: Option<PathBuf> = None;
     if fs::read(current.folder_path.join(&relative))
         .map(|existing| format!("{:x}", Sha256::digest(&existing)) != sha256(&record.content))
         .unwrap_or(false)
@@ -2046,19 +2049,21 @@ fn attach_connected_source_inner(
                 .find(|candidate: &String| !current.folder_path.join(candidate).exists())
                 .map(PathBuf::from)
         };
-        let archived = spare(&|suffix: usize| {
-            if suffix == 1 {
-                format!("{stem}-replaced.bak")
-            } else {
-                format!("{stem}-replaced-{suffix}.bak")
-            }
-        })
-        .ok_or(
-            "a different local copy already exists; rename or remove it to attach this record",
-        )?;
+        archived = Some(
+            spare(&|suffix: usize| {
+                if suffix == 1 {
+                    format!("{stem}-replaced.bak")
+                } else {
+                    format!("{stem}-replaced-{suffix}.bak")
+                }
+            })
+            .ok_or(
+                "a different local copy already exists; rename or remove it to attach this record",
+            )?,
+        );
         fs::rename(
             current.folder_path.join(&relative),
-            current.folder_path.join(&archived),
+            current.folder_path.join(archived.as_deref().unwrap()),
         )
         .map_err(|error| error.to_string())?;
         relative = spare(&|suffix: usize| format!("{stem}-{suffix}.md")).ok_or(
@@ -2097,10 +2102,16 @@ fn attach_connected_source_inner(
         Err(error) => {
             // Roll the selection back so a retry attaches and reindexes. A
             // copy written by this call leaves with it; a pre-existing file
-            // is untouched.
+            // is untouched, including one this call archived.
             current.connected_sources.pop();
             if previous.is_none() {
                 let _ = fs::remove_file(current.folder_path.join(&relative));
+            }
+            if let Some(archived) = archived {
+                let _ = fs::rename(
+                    current.folder_path.join(&archived),
+                    current.folder_path.join(&original),
+                );
             }
             if let Ok(storage) = state.storage.lock() {
                 let _ = storage.save_client(&current);

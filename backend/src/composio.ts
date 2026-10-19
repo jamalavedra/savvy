@@ -60,12 +60,7 @@ const READ_SCOPES: Record<string, readonly string[]> = {
     "files.readwrite",
     "files.readwrite.all",
   ],
-  microsoft_teams: [
-    "chat.read",
-    "chat.readwrite",
-    "chat.readbasic",
-    "chat.readbasic.all",
-  ],
+  microsoft_teams: ["chat.read", "chat.readwrite"],
 };
 
 function missingReadScope(name: string, data: unknown): boolean {
@@ -485,10 +480,10 @@ export class ComposioSources {
     const accountId = input(body.accountId, "account", 120);
     await this.active(account, name, accountId);
     let data: Record<string, unknown>;
-    const offset =
-      cursor && ["salesforce", "outlook"].includes(name) ? Number(cursor) : 0;
+    const paged = ["salesforce", "outlook", "one_drive", "microsoft_teams"];
+    const offset = cursor && paged.includes(name) ? Number(cursor) : 0;
     if (
-      ["salesforce", "outlook"].includes(name) &&
+      paged.includes(name) &&
       (!Number.isSafeInteger(offset) || offset < 0 || offset > 1980)
     )
       throw new ApiError(
