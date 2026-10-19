@@ -90,7 +90,7 @@ Complete the checks left open by the 2026-10-16 connected-source run. Use fictio
 |------|-------------|-----------|------|
 | TASK-019 | Rerun the native/backend CRM-plus-document and outage fixture on the combined branch on macOS and Windows 11; check backend adapters, App UI, and typechecks. | ✅ | 2026-10-19 |
 | TASK-020 | Clear client-specific refresh status when the rep switches clients, and rerun the focused App suite. | ✅ | 2026-10-19 |
-| TASK-021 | Merge Windows support PR #15, retarget PR #40 to `main`, and require fresh CI on the updated branch. | | |
+| TASK-021 | Merge Windows support PR #15, retarget PR #40 to `main`, and require fresh CI on the updated branch. | ✅ | 2026-10-19 |
 | TASK-022 | Run the live 11-kind fixture across all seven providers. Salesforce, HubSpot, Gong, Gmail, and Outlook still lack connected test accounts or acceptable read grants; keep PR #40 draft while this gate remains open. | | |
 | TASK-023 | Resolve or explicitly accept the session-level action restriction and broad Gmail, Outlook, and Drive grant risks before release. | | |
 | TASK-024 | Verify per-claim citations for a mixed Notion and Drive answer; the previous installed call had a mismatched citation. | | |
