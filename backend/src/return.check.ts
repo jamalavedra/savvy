@@ -100,6 +100,20 @@ test(
         );
         await page.keyboard.press("Tab");
         assert.equal(
+          await page
+            .getByRole("link", { name: "Skip to content" })
+            .evaluate((element) => element === document.activeElement),
+          true,
+        );
+        await page.keyboard.press("Enter");
+        assert.equal(
+          await page
+            .locator("main")
+            .evaluate((element) => element === document.activeElement),
+          true,
+        );
+        await page.keyboard.press("Tab");
+        assert.equal(
           await open.evaluate((element) => element === document.activeElement),
           true,
         );
