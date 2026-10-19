@@ -58,7 +58,7 @@ export default function Home() {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
       <Rail />
-      <main className="overflow-x-clip">
+      <main id="main" tabIndex={-1} className="overflow-x-clip">
         <Hero />
         <Divider />
         <Reasons />

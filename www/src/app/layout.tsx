@@ -43,6 +43,12 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     // Tailwind resolves font tokens on :root, so the font variables belong on <html>.
     <html lang="en" className={`${nunito.variable} ${plexMono.variable}`}>
       <body>
+        <a
+          href="#main"
+          className="focus-ring sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:not-sr-only focus:rounded-full focus:bg-foreground focus:px-4 focus:py-2 focus:text-sm focus:text-background"
+        >
+          Skip to content
+        </a>
         {children}
         <Analytics />
       </body>

@@ -8,7 +8,11 @@ export const metadata: Metadata = {
 
 export default function CheckoutReturn() {
   return (
-    <main className="min-h-screen bg-[#fbfbfb] px-4 py-14 text-sm text-[#0f0f0f] dark:bg-[#2c2b29] dark:text-[#fbfbfb]">
+    <main
+      id="main"
+      tabIndex={-1}
+      className="min-h-screen bg-[#fbfbfb] px-4 py-14 text-sm text-[#0f0f0f] dark:bg-[#2c2b29] dark:text-[#fbfbfb]"
+    >
       <div className="mx-auto max-w-[420px]">
         <div className="text-center">
           <strong className="savvy-wordmark text-[40px]">savvy</strong>

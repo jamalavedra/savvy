@@ -127,7 +127,7 @@ export default function Pricing() {
   return (
     <>
       <Rail active="/pricing/" />
-      <main className="overflow-x-clip">
+      <main id="main" tabIndex={-1} className="overflow-x-clip">
         <section className="py-20 lg:py-28">
           <div className="page-column">
             <FadeInUp>
