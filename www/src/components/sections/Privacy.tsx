@@ -6,6 +6,7 @@ import {
   KeyIcon,
   MascotNote,
   StatList,
+  TerminalIcon,
   TwoLineHeading,
   WaveIcon,
 } from "@/components/sections/primitives";
@@ -192,9 +193,14 @@ export function Privacy() {
       <div className="page-column grid items-center gap-12 lg:grid-cols-2">
         <FadeInUp>
           <TwoLineHeading
-            line1="Know where your data goes"
-            line2="Local storage, external AI providers"
+            line1="Your accounts, your data"
+            line2="Choose your providers, see where data goes"
           />
+          <p className="mt-4 max-w-md text-small text-muted">
+            Guidance runs on the Claude Code or Codex CLI signed in on your Mac, and transcription
+            on your Deepgram or AssemblyAI key. Your providers bill for usage. Or choose Savvy
+            managed in the same app; see pricing for the included allowance.
+          </p>
           <p className="mt-4 max-w-md text-small text-muted">
             Source files stay in their folders. Savvy stores extracted text and indexes in a local
             database. With personal providers, audio streams to your transcription provider. AI
@@ -205,8 +211,9 @@ export function Privacy() {
           </p>
           <StatList
             items={[
+              { icon: TerminalIcon, label: "Claude Code or Codex CLI, on your account" },
+              { icon: KeyIcon, label: "Deepgram or AssemblyAI key in the macOS Keychain" },
               { icon: FolderIcon, label: "Source files remain unchanged" },
-              { icon: KeyIcon, label: "Provider keys in the macOS Keychain" },
               { icon: ClockIcon, label: "30-day local retention, cleaned up at startup" },
               {
                 icon: WaveIcon,

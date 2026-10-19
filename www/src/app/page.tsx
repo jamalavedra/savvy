@@ -9,7 +9,6 @@ import { Divider } from "@/components/sections/primitives";
 import { Reasons } from "@/components/sections/Reasons";
 import { SourceBand } from "@/components/sections/SourceBand";
 import { Trust } from "@/components/sections/Trust";
-import { YourModel } from "@/components/sections/YourModel";
 import { faqItems } from "@/content/faq";
 import { COMPANY_NAME, LINKS, REPO_URL, SITE_URL } from "@/lib/constants";
 
@@ -61,15 +60,13 @@ export default function Home() {
       <Rail />
       <main className="overflow-x-clip">
         <Hero />
-        <Trust />
         <Divider />
         <Reasons />
         <Divider />
         <SourceBand />
         <Divider />
         <Everything />
-        <Divider />
-        <YourModel />
+        <Trust />
         <Divider />
         <Privacy />
         <Divider />

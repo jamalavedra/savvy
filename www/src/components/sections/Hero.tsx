@@ -80,7 +80,7 @@ export function Hero() {
       <div className="page-column">
         <FadeInUp>
           <p className="text-center font-mono text-[11px] uppercase tracking-wider text-muted">
-            Real-time AI meeting assistant for Mac
+            Real-time AI meeting assistant
           </p>
           <h1 className="text-display mx-auto mt-3 max-w-2xl text-center text-balance">
             Know what to say, and which file says so.
