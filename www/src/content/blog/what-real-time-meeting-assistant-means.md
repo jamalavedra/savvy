@@ -21,7 +21,7 @@ What it does not do is retrieve anything. The summary is a compression of the co
 
 ## Type 3: generic conversation coaching
 
-Prompts that come from the shape of the conversation rather than its content: you have been talking for four minutes, ask an open question, they raised an objection, here is an objection-handling frame. Sales-coaching products have done this for years, and the newer general-purpose "answer anything on your screen" assistants are a variant of it.
+Prompts that come from the shape of the conversation rather than its content: you have been talking for four minutes, ask an open question, they raised an objection, here is an objection-handling frame. Sales-coaching products have done this for years, and the newer general-purpose "answer anything on your screen" assistants are a variant of it. [Cluely alternatives for work meetings](/blog/cluely-alternatives/) compares the best-known of those.
 
 This is useful when the skill is the gap. It is useless when the gap is a fact, because a model that knows nothing about your business will produce a confident, plausible, wrong number.
 

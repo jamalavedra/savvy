@@ -5,7 +5,7 @@ date: 2026-09-03
 tags: preparation, negotiation, brief
 ---
 
-The best preparation for a negotiation call is a one-page brief you can glance at while the other side is talking. Not a deck, not a folder of PDFs. A short document with your objective, both positions, what you can give, and what you cannot say. This is the structure Savvy uses for its own briefs, and it works on paper just as well.
+The best preparation for a negotiation call is a one-page brief you can glance at while the other side is talking. Not a deck, not a folder of PDFs. A short document with your objective, both positions, what you can give, and what you cannot say. This is the structure Savvy uses for its own briefs, and it works on paper just as well. For an ordinary meeting, the shorter [meeting prep checklist](/blog/meeting-prep/) is enough.
 
 ## Why one page
 

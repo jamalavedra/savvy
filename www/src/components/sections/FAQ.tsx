@@ -3,6 +3,13 @@ import { TwoLineHeading } from "@/components/sections/primitives";
 import { faqItems } from "@/content/faq";
 import { LINKS } from "@/lib/constants";
 
+const BLOG_LINKS = [
+  ["/blog/meeting-prep/", "How to prepare for a meeting"],
+  ["/blog/granola-alternatives/", "Granola AI alternatives"],
+  ["/blog/otter-ai-alternatives/", "Otter.ai alternatives"],
+  ["/blog/cluely-alternatives/", "Cluely alternatives for work meetings"],
+] as const;
+
 export function FAQ() {
   return (
     <section id="faq" className="py-20 lg:py-28">
@@ -15,6 +22,16 @@ export function FAQ() {
           >
             Read the README
           </a>
+          <p className="mt-10 text-small font-semibold">From the blog</p>
+          <ul className="mt-3 space-y-2 text-small text-muted">
+            {BLOG_LINKS.map(([href, label]) => (
+              <li key={href}>
+                <a href={href} className="focus-ring underline underline-offset-4">
+                  {label}
+                </a>
+              </li>
+            ))}
+          </ul>
         </FadeInUp>
         <FadeInUp delay={0.1}>
           {faqItems.map((item, i) => (

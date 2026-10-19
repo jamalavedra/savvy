@@ -1,15 +1,13 @@
 ---
-title: Granola alternatives for Mac: what to use when notes are not the problem
-description: A look at alternatives to the Granola meeting app, grouped by what you actually want instead: a team archive, Windows support, live in-call guidance, or an app you can read the source of.
+title: Granola AI alternatives, by what you actually need
+description: Granola AI alternatives grouped by the reason you are leaving: a team archive, a different platform, live in-call help, or an open-source app. With prices.
 date: 2026-09-22
 tags: comparison, meeting-assistant, mac
 ---
 
-This is about Granola the meeting app, not the cereal. If you landed here from a recipe search, we cannot help.
+Granola AI is good, and most "alternatives" lists do not say why you would leave. So: Granola captures system audio on your desktop with no bot in the call, enhances the bullets you typed during the meeting, and gives you clean notes afterwards. If that is the job, Granola does it well and you can stop reading.
 
-Granola is good, and most "alternatives" lists do not say why you would leave. So: Granola captures system audio on your desktop with no bot in the call, enhances the bullets you typed during the meeting, and gives you clean notes afterwards. If that is the job, Granola does it well and you can stop reading.
-
-People look for something else for four fairly specific reasons.
+People look for something else for four fairly specific reasons. Prices for every tool mentioned are at the end.
 
 ## Reason one: you need a shared team record
 
@@ -19,9 +17,9 @@ If the actual requirement is "every call searchable by the whole team, with rete
 
 ## Reason two: the platform does not fit
 
-Granola runs on Mac and Windows but not Android, and its language coverage is narrower than the big transcription products. If you need a phone-first workflow or a language it does not handle, this is a hard constraint and no amount of feature comparison gets around it.
+Granola has desktop, iOS, Android and Apple Watch apps, so the platform gap is smaller than it used to be. Its language coverage is still narrower than the big transcription products. If you need a language it does not handle, this is a hard constraint and no amount of feature comparison gets around it.
 
-Savvy is narrower still: Apple Silicon Macs on macOS 13 or newer. If you are on Windows or Intel, Savvy is not the answer today.
+Savvy is narrower still: released builds are for Apple Silicon Macs on macOS 13 or newer. A Windows 11 build is in preview but has no published release yet. If you are on Windows today, Savvy is not the answer.
 
 ## Reason three: you want help during the call, not notes after it
 
@@ -47,9 +45,33 @@ What differs is whose account it goes to. Savvy streams meeting audio to the tra
 
 If you are evaluating either tool for confidential conversations, read the data-flow page rather than the marketing page. Ours is the [privacy section](/#privacy), and the full table is in the [README](https://github.com/jamalavedra/savvy#readme).
 
+## What each one costs
+
+List prices in USD, per user, as published on each vendor's pricing page in October 2026. Check before you buy; these change.
+
+- **Granola:** Basic is free with 30 days of meeting history. Business is $14 a month with unlimited history, integrations and API access. Enterprise is $35 a month. Source: [granola.ai/pricing](https://www.granola.ai/pricing).
+- **Otter:** Basic is free with 300 transcription minutes a month and 30 minutes per conversation. Pro lists at $16.99 a month or $8.33 a month billed annually, with 1,200 minutes. Business is $30 a month or $19.99 billed annually. Otter was running a discount on Pro when we checked. Source: [otter.ai/pricing](https://otter.ai/pricing).
+- **Fathom:** Free with unlimited recordings. Premium is $20 a month or $16 billed annually. Bot-free capture is a Mac beta. Source: [fathom.ai/pricing](https://www.fathom.ai/pricing).
+- **Fireflies:** a free tier and per-seat Pro and Business plans. The pricing page did not show figures when we checked, so look there directly: [fireflies.ai/pricing](https://fireflies.ai/pricing).
+- **Savvy:** the app is free and MIT-licensed. With your own providers you pay Deepgram or AssemblyAI per audio minute and use the Claude Code or Codex plan you already have. Savvy managed is $79 a month for 10 meeting hours and 20 briefs, or a $29 pack of 3 hours. Source: [pricing](/pricing/).
+
+## Questions people ask
+
+### Is there a free Granola alternative?
+
+Fathom's free plan has unlimited recordings, and Otter's free plan covers 300 minutes a month. Both use a bot by default. Savvy is free to install and bot-free, but you pay your transcription provider per minute.
+
+### Is there an open-source Granola alternative?
+
+Savvy is MIT-licensed, and the [source is on GitHub](https://github.com/jamalavedra/savvy). It does a different job, though: live guidance during the call rather than notes afterwards.
+
+### Is there a Granola alternative for Windows?
+
+Granola itself has a desktop app, and Otter, Fathom and Fireflies all work from the browser through their bots. Savvy's Windows build is still a preview.
+
 ## Short version
 
 - Want a team archive or CRM writeback: a bot-based tool, not Granola and not Savvy.
-- Want bot-free notes on Mac or Windows: Granola is already the good answer.
+- Want bot-free notes on desktop and phone: Granola is already the good answer.
 - Want in-call guidance grounded in your own documents, on a Mac, for free: try [Savvy](/).
 - Want to know exactly what the app does with your audio: pick whichever one publishes the flow, and check it.
