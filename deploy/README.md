@@ -114,6 +114,14 @@ fixtures. Stripe-hosted return pages trigger refresh and never prove payment.
 
 ## Upgrade, backup and rollback
 
+The `Deploy backend` GitHub workflow runs after a successful main-branch
+`Verify` run. Its Tailscale federated identity uses the repository variables
+`TS_CI_CLIENT_ID` and `TS_CI_AUDIENCE` to reach Epistoma and run
+`deploy/epistoma-main.sh` for that exact commit. The script builds a new release,
+takes a stopped-state backup, switches the release link, migrates, and checks
+readiness. If migration fails, the backup timer stays stopped for operator
+recovery; review the backup and current databases before any rollback.
+
 To upgrade, stop the unit, take a backup, point `/opt/savvy/current` at the new
 release, run `node build/migrate.js` and start the unit again. Keep the previous
 release directory until the new one has passed readiness and a sign-in check.
