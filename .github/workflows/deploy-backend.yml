@@ -33,7 +33,6 @@ jobs:
           oauth-client-id: ${{ vars.TS_CI_CLIENT_ID }}
           audience: ${{ vars.TS_CI_AUDIENCE }}
           tags: tag:deploy-epistoma
-          ping: epistoma
       - name: Deploy checked backend
         env:
           DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
