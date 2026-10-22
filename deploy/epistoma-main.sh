@@ -38,7 +38,7 @@ pnpm --dir backend build
 package="$(mktemp -d /home/jaume/savvy-package.XXXXXX)"
 trap 'rm -rf "$package" "$pnpm_bin"' EXIT
 mkdir -p "$package/backend" "$package/config"
-cp -a backend/build backend/dist backend/package.json backend/pnpm-lock.yaml "$package/backend/"
+cp -a backend/build backend/dist backend/package.json backend/pnpm-lock.yaml backend/pnpm-workspace.yaml "$package/backend/"
 cp config/managed-catalog.json "$package/config/"
 pnpm --dir "$package/backend" install --prod --frozen-lockfile
 sudo install -d -o savvy -g savvy -m 0750 "$release"
