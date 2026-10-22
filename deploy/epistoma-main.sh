@@ -74,7 +74,7 @@ sudo -u savvy env \
   SAVVY_DB_PATH=/var/lib/savvy/service.sqlite \
   /opt/node-v22.23.2-linux-x64/bin/node --env-file=/etc/savvy/backend.env build/migrate.js
 sudo systemctl start savvy-backend.service
-curl --fail --retry 24 --retry-delay 5 --retry-connrefused \
+curl --fail --retry 24 --retry-delay 5 --retry-all-errors \
   -H 'CF-Connecting-IP: 127.0.0.1' http://127.0.0.1:8788/ready > /dev/null
 test "$(readlink -f /opt/savvy/current)" = "$release"
 sudo systemctl start savvy-backup.timer
