@@ -38,7 +38,7 @@ pnpm --dir backend build
 package="$(mktemp -d /home/jaume/savvy-package.XXXXXX)"
 trap 'rm -rf "$package" "$pnpm_bin"' EXIT
 mkdir -p "$package/backend" "$package/config"
-cp -a backend/build backend/dist backend/package.json backend/pnpm-lock.yaml "$package/backend/"
+cp -a backend/build backend/dist backend/package.json backend/pnpm-lock.yaml backend/pnpm-workspace.yaml "$package/backend/"
 cp config/managed-catalog.json "$package/config/"
 pnpm --dir "$package/backend" install --prod --frozen-lockfile
 sudo install -d -o savvy -g savvy -m 0750 "$release"
@@ -68,13 +68,12 @@ sudo systemctl stop savvy-backend.service
 sudo ln -sfn "$release" /opt/savvy/current.next
 sudo mv -Tf /opt/savvy/current.next /opt/savvy/current
 migration_started=true
-cd "$release/backend"
 sudo -u savvy env \
   SAVVY_AUTH_DATABASE=/var/lib/savvy/auth.sqlite \
   SAVVY_DB_PATH=/var/lib/savvy/service.sqlite \
-  /opt/node-v22.23.2-linux-x64/bin/node --env-file=/etc/savvy/backend.env build/migrate.js
+  sh -c 'cd "$1/backend" && exec /opt/node-v22.23.2-linux-x64/bin/node --env-file=/etc/savvy/backend.env build/migrate.js' sh "$release"
 sudo systemctl start savvy-backend.service
-curl --fail --retry 24 --retry-delay 5 --retry-connrefused \
+curl --fail --retry 24 --retry-delay 5 --retry-all-errors \
   -H 'CF-Connecting-IP: 127.0.0.1' http://127.0.0.1:8788/ready > /dev/null
 test "$(readlink -f /opt/savvy/current)" = "$release"
 sudo systemctl start savvy-backup.timer
