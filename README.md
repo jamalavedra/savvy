@@ -4,24 +4,24 @@ Savvy is a meeting assistant for macOS and Windows 11 x64. It prepares a brief f
 
 ## Choose your setup
 
-Use personal providers or optional Savvy managed assistance in the same MIT-licensed desktop app. Personal setup connects your transcription account and signed-in model CLI. Managed setup uses browser sign-in with Google or an emailed code. Rust handles PKCE and stores refresh credentials in macOS Keychain. Checkout and billing management are Stripe-hosted.
+Use personal providers or optional Savvy managed assistance in the same MIT-licensed desktop app. Personal setup connects your transcription account and signed-in model CLI. Managed setup uses browser sign-in with Google or an emailed code. Rust handles PKCE and stores refresh credentials in the operating system's credential store. Checkout and billing management are Stripe-hosted.
 
 Managed offer amounts, allowances and expiry rules live in [the shared catalog](config/managed-catalog.json). Managed prices pay for Deepgram transcription and Fireworks GLM-5.3 usage on your behalf, plus Savvy's margin. With personal providers you pay those providers directly and nothing to Savvy. The account screen shows server-provided offers, remaining usage and pending purchases. A browser return never confirms payment. Adding allowance requires you to explicitly resume an exhausted meeting. Signing out or switching to personal providers does not cancel a subscription.
 
-Managed audio passes through Savvy to Deepgram; selected brief evidence and meeting context pass through Savvy to Fireworks GLM-5.3. Documents and history remain on your Mac. The provider descriptions below describe personal-provider setup. See the [backend guide](backend/README.md) and [deployment guide](deploy/README.md) for running the managed service.
+Managed audio passes through Savvy to Deepgram; selected brief evidence and meeting context pass through Savvy to Fireworks GLM-5.3. Documents and history remain on your computer. The provider descriptions below describe personal-provider setup. See the [backend guide](backend/README.md) and [deployment guide](deploy/README.md) for running the managed service.
 
 ## Where your data goes
 
 Savvy keeps your documents and history on your computer, but live transcription is not local. Read this before pointing it at anything confidential.
 
-| Data                       | Stays on your computer                      | Sent to a third party                             |
-| -------------------------- | ------------------------------------------- | ------------------------------------------------- |
-| Source documents           | Referenced read-only, never copied          | Selected excerpts only, at recommendation time    |
-| Derived chunks and indexes | Private local SQLite                        | Selected excerpts only                            |
-| **Meeting audio**          | Retention-controlled local files            | **Yes — streamed to your transcription provider** |
-| Transcript                 | Retention-controlled local files            | Recent relevant turns, at recommendation time     |
-| Meeting brief              | Private and versioned                       | The whole brief document, at recommendation time  |
-| Provider credentials       | macOS Keychain / Windows Credential Manager | Authorization header only                         |
+| Data                       | Stays on your computer                                                       | Sent to a third party                             |
+| -------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------- |
+| Source documents           | Local files read in place; chosen connected records copied to client folders | Selected excerpts only, at recommendation time    |
+| Derived chunks and indexes | Private local SQLite                                                         | Selected excerpts only                            |
+| **Meeting audio**          | Retention-controlled local files                                             | **Yes — streamed to your transcription provider** |
+| Transcript                 | Retention-controlled local files                                             | Recent relevant turns, at recommendation time     |
+| Meeting brief              | Private and versioned                                                        | The whole brief document, at recommendation time  |
+| Provider credentials       | macOS Keychain or Windows Credential Manager                                 | Authorization header only                         |
 
 **Transcription** requires a Deepgram or AssemblyAI account. Meeting audio is streamed to that provider as it is captured — there is no offline transcription mode in the current build. Savvy sets Deepgram's `mip_opt_out=true` so your audio is not used to train their models; check AssemblyAI's terms for their equivalent.
 

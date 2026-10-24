@@ -3,6 +3,7 @@ export default function ConfirmDialog({
   title,
   children,
   confirm,
+  cancelLabel = "Cancel",
   onConfirm,
   onCancel,
   busy = false,
@@ -10,6 +11,7 @@ export default function ConfirmDialog({
   title: string;
   children: React.ReactNode;
   confirm: string;
+  cancelLabel?: string;
   onConfirm: () => void;
   onCancel: () => void;
   busy?: boolean;
@@ -45,7 +47,7 @@ export default function ConfirmDialog({
           onClick={onCancel}
           disabled={busy}
         >
-          Cancel
+          {cancelLabel}
         </button>
         <button className="button" onClick={onConfirm} disabled={busy}>
           {confirm}

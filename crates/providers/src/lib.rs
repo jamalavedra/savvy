@@ -263,8 +263,8 @@ pub const PROVIDER_OUTPUT_SCHEMA: &str = r#"{
     "avoid": { "type": "string", "maxLength": 512 },
     "rationale": { "type": "string", "maxLength": 512 },
     "language": { "type": "string", "maxLength": 64 },
-    "evidenceIds": { "type": "array", "maxItems": 32, "uniqueItems": true, "items": { "type": "string", "format": "uuid" } },
-    "turnIds": { "type": "array", "maxItems": 32, "uniqueItems": true, "items": { "type": "string", "format": "uuid" } },
+    "evidenceIds": { "type": "array", "maxItems": 32, "items": { "type": "string", "format": "uuid" } },
+    "turnIds": { "type": "array", "maxItems": 32, "items": { "type": "string", "format": "uuid" } },
     "memoryUpdates": {
       "type": "array", "maxItems": 8,
       "items": {
@@ -272,7 +272,7 @@ pub const PROVIDER_OUTPUT_SCHEMA: &str = r#"{
         "properties": {
           "kind": { "type": "string", "enum": ["decision", "objection", "question", "commitment", "constraint", "concession"] },
           "text": { "type": "string", "maxLength": 512 },
-          "sourceTurnIds": { "type": "array", "maxItems": 32, "uniqueItems": true, "items": { "type": "string", "format": "uuid" } }
+          "sourceTurnIds": { "type": "array", "maxItems": 32, "items": { "type": "string", "format": "uuid" } }
         },
         "required": ["kind", "text", "sourceTurnIds"],
         "additionalProperties": false

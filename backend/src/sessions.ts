@@ -675,6 +675,7 @@ export function settleDisconnectedSource(
   id: string,
   source: Source,
   generation: bigint,
+  allowReconnect = false,
 ) {
   state.db
     .transaction(() => {
@@ -699,9 +700,11 @@ export function settleDisconnectedSource(
       );
       if (!remaining) {
         setReservation(db, requireSession(db, account, id), 0n, state.clock());
-        db.prepare(
-          "UPDATE managed_sessions SET state='paused',lease_version=lease_version+1,lease_expires_ms=NULL WHERE id=?",
-        ).run(session.id);
+        // An abnormal socket loss may reconnect under the existing short lease.
+        if (!allowReconnect)
+          db.prepare(
+            "UPDATE managed_sessions SET state='paused',lease_version=lease_version+1,lease_expires_ms=NULL WHERE id=?",
+          ).run(session.id);
       }
     })
     .immediate();
