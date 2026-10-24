@@ -356,6 +356,7 @@ export class ComposioSources {
         undefined,
         403,
       );
+    return accounts[0];
   }
   private async proxy(
     account: bigint,
@@ -408,7 +409,7 @@ export class ComposioSources {
       const url = new URL(result.binaryData.url);
       if (
         url.protocol !== "https:" ||
-        !/(?:^|\.)(?:amazonaws\.com|composio\.dev|googleapis\.com)$/.test(
+        !/(?:^|\.)(?:amazonaws\.com|composio\.dev|googleapis\.com|r2\.cloudflarestorage\.com)$/.test(
           url.hostname,
         )
       )
@@ -489,19 +490,13 @@ export class ComposioSources {
       }[kind]!;
       const term = query.replace(/[\\']/g, "\\$&").replace(/[%_]/g, "\\$&");
       const field = kind === "note" ? "Title" : "Name";
-      data = await this.proxy(
-        account,
-        name,
-        "/services/data/v61.0/query",
-        "GET",
-        [
-          {
-            in: "query",
-            name: "q",
-            value: `SELECT Id,${field},LastModifiedDate FROM ${object} WHERE ${field} LIKE '%${term}%' ORDER BY LastModifiedDate DESC LIMIT 20 OFFSET ${offset}`,
-          },
-        ],
-      );
+      data = await this.proxy(account, name, "/query", "GET", [
+        {
+          in: "query",
+          name: "q",
+          value: `SELECT Id,${field},LastModifiedDate FROM ${object} WHERE ${field} LIKE '%${term}%' ORDER BY LastModifiedDate DESC LIMIT 20 OFFSET ${offset}`,
+        },
+      ]);
     } else if (name === "hubspot") {
       const object = { company: "companies", deal: "deals", note: "notes" }[
         kind
@@ -615,7 +610,9 @@ export class ComposioSources {
           : "";
       const title = str(
         notionTitle ||
-          (item.title ??
+          (item.Name ??
+            item.Title ??
+            item.title ??
             metadata.title ??
             item.name ??
             item.subject ??
@@ -699,9 +696,8 @@ export class ComposioSources {
       kind = kindFor(name, body.kind);
     const accountId = input(body.accountId, "account", 120);
     const recordId = input(body.recordId, "record", 512);
-    await this.active(account, name, accountId);
+    const connection = await this.active(account, name, accountId);
     let data: Record<string, unknown>;
-    // shortcut: CRM REST records may omit browser URLs; resolve account-specific links after live provider validation.
     let title = "Untitled",
       url = "",
       modifiedAt: string | null = null,
@@ -715,16 +711,28 @@ export class ComposioSources {
       data = await this.proxy(
         account,
         name,
-        `/services/data/v61.0/sobjects/${object}/${encodeURIComponent(recordId)}`,
+        `/sobjects/${object}/${encodeURIComponent(recordId)}`,
         "GET",
       );
       title = str(data.Name ?? data.Title, title);
       modifiedAt = str(data.LastModifiedDate) || null;
-      url = str(data.url ?? data.webUrl);
-      content =
-        kind === "note" && str(data.Content)
-          ? base64Text(str(data.Content))
-          : textFields(data);
+      const subdomain = str(record(connection.data ?? {}).subdomain);
+      url = str(
+        data.url ?? data.webUrl,
+        /^[a-z0-9-]+(?:\.[a-z0-9-]+)*$/i.test(subdomain) &&
+          !["login", "test"].includes(subdomain)
+          ? `https://${subdomain}.salesforce.com/${encodeURIComponent(recordId)}`
+          : `https://login.salesforce.com/?startURL=${encodeURIComponent(`/${recordId}`)}`,
+      );
+      if (kind === "note") {
+        const note = await this.proxy(
+          account,
+          name,
+          `/sobjects/ContentNote/${encodeURIComponent(recordId)}/Content`,
+          "GET",
+        );
+        content = cleanHtml(sourceText(str(note.text)));
+      } else content = textFields(data);
     } else if (name === "hubspot") {
       const object = { company: "companies", deal: "deals", note: "notes" }[
         kind

@@ -511,6 +511,94 @@ test("Gong transcript becomes local evidence with the call URL", async (t) => {
   assert.equal(h.proxyCalls.length, original);
 });
 
+test("Salesforce reads use the configured API base and retain record links", async (t) => {
+  const h = fixture(t);
+  const noteText = "<p>Security review on Friday</p>";
+  let noteUrl =
+    "https://temp.0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com/note";
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    assert.equal(String(url), noteUrl);
+    return new Response(noteText);
+  };
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+  const session = await h.client.sessions.use();
+  const execute = session.proxyExecute;
+  session.proxyExecute = async (args) => {
+    const result = await execute(args);
+    return args.endpoint.endsWith("/Content")
+      ? {
+          ...result,
+          data: null,
+          binaryData: { url: noteUrl, size: Buffer.byteLength(noteText) },
+        }
+      : result;
+  };
+  const accounts = h.client.connectedAccounts.list;
+  h.client.connectedAccounts.list = async (query) => {
+    const result = await accounts(query);
+    return {
+      ...result,
+      items: result.items.map((item) => ({
+        ...item,
+        data: { scope: "", subdomain: "acme.my" },
+      })),
+    };
+  };
+  for (const [kind, object] of [
+    ["account", "Account"],
+    ["opportunity", "Opportunity"],
+    ["note", "ContentNote"],
+  ]) {
+    h.setResponse(({ endpoint }: { endpoint: string }) => {
+      assert.ok(
+        endpoint === "/query" ||
+          endpoint === `/sobjects/${object}/record-1` ||
+          (kind === "note" &&
+            endpoint === "/sobjects/ContentNote/record-1/Content"),
+      );
+      if (endpoint.endsWith("/Content")) return null;
+      return endpoint === "/query"
+        ? {
+            records: [
+              { Id: "record-1", [kind === "note" ? "Title" : "Name"]: "Acme" },
+            ],
+          }
+        : {
+            Name: "Acme",
+            Description: "Security review on Friday",
+            Content:
+              "/services/data/v67.0/sobjects/ContentNote/record-1/Content",
+            LastModifiedDate: "2026-10-24T12:00:00Z",
+          };
+    });
+    const found = await h.service.search(1n, {
+      provider: "salesforce",
+      kind,
+      accountId: "account-one",
+      query: "Acme",
+    });
+    assert.equal(found.records[0].title, "Acme");
+    const source = await h.service.fetch(1n, found.records[0]);
+    assert.match(source.content, /Security review on Friday/);
+    assert.doesNotMatch(source.content, /<p>|\uFFFD/);
+    assert.equal(source.url, "https://acme.my.salesforce.com/record-1");
+  }
+  noteUrl = "https://r2.cloudflarestorage.com.evil.test/note";
+  await assert.rejects(
+    h.service.fetch(1n, {
+      provider: "salesforce",
+      kind: "note",
+      accountId: "account-one",
+      recordId: "record-1",
+    }),
+    (error: unknown) =>
+      error instanceof ApiError && error.code === "provider_unavailable",
+  );
+});
+
 test("CRM, mail, page and Drive adapters retain provider text", async (t) => {
   const h = fixture(t);
   const cases = [
