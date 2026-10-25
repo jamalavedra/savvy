@@ -2542,6 +2542,7 @@ button.shortcut-chip {
 }
 
 :root[data-theme="light"] {
+  color-scheme: light;
   color: #0f0f0f;
   background: #fbfbfb;
   --background: #fbfbfb;
@@ -2561,6 +2562,7 @@ button.shortcut-chip {
 }
 
 :root[data-theme="dark"] {
+  color-scheme: dark;
   color: #fbfbfb;
   background: #2c2b29;
   --background: #2c2b29;
