@@ -853,6 +853,42 @@ describe("App", () => {
     expect(screen.getByText("Microphone disconnected")).toBeVisible();
   });
 
+  it("lets the rep inspect every cited local source during a meeting", async () => {
+    const snapshot = await api.getDashboard();
+    const recommendation = snapshot.latestRecommendation!;
+    const sources = [
+      { ...recommendation.sources[0], excerpt: "CRM approval is ORBIT-731." },
+      {
+        ...recommendation.sources[0],
+        chunkId: "drive-chunk",
+        relativePath: "savvy-source-googledrive.md",
+        excerpt: "The pilot city is Zaragoza.",
+      },
+    ];
+    render(
+      <MeetingOverlay
+        session={await api.startMeeting(null, null)}
+        turns={[]}
+        recommendation={{ ...recommendation, sources }}
+        onTogglePause={vi.fn()}
+        onRequestRecommendation={vi.fn()}
+        onStop={vi.fn()}
+        busy={false}
+        error={null}
+        style="live"
+        position="bottom"
+        showTranscript={false}
+        thinking={null}
+        hasNotes={false}
+      />,
+    );
+    for (const source of sources) {
+      expect(screen.getByText(source.excerpt)).not.toBeVisible();
+      fireEvent.click(screen.getByText(`⌁ ${source.relativePath}`));
+      expect(screen.getByText(source.excerpt)).toBeVisible();
+    }
+  });
+
   it("bounds microphone polling and stops it on visibility changes, pause, and unmount", async () => {
     const session = await api.startMeeting(null, null);
     const props = {

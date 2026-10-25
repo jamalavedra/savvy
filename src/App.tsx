@@ -2588,17 +2588,18 @@ function RecommendationPreview({
           <p>{recommendation.avoid}</p>
         </div>
       )}
-      {recommendation?.sources[0] && (
-        <button
-          className="source-button"
-          title={recommendation.sources[0].relativePath}
-        >
-          <span className="source-path">
-            ⌁ {recommendation.sources[0].relativePath}
-          </span>
-          <span>↗</span>
-        </button>
-      )}
+      {recommendation?.sources.map((source) => (
+        <details className="source-citation" key={source.chunkId}>
+          <summary className="source-button" title={source.relativePath}>
+            <span className="source-path">⌁ {source.relativePath}</span>
+            <span>View excerpt</span>
+          </summary>
+          <blockquote>
+            <small>{source.locator.label}</small>
+            <p>{source.excerpt}</p>
+          </blockquote>
+        </details>
+      ))}
     </section>
   );
 }

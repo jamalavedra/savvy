@@ -1265,6 +1265,19 @@ button.folder-row-path:hover:not(:disabled) strong {
   background: var(--background-ui);
 }
 
+.source-citation blockquote {
+  max-height: 160px;
+  margin: 0;
+  padding: 8px 12px;
+  overflow: auto;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.source-citation blockquote p {
+  margin: 4px 0 0;
+}
+
 .history-empty {
   align-items: center;
   justify-content: center;
