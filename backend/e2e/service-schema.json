@@ -748,6 +748,14 @@
         "notnull": 1,
         "dflt_value": null,
         "pk": 0
+      },
+      {
+        "cid": 2,
+        "name": "user_id",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": "''",
+        "pk": 0
       }
     ],
     "foreignKeys": [

@@ -1,17 +1,21 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { test, type TestContext } from "node:test";
-import { openServiceDatabase } from "./db.js";
+import { migrateService, openServiceDatabase } from "./db.js";
 import { ComposioSources, SOURCE_LIMIT } from "./composio.js";
 import { ApiError } from "./errors.js";
 import type { ServiceState } from "./state.js";
 
-function fixture(t: TestContext) {
+const ISSUER = "https://api.savvy.test";
+const USER_ONE = `savvy:${createHash("sha256").update(ISSUER).digest("hex")}:1`;
+
+function fixture(t: TestContext, issuer = ISSUER) {
   const db = openServiceDatabase(":memory:");
   t.after(() => db.close());
   db.prepare(
     "INSERT INTO accounts(id,issuer,subject,created_at_ms) VALUES(1,'test','one',0),(2,'test','two',0)",
   ).run();
-  const state = { db, clock: () => 1_000n } as ServiceState;
+  const state = { config: { issuer }, db, clock: () => 1_000n } as ServiceState;
   const service = new ComposioSources(state, "synthetic");
   const calls: Array<{ user: string; cursor?: string }> = [];
   const proxyCalls: Array<{
@@ -21,6 +25,8 @@ function fixture(t: TestContext) {
   }> = [];
   const revoked: string[] = [];
   const deleted: string[] = [];
+  const createdUsers: string[] = [];
+  const reusedSessions: string[] = [];
   let created: unknown;
   let scope: string | undefined;
   let toolkit = "hubspot";
@@ -57,11 +63,15 @@ function fixture(t: TestContext) {
   };
   const client = {
     sessions: {
-      create: async (_user: string, config: unknown) => {
+      create: async (user: string, config: unknown) => {
+        createdUsers.push(user);
         created = config;
         return session;
       },
-      use: async () => session,
+      use: async (id?: string) => {
+        if (id) reusedSessions.push(id);
+        return session;
+      },
     },
     connectedAccounts: {
       list: async (query: {
@@ -79,7 +89,7 @@ function fixture(t: TestContext) {
         nextCursor: string | null;
       }> => {
         calls.push({ user: query.userIds[0], cursor: query.cursor });
-        const owner = query.userIds[0] === "savvy:1" ? "one" : "two";
+        const owner = query.userIds[0].endsWith(":1") ? "one" : "two";
         const items = query.cursor
           ? []
           : [
@@ -127,6 +137,8 @@ function fixture(t: TestContext) {
     client,
     revoked,
     deleted,
+    createdUsers,
+    reusedSessions,
   };
 }
 
@@ -151,7 +163,6 @@ test("sessions expose only source toolkits and no remote sandbox", async (t) => 
     toolkits: [
       "salesforce",
       "hubspot",
-      "gong",
       "gmail",
       "outlook",
       "notion",
@@ -232,7 +243,7 @@ test("connection status and unfinished disconnect paginate within one account", 
   const h = fixture(t);
   let page = 0;
   h.client.connectedAccounts.list = async (query) => {
-    assert.deepEqual(query.userIds, ["savvy:1"]);
+    assert.deepEqual(query.userIds, [USER_ONE]);
     page++;
     return page === 1
       ? {
@@ -453,75 +464,248 @@ test("Notion search uses the page title property", async (t) => {
   assert.equal(unrelated.records.length, 0);
 });
 
-test("Gong transcript becomes local evidence with the call URL", async (t) => {
+test("Gong is unavailable for discovery, connection and reads, but can be disconnected", async (t) => {
   const h = fixture(t);
-  h.setResponse({
-    calls: [
-      {
-        metaData: {
-          id: "123",
-          title: "Acme renewal",
-          url: "https://app.gong.io/call?id=123",
-          started: "2026-10-01T12:00:00Z",
-        },
-      },
-    ],
-    records: { cursor: "later" },
-  });
-  const search = await h.service.search(1n, {
-    provider: "gong",
-    kind: "call",
+  const unavailable = (error: unknown) =>
+    error instanceof ApiError &&
+    error.status === 422 &&
+    /not available/.test(error.message);
+  await assert.rejects(h.service.connect(1n, "gong"), unavailable);
+  await assert.rejects(
+    h.service.search(1n, {
+      provider: "gong",
+      kind: "call",
+      accountId: "account-one",
+      query: "Acme",
+    }),
+    unavailable,
+  );
+  await assert.rejects(
+    h.service.fetch(1n, {
+      provider: "gong",
+      kind: "call",
+      accountId: "account-one",
+      recordId: "call-1",
+    }),
+    unavailable,
+  );
+  assert.equal(h.calls.length, 0);
+  assert.equal(h.proxyCalls.length, 0);
+  assert.equal(h.createdUsers.length, 0);
+  h.setToolkit("gong");
+  const connections = await h.service.connections(1n);
+  assert.equal(connections.length, 6);
+  assert.deepEqual(
+    connections.map((item) => item.provider),
+    ["salesforce", "hubspot", "gmail", "outlook", "notion", "googledrive"],
+  );
+  await h.service.disconnect(1n, "gong");
+  assert.deepEqual(h.revoked, ["account-one"]);
+});
+
+test("the same internal account ID cannot discover another issuer's connections", async (t) => {
+  const staging = fixture(t, "https://staging-api.savvycopilot.com");
+  const production = fixture(t, "https://api.savvycopilot.com");
+  await staging.service.connections(1n);
+  const stagingUser = staging.calls[0].user;
+  production.client.connectedAccounts.list = async (query) => {
+    production.calls.push({ user: query.userIds[0] });
+    return {
+      items:
+        query.userIds[0] === stagingUser
+          ? [
+              {
+                id: "staging-account",
+                toolkit: { slug: "hubspot" },
+                status: "ACTIVE",
+                isDisabled: false,
+              },
+            ]
+          : [],
+      nextCursor: null,
+    };
+  };
+  assert.equal(
+    (await production.service.connections(1n)).some((item) => item.connected),
+    false,
+  );
+  assert.notEqual(production.calls[0].user, stagingUser);
+  await assert.rejects(
+    production.service.fetch(1n, {
+      provider: "hubspot",
+      kind: "company",
+      accountId: "staging-account",
+      recordId: "record-1",
+    }),
+    (error: unknown) => error instanceof ApiError && error.status === 403,
+  );
+  assert.equal(production.proxyCalls.length, 0);
+});
+
+test("legacy and foreign-issuer session caches are replaced without reusing their sessions", async (t) => {
+  const h = fixture(t);
+  h.db.exec(`DROP TABLE composio_sessions;
+    CREATE TABLE composio_sessions(account_id INTEGER PRIMARY KEY REFERENCES accounts(id),session_id TEXT NOT NULL UNIQUE);
+    INSERT INTO composio_sessions(account_id,session_id) VALUES(1,'legacy-session');`);
+  migrateService(h.db);
+  assert.equal(
+    h.db
+      .prepare("SELECT user_id FROM composio_sessions WHERE account_id=1")
+      .pluck()
+      .get(),
+    "",
+  );
+  await h.service.search(1n, {
+    provider: "hubspot",
+    kind: "company",
     accountId: "account-one",
     query: "Acme",
   });
-  assert.equal(search.records[0].recordId, "123");
-  assert.equal(search.nextCursor, "later");
-  const original = h.proxyCalls.length;
-  let count = 0;
-  const service = h.service as unknown as {
-    client: {
-      sessions: {
-        use: () => Promise<{ proxyExecute: () => Promise<unknown> }>;
-      };
-    };
-  };
-  const session = await service.client.sessions.use();
-  session.proxyExecute = async () => ({
-    status: 200,
-    data:
-      count++ === 0
-        ? {
-            calls: [
-              {
-                metaData: {
-                  id: "123",
-                  title: "Acme renewal",
-                  url: "https://app.gong.io/call?id=123",
-                },
-              },
-            ],
-          }
-        : {
-            callTranscripts: [
-              {
-                callId: "123",
-                transcript: [
-                  { speakerId: "rep", sentences: [{ text: "Price holds." }] },
-                ],
-              },
-            ],
-          },
-  });
-  const fetched = await h.service.fetch(1n, {
-    provider: "gong",
-    kind: "call",
+  assert.deepEqual(h.createdUsers, [USER_ONE]);
+  assert.deepEqual(h.reusedSessions, []);
+  assert.equal(
+    h.db
+      .prepare("SELECT user_id FROM composio_sessions WHERE account_id=1")
+      .pluck()
+      .get(),
+    USER_ONE,
+  );
+  await h.service.search(1n, {
+    provider: "hubspot",
+    kind: "company",
     accountId: "account-one",
-    recordId: "123",
+    query: "Acme",
   });
-  assert.match(fetched.content, /rep: Price holds\./);
-  assert.equal(fetched.url, "https://app.gong.io/call?id=123");
-  assert.equal(h.proxyCalls.length, original);
+  assert.deepEqual(h.reusedSessions, ["session-1"]);
+  h.db
+    .prepare(
+      "UPDATE composio_sessions SET user_id=?,session_id='foreign-session' WHERE account_id=1",
+    )
+    .run("savvy:another-issuer:1");
+  await h.service.search(1n, {
+    provider: "hubspot",
+    kind: "company",
+    accountId: "account-one",
+    query: "Acme",
+  });
+  assert.deepEqual(h.createdUsers, [USER_ONE, USER_ONE]);
+  assert.deepEqual(h.reusedSessions, ["session-1"]);
+  migrateService(h.db);
+  assert.equal(
+    h.db
+      .prepare("SELECT user_id FROM composio_sessions WHERE account_id=1")
+      .pluck()
+      .get(),
+    USER_ONE,
+  );
 });
+
+for (const [name, secondIssuer] of [
+  ["same-issuer requests share the winning cached session", ISSUER],
+  [
+    "different-issuer requests never reuse a foreign concurrent session",
+    "https://staging.savvy.test",
+  ],
+] as const) {
+  test(name, async (t) => {
+    const h = fixture(t);
+    const template = await h.client.sessions.use();
+    const sessions = new Map<
+      string,
+      { user: string; session: typeof template }
+    >();
+    const reused: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const services = [
+      h.service,
+      new ComposioSources(
+        {
+          config: { issuer: secondIssuer },
+          db: h.db,
+          clock: () => 1_000n,
+        } as ServiceState,
+        "synthetic",
+      ),
+    ];
+    for (const service of services) {
+      let expectedUser: string;
+      const client = {
+        ...h.client,
+        connectedAccounts: {
+          ...h.client.connectedAccounts,
+          list: async (
+            query: Parameters<typeof h.client.connectedAccounts.list>[0],
+          ) => {
+            expectedUser = query.userIds[0];
+            return h.client.connectedAccounts.list(query);
+          },
+        },
+        sessions: {
+          create: async (user: string) => {
+            assert.equal(user, expectedUser);
+            const session = {
+              ...template,
+              sessionId: `concurrent-session-${sessions.size + 1}`,
+              proxyExecute: async (
+                args: Parameters<typeof template.proxyExecute>[0],
+              ) => {
+                assert.equal(
+                  user,
+                  expectedUser,
+                  "record request used a foreign session",
+                );
+                return template.proxyExecute(args);
+              },
+            };
+            sessions.set(session.sessionId, { user, session });
+            await gate;
+            return session;
+          },
+          use: async (id: string) => {
+            const saved = sessions.get(id);
+            assert.ok(saved);
+            assert.equal(
+              saved.user,
+              expectedUser,
+              "foreign cached session reused",
+            );
+            reused.push(id);
+            return saved.session;
+          },
+        },
+      };
+      (service as unknown as { client: unknown }).client = client;
+    }
+    const body = {
+      provider: "hubspot",
+      kind: "company",
+      accountId: "account-one",
+      query: "Acme",
+    };
+    const pending = services.map((service) => service.search(1n, body));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const started = sessions.size;
+    release();
+    const results = await Promise.all(pending);
+    assert.equal(started, 2, "both requests must reach uncached creation");
+    assert.ok(results.every((result) => result.records[0].title === "Acme"));
+    const row = h.db
+      .prepare<[], { session_id: string; user_id: string }>(
+        "SELECT session_id,user_id FROM composio_sessions WHERE account_id=1",
+      )
+      .get()!;
+    assert.equal(sessions.get(row.session_id)?.user, row.user_id);
+    if (secondIssuer === ISSUER) {
+      assert.deepEqual(reused, [row.session_id]);
+      await services[0].search(1n, body);
+      assert.equal(sessions.size, 2);
+      assert.deepEqual(reused, [row.session_id, row.session_id]);
+    } else assert.deepEqual(reused, []);
+  });
+}
 
 test("Salesforce reads use the configured API base and retain record links", async (t) => {
   const h = fixture(t);

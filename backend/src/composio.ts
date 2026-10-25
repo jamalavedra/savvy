@@ -1,4 +1,5 @@
 import { Composio } from "@composio/core";
+import { createHash } from "node:crypto";
 import type { ServiceState } from "./state.js";
 import { ApiError } from "./errors.js";
 import { reserveAttempt } from "./billing.js";
@@ -7,13 +8,13 @@ export const SOURCE_LIMIT = 256 * 1024;
 export const PROVIDERS = [
   "salesforce",
   "hubspot",
-  "gong",
   "gmail",
   "outlook",
   "notion",
   "googledrive",
 ] as const;
-export type Provider = (typeof PROVIDERS)[number];
+const KNOWN_PROVIDERS = [...PROVIDERS, "gong"] as const;
+export type Provider = (typeof KNOWN_PROVIDERS)[number];
 const KINDS: Record<Provider, readonly string[]> = {
   salesforce: ["account", "opportunity", "note"],
   hubspot: ["company", "deal", "note"],
@@ -93,7 +94,7 @@ function bounded(value: unknown): Record<string, unknown> {
   return data;
 }
 function provider(value: unknown): Provider {
-  if (!PROVIDERS.includes(value as Provider))
+  if (!KNOWN_PROVIDERS.includes(value as Provider))
     throw new ApiError(
       "invalid_request",
       "unsupported connected source",
@@ -101,6 +102,17 @@ function provider(value: unknown): Provider {
       422,
     );
   return value as Provider;
+}
+function releasedProvider(value: unknown): Provider {
+  const name = provider(value);
+  if (name === "gong")
+    throw new ApiError(
+      "invalid_request",
+      "Gong is not available in this release",
+      undefined,
+      422,
+    );
+  return name;
 }
 function kindFor(name: Provider, value: unknown): string {
   if (typeof value !== "string" || !KINDS[name].includes(value))
@@ -196,7 +208,10 @@ export class ComposioSources {
     this.client = new Composio({ apiKey });
   }
   private user(account: bigint) {
-    return `savvy:${account}`;
+    const issuer = createHash("sha256")
+      .update(this.state.config.issuer)
+      .digest("hex");
+    return `savvy:${issuer}:${account}`;
   }
   private limit(account: bigint, action: string, count: bigint) {
     this.state.db
@@ -213,15 +228,16 @@ export class ComposioSources {
       .immediate();
   }
   private async session(account: bigint) {
+    const user = this.user(account);
     const row = this.state.db
-      .prepare<[bigint], { session_id: string }>(
-        "SELECT session_id FROM composio_sessions WHERE account_id=?",
+      .prepare<[bigint, string], { session_id: string }>(
+        "SELECT session_id FROM composio_sessions WHERE account_id=? AND user_id=?",
       )
-      .get(account);
+      .get(account, user);
     if (row) return this.client.sessions.use(row.session_id);
     // shortcut: Composio disables proxy reads with a tool list; use session.execute
     // once the project key can list and execute tools. Search/fetch fix the read endpoints.
-    const session = await this.client.sessions.create(this.user(account), {
+    const session = await this.client.sessions.create(user, {
       toolkits: [...PROVIDERS],
       manageConnections: false,
       sandbox: { enable: false },
@@ -229,15 +245,17 @@ export class ComposioSources {
     });
     this.state.db
       .prepare(
-        "INSERT OR IGNORE INTO composio_sessions(account_id,session_id) VALUES(?,?)",
+        `INSERT INTO composio_sessions(account_id,session_id,user_id) VALUES(?,?,?)
+         ON CONFLICT(account_id) DO UPDATE SET session_id=excluded.session_id,user_id=excluded.user_id
+         WHERE composio_sessions.user_id<>excluded.user_id`,
       )
-      .run(account, session.sessionId);
+      .run(account, session.sessionId, user);
     const saved = this.state.db
-      .prepare<[bigint], { session_id: string }>(
-        "SELECT session_id FROM composio_sessions WHERE account_id=?",
+      .prepare<[bigint, string], { session_id: string }>(
+        "SELECT session_id FROM composio_sessions WHERE account_id=? AND user_id=?",
       )
-      .get(account)!;
-    return saved.session_id === session.sessionId
+      .get(account, user);
+    return !saved || saved.session_id === session.sessionId
       ? session
       : this.client.sessions.use(saved.session_id);
   }
@@ -260,7 +278,7 @@ export class ComposioSources {
                 !item.isDisabled &&
                 !missingReadScope(item.toolkit.slug, item.data))) &&
             (!name || item.toolkit.slug === name) &&
-            PROVIDERS.includes(item.toolkit.slug as Provider),
+            KNOWN_PROVIDERS.includes(item.toolkit.slug as Provider),
         ),
       );
       cursor = result.nextCursor ?? undefined;
@@ -310,7 +328,7 @@ export class ComposioSources {
   }
   async connect(account: bigint, rawProvider: unknown) {
     this.limit(account, "connect", 10n);
-    const name = provider(rawProvider);
+    const name = releasedProvider(rawProvider);
     for (const item of await this.accounts(account, name, false)) {
       if (item.status === "ACTIVE" && missingReadScope(name, item.data))
         await this.client.connectedAccounts.revoke(item.id);
@@ -463,7 +481,7 @@ export class ComposioSources {
   }
   async search(account: bigint, body: Record<string, unknown>) {
     this.limit(account, "search", 60n);
-    const name = provider(body.provider),
+    const name = releasedProvider(body.provider),
       kind = kindFor(name, body.kind);
     const query = input(body.query, "search", 120);
     const cursor = body.cursor == null ? "" : input(body.cursor, "cursor", 512);
@@ -694,7 +712,7 @@ export class ComposioSources {
   }
   async fetch(account: bigint, body: Record<string, unknown>) {
     this.limit(account, "fetch", 30n);
-    const name = provider(body.provider),
+    const name = releasedProvider(body.provider),
       kind = kindFor(name, body.kind);
     const accountId = input(body.accountId, "account", 120);
     const recordId = input(body.recordId, "record", 512);

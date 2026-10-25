@@ -73,7 +73,9 @@ the Anthropic variables and Claude path.
 
 Set `COMPOSIO_API_KEY` to enable connected sources for signed-in managed users.
 Savvy stores one toolkit-limited Composio session per internal account and allows
-Salesforce, HubSpot, Gong, Gmail, Outlook, Notion, and Google Drive. Search and
+Salesforce, HubSpot, Gmail, Outlook, Notion, and Google Drive. Gong connection and
+read endpoints are disabled until its live acceptance is complete; an existing
+Gong connection can still be disconnected. Search and
 fetch requests are rate limited per account. The backend keeps the Composio key;
 selected record text returns to the desktop for a local Markdown copy. The
 Composio project API key must permit session creation and proxy execution.
@@ -83,6 +85,15 @@ routes. Some provider OAuth grants can still give Composio broader rights.
 For Google Drive, a grant containing only identity scope reports
 `PERMISSION_REQUIRED` and can be reconnected; listing files needs a Drive
 read scope.
+
+Composio user IDs include a SHA-256 digest of the backend's exact stable issuer
+and the internal account ID. The session cache records that identity and never
+reuses a legacy or different-issuer session. Staging and production therefore
+cannot share connected apps when their numeric account IDs overlap, even within
+the same Composio project. Preserve the issuer across upgrades. Legacy `savvy:4`
+connections remain in Composio untouched; reconnect them under the new staging
+identity before repeating connected-source acceptance. Their local Markdown files
+and client selections are not deleted by this migration.
 
 The native client uses `com.alamaslabs.savvy:/oauth/callback`, authorization code
 with S256 PKCE, RS256 access tokens and rotating refresh tokens. Dynamic OAuth client
@@ -165,12 +176,13 @@ Set `SAVVY_E2E_ALLOW_RECONNECT=1` to exercise the managed stream's 15-second
 reconnect path after a public transport interruption; the result reports the
 number of reconnects. Leave it unset when checking uninterrupted transport.
 
-For live adapter acceptance, connect all seven providers to a dedicated Savvy test
+For live adapter acceptance, connect all six released providers to a dedicated Savvy test
 account through Settings. Copy `e2e/connected-live.example.json` outside the repo,
-replace the account ID with that account's stable internal numeric ID, and enter one
+set its issuer to the backend's exact `BETTER_AUTH_URL`, replace the account ID
+with that account's stable internal numeric ID, and enter one
 known, searchable record per kind. Set `COMPOSIO_API_KEY` and
 `SAVVY_CONNECTED_LIVE_FIXTURE` to the private fixture path, then run
-`test:connected-live`. It checks account status, search and fetch for all 11 kinds,
+`test:connected-live`. It checks account status, search and fetch for all 10 released kinds,
 including source URL, modification time, expected text and size. It prints only case
 names and pass/fail status; keep the fixture and key outside version control.
 

@@ -12,7 +12,6 @@ const expected = [
   "hubspot:company",
   "hubspot:deal",
   "hubspot:note",
-  "gong:call",
   "gmail:thread",
   "outlook:thread",
   "notion:page",
@@ -27,9 +26,20 @@ type Case = {
   expectedText: string;
 };
 
-function fixture(value: unknown): { accountId: bigint; cases: Case[] } {
+function fixture(value: unknown): {
+  issuer: string;
+  accountId: bigint;
+  cases: Case[];
+} {
   assert.ok(value && typeof value === "object" && !Array.isArray(value));
   const data = value as Record<string, unknown>;
+  const issuer = data.issuer;
+  assert.ok(typeof issuer === "string" && issuer.startsWith("https://"));
+  assert.equal(
+    new URL(issuer).origin,
+    issuer,
+    "use the backend's exact HTTPS issuer origin",
+  );
   const accountId = data.accountId;
   assert.ok(typeof accountId === "string");
   assert.match(accountId, /^[1-9]\d*$/);
@@ -48,7 +58,7 @@ function fixture(value: unknown): { accountId: bigint; cases: Case[] } {
           item[field] !== "REPLACE",
         `${item.provider}:${item.kind} needs ${field}`,
       );
-  return { accountId: BigInt(accountId), cases };
+  return { issuer, accountId: BigInt(accountId), cases };
 }
 
 async function main() {
@@ -61,13 +71,19 @@ async function main() {
     process.exitCode = 2;
     return;
   }
-  const { accountId, cases } = fixture(JSON.parse(readFileSync(path, "utf8")));
+  const { issuer, accountId, cases } = fixture(
+    JSON.parse(readFileSync(path, "utf8")),
+  );
   const db = openServiceDatabase(":memory:");
   try {
     db.prepare(
       "INSERT INTO accounts(id,issuer,subject,created_at_ms) VALUES(?,'live-test','connected',0)",
     ).run(accountId);
-    const state = { db, clock: () => BigInt(Date.now()) } as ServiceState;
+    const state = {
+      config: { issuer },
+      db,
+      clock: () => BigInt(Date.now()),
+    } as ServiceState;
     const service = new ComposioSources(state, key);
     const connections = await service.connections(accountId);
     const missing = connections.filter(

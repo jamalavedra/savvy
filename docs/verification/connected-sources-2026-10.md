@@ -168,3 +168,43 @@ ScreenCaptureKit SDK 8 erases the underlying NSError codes. The guard therefore 
 Main subsequently advanced to security update `cdb598d`. GitHub marked the Composio PR conflicting and did not start pull-request CI for `d5e3ad0`. The dependency conflicts were resolved by retaining main's Node 22.23.4 requirement, Zod 4.6.7, Nodemailer 10.1.4, release-age policy, and Tokio minimum, while preserving Composio 0.21.0 and its locked read adapters. The official Node 22.23.4 Mac archive was checksum-verified and used for the merged checks. Root, backend, and website frozen installs passed; SQLite opened successfully under that runtime. All 145 UI tests, 117 backend tests with one opt-in test skipped, 143 Rust tests with four environment-dependent fixtures ignored, root/backend typechecks, backend compilation, lint, formatting, and the native CRM/document/outage fixture passed. All ten live record-type reads across the six connected providers passed again with the merged dependencies.
 
 The staging service already runs Node 22.23.4, verified against its active process executable. Its Cloudflare browser session now requires fresh login for the saved Openfort profile. This Mac's IPv4 staging route remains HTTP 200, while its IPv6 route is restricted. No Cloudflare rule was changed during this resumed check. The installed managed-call smoke test after the stop change remains pending that route; the earlier six-provider calls are retained as earlier evidence.
+
+## Production candidate scope after the 25 October review
+
+The user approved preparing production with Gong deferred. The candidate exposes
+Salesforce, HubSpot, Gmail, Outlook, Notion and Google Drive. Gong is omitted from
+connection discovery and new sessions, and connection/search/fetch requests are
+rejected before a Composio SDK call. An existing Gong account can still be
+disconnected. Its developer-instance request was submitted with the user's
+approval; the confirmation requested up to five business days for review. No live
+Gong transcript is claimed as verified.
+
+The subsequent signed installed Mac smoke at `5acaee8` completed a 1:12 managed
+call after the stop-result change. Five selected records refreshed. Advice returned
+`ACME-HARBOR-824` and Zaragoza with both imported local citations, and both excerpts
+opened in the overlay. Both audio streams delivered data and closed without a
+supplier failure; no stop alert appeared. The original Cloudflare rule and both
+original profile hashes were restored, with zero active sessions or reserved
+usage. This is smoke evidence, not a reproduction of the intermittent terminal
+error. Native Light and Dark source controls were also visually checked afterward.
+
+The company Composio console login is verified as `hello@savvycopilot.com`, an admin
+of `hello_workspace`. The project contains `savvy:4` and the same six active account
+IDs used in staging. With explicit approval, Cloudflare's exact company-address
+route was added to `jaume@bonofici.com`; a fresh sign-in code reached that mailbox
+and completed login. The pre-existing catch-all was preserved.
+
+The production-readiness review found that the legacy `savvy:<account-id>` mapping
+could collide across staging and production databases sharing a project. The new
+mapping includes the stable issuer's SHA-256 digest, and the session cache records
+and checks that identity. An additive migration preserves old cache rows but does
+not reuse legacy or foreign-issuer sessions. Existing legacy staging connections
+and local source files are untouched. They must be reconnected under the new
+staging identity and affected live checks repeated; the earlier successful calls
+do not establish this new identity path's acceptance.
+
+Production `COMPOSIO_API_KEY` was absent in a read-only check. No production or
+staging environment was changed by this review. Configure that key privately,
+finish acceptance on the final candidate, and prepare signed/notarized 0.1.4 draft
+artifacts before rollout. A merge to main can trigger automatic backend deployment,
+so the PR remains unmerged while preparing these checks.
