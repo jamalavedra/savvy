@@ -4,3 +4,4 @@ allowBuilds:
 overrides:
   source-map-js: 1.2.2
   nodemailer: 10.1.4
+minimumReleaseAge: 10080

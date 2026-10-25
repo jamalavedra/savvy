@@ -10,7 +10,7 @@ the acceptance checks that remain before it can be.
 
 ## Local setup
 
-The repository pins Node 22.23.2 and pnpm 10.34.5. Build native dependencies on the
+The repository pins Node 22.23.4 and pnpm 10.34.5. Build native dependencies on the
 machine that will run the backend. From the repository root:
 
 ```sh

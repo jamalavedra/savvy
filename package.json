@@ -59,11 +59,15 @@
       "esbuild"
     ],
     "overrides": {
-      "source-map-js": "1.2.2"
+      "source-map-js": "1.2.2",
+      "zod": "^4.6.7"
     }
   },
   "volta": {
-    "node": "22.23.2",
+    "node": "22.23.4",
     "pnpm": "10.34.5"
+  },
+  "engines": {
+    "node": "^22.23.4 || ^24.22.1 || >=26.12.1"
   }
 }
