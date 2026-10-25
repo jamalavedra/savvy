@@ -619,7 +619,9 @@ export class ComposioSources {
             props.name ??
             props.dealname ??
             props.hs_note_body ??
-            item.snippet),
+            (typeof item.snippet === "string"
+              ? cleanHtml(item.snippet)
+              : item.snippet)),
         "Untitled",
       );
       if (

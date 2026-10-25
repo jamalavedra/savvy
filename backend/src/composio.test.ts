@@ -394,7 +394,7 @@ test("search cursor, malformed records, size cap and request rate are enforced",
   );
 });
 
-test("Gmail search accepts its empty result response", async (t) => {
+test("Gmail search accepts empty results and cleans highlighted snippets", async (t) => {
   const h = fixture(t);
   h.setToolkit("gmail");
   h.setScope("https://www.googleapis.com/auth/gmail.readonly");
@@ -408,6 +408,18 @@ test("Gmail search accepts its empty result response", async (t) => {
     }),
     { records: [], nextCursor: null },
   );
+  h.setResponse({
+    threads: [
+      { id: "thread-one", snippet: "Fictional <b>Acme</b> &amp; renewal" },
+    ],
+  });
+  const result = await h.service.search(1n, {
+    provider: "gmail",
+    kind: "thread",
+    accountId: "account-one",
+    query: "Acme",
+  });
+  assert.equal(result.records[0].title, "Fictional Acme & renewal");
 });
 
 test("Notion search uses the page title property", async (t) => {
