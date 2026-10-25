@@ -38,8 +38,8 @@ these unit settings, so do not set `SAVVY_HOST`, `PORT`, `SAVVY_AUTH_DATABASE` o
 `SAVVY_DB_PATH` there. Run only one instance.
 
 The unit uses the pinned official Node runtime at
-`/opt/node-v22.23.2-linux-x64/bin/node`. Download its Linux x64 archive and
-`SHASUMS256.txt` from `https://nodejs.org/dist/v22.23.2/`, verify the archive
+`/opt/node-v22.23.4-linux-x64/bin/node`. Download its Linux x64 archive and
+`SHASUMS256.txt` from `https://nodejs.org/dist/v22.23.4/`, verify the archive
 with SHA-256 before extracting it into `/opt`, and verify the installed version.
 Keep this path in sync with the repository Node pin.
 
@@ -182,7 +182,7 @@ sudo runuser -u savvy -- env \
   SAVVY_AUTH_DATABASE=/var/lib/savvy-restore/EXACT_TIMESTAMP/auth.sqlite \
   SAVVY_DB_PATH=/var/lib/savvy-restore/EXACT_TIMESTAMP/service.sqlite \
   SAVVY_HOST=127.0.0.1 PORT=8790 \
-  /opt/node-v22.23.2-linux-x64/bin/node --env-file=/etc/savvy/backend.env \
+  /opt/node-v22.23.4-linux-x64/bin/node --env-file=/etc/savvy/backend.env \
   /opt/savvy/releases/EXACT_MATCHING_SHA/backend/build/server.js
 ```
 

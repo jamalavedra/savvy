@@ -27,7 +27,7 @@ if [[ "$(git rev-parse origin/main)" != "$sha" ]]; then
   exit 0
 fi
 git checkout --detach "$sha"
-export PATH="/opt/node-v22.23.2-linux-x64/bin:$PATH"
+export PATH="/opt/node-v22.23.4-linux-x64/bin:$PATH"
 pnpm_bin="$(mktemp -d /tmp/savvy-pnpm.XXXXXX)"
 trap 'rm -rf "$pnpm_bin"' EXIT
 corepack enable --install-directory "$pnpm_bin"
@@ -44,6 +44,10 @@ pnpm --dir "$package/backend" install --prod --frozen-lockfile
 sudo install -d -o savvy -g savvy -m 0750 "$release"
 sudo cp -a "$package/." "$release/"
 sudo chown -R savvy:savvy "$release"
+
+sudo install -m 0755 deploy/savvy-backup.sh /usr/local/libexec/savvy-backup
+sudo install -m 0644 deploy/savvy-backend.service /etc/systemd/system/
+sudo systemctl daemon-reload
 
 sudo systemctl stop savvy-backup.timer
 timer_stopped=true
@@ -71,7 +75,7 @@ migration_started=true
 sudo -u savvy env \
   SAVVY_AUTH_DATABASE=/var/lib/savvy/auth.sqlite \
   SAVVY_DB_PATH=/var/lib/savvy/service.sqlite \
-  sh -c 'cd "$1/backend" && exec /opt/node-v22.23.2-linux-x64/bin/node --env-file=/etc/savvy/backend.env build/migrate.js' sh "$release"
+  sh -c 'cd "$1/backend" && exec /opt/node-v22.23.4-linux-x64/bin/node --env-file=/etc/savvy/backend.env build/migrate.js' sh "$release"
 sudo systemctl start savvy-backend.service
 curl --fail --retry 24 --retry-delay 5 --retry-all-errors \
   -H 'CF-Connecting-IP: 127.0.0.1' http://127.0.0.1:8788/ready > /dev/null
