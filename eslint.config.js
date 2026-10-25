@@ -35,4 +35,19 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    files: ["src/**/*.tsx"],
+    ignores: ["src/ui.tsx", "src/**/*.test.tsx", "src/test/**"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector:
+            "JSXOpeningElement[name.name=/^(button|input|select|textarea)$/]",
+          message:
+            "Use the shared Button, Input, Select or Textarea from src/ui.tsx.",
+        },
+      ],
+    },
+  },
 );

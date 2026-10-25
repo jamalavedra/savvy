@@ -1,3 +1,4 @@
+import { Alert, Button, Select } from "./ui";
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -243,7 +244,7 @@ export default function AudioCheck({
           {!inputReady && !inputError && <p>Loading microphones…</p>}
           <label>
             Microphone
-            <select
+            <Select
               value={input ?? ""}
               disabled={!inputReady || inputBusy || running}
               onChange={(event) =>
@@ -264,7 +265,7 @@ export default function AudioCheck({
                   {device.name}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
           <details>
             <summary>Input options</summary>
@@ -275,7 +276,7 @@ export default function AudioCheck({
             {(selectedDevice?.channels ?? 0) > 1 && (
               <label>
                 Input channel
-                <select
+                <Select
                   value={channel ?? ""}
                   disabled={!inputReady || inputBusy || running}
                   onChange={(event) =>
@@ -296,11 +297,10 @@ export default function AudioCheck({
                       </option>
                     ),
                   )}
-                </select>
+                </Select>
               </label>
             )}
-            <button
-              className="button secondary"
+            <Button
               disabled={running || inputBusy}
               onClick={() => {
                 resetCheck();
@@ -308,13 +308,13 @@ export default function AudioCheck({
               }}
             >
               Refresh microphones
-            </button>
+            </Button>
           </details>
           {inputReady && inputs.length === 0 && (
             <p>No microphones found. Connect an input and refresh.</p>
           )}
           {inputBusy && <p>Saving input…</p>}
-          {inputError && <p role="alert">{inputError}</p>}
+          {inputError && <Alert role="alert">{inputError}</Alert>}
         </div>
       )}
       {configureInput && step !== "transcription" ? (
@@ -339,12 +339,12 @@ export default function AudioCheck({
         step === "transcription" ||
         reading.status === "failed" ||
         reading.status === "starting") && (
-        <p role="status">
+        <Alert variant="info" role="status">
           {reading.message ||
             (transcribing
               ? "Listening for a real transcript…"
               : "Speak to check your microphone. Play meeting audio to check system sound.")}
-        </p>
+        </Alert>
       )}
       {passed && (
         <>
@@ -360,13 +360,9 @@ export default function AudioCheck({
             Transcription is working. No meeting starts until you choose Start.
           </p>
           {onComplete && (
-            <button
-              className="button"
-              disabled={inputBusy}
-              onClick={onComplete}
-            >
+            <Button variant="primary" disabled={inputBusy} onClick={onComplete}>
               Finish setup
-            </button>
+            </Button>
           )}
         </>
       )}
@@ -403,17 +399,16 @@ export default function AudioCheck({
       )}
       <div className="onboarding-actions">
         {(!configureInput || step !== "transcription") && (
-          <button
-            className="button secondary"
+          <Button
             disabled={!connected || running || !inputReady || inputBusy}
             onClick={() => void start(false)}
           >
             Check signal
-          </button>
+          </Button>
         )}
         {configureInput && step !== "transcription" && (
-          <button
-            className="button"
+          <Button
+            variant="primary"
             disabled={
               inputBusy ||
               reading.status === "failed" ||
@@ -429,26 +424,21 @@ export default function AudioCheck({
             }}
           >
             Continue
-          </button>
+          </Button>
         )}
         {(!configureInput || step === "transcription") && (
-          <button
-            className="button"
+          <Button
+            variant="primary"
             disabled={!connected || running || !inputReady || inputBusy}
             onClick={() => void start(true)}
           >
             {passed ? "Test again" : "Start transcription test"}
-          </button>
+          </Button>
         )}
-        {running && (
-          <button className="button secondary" onClick={stopCheck}>
-            Stop check
-          </button>
-        )}
+        {running && <Button onClick={stopCheck}>Stop check</Button>}
       </div>
       {configureInput && step !== "microphone" && (
-        <button
-          className="button secondary"
+        <Button
           disabled={running || inputBusy}
           onClick={() => {
             setTranscribing(false);
@@ -457,11 +447,10 @@ export default function AudioCheck({
           }}
         >
           Choose a different input
-        </button>
+        </Button>
       )}
       {!connected && reading.status === "failed" && (
-        <button
-          className="button secondary"
+        <Button
           onClick={() => {
             setReading((r) => ({
               ...r,
@@ -472,7 +461,7 @@ export default function AudioCheck({
           }}
         >
           Reconnect audio checks
-        </button>
+        </Button>
       )}
       {connected &&
         (reading.status === "failed" ||
@@ -481,9 +470,9 @@ export default function AudioCheck({
         Boolean(window.__TAURI_INTERNALS__) && (
           <div className="onboarding-actions">
             {(microphoneOnly ? [false] : [false, true]).map((system) => (
-              <button
+              <Button
                 key={String(system)}
-                className="button secondary"
+
                 onClick={() =>
                   void invoke("open_audio_settings", { system }).catch(
                     (reason) =>
@@ -494,19 +483,15 @@ export default function AudioCheck({
                 {system
                   ? "Open meeting audio settings"
                   : "Open microphone settings"}
-              </button>
+              </Button>
             ))}
           </div>
         )}
       {configureInput && onComplete && (
         <>
-          <button
-            className="button secondary"
-            disabled={inputBusy}
-            onClick={onComplete}
-          >
+          <Button disabled={inputBusy} onClick={onComplete}>
             Explore Savvy
-          </button>
+          </Button>
           <p>Skipping a check leaves audio readiness unverified.</p>
         </>
       )}

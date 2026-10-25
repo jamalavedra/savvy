@@ -86,7 +86,7 @@ it("connects, searches, and explicitly attaches a record to the current client",
       undefined,
     ),
   );
-  fireEvent.click(await screen.findByRole("button", { name: "Attach" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Attach Acme" }));
   await waitFor(() => expect(attach).toHaveBeenCalledWith(client.id, record));
   expect(changed).toHaveBeenCalledWith(
     expect.objectContaining({
@@ -149,4 +149,98 @@ it("explains how to replace a selection after reconnecting", async () => {
   expect(await screen.findByRole("alert")).toHaveTextContent(
     "search and attach the record again",
   );
+});
+
+it("blocks repeated and disabled form submissions and announces empty searches", async () => {
+  vi.spyOn(api, "sourceConnections").mockResolvedValue([
+    { provider: "salesforce", accountId: "account-1", connected: true },
+  ]);
+  let finish!: (result: { records: SourceRecord[]; nextCursor: null }) => void;
+  const search = vi.spyOn(api, "sourceSearch").mockReturnValue(
+    new Promise((resolve) => {
+      finish = resolve;
+    }),
+  );
+  const props = {
+    client: {
+      id: "client-1",
+      name: "Acme",
+      folderPath: "/tmp/acme",
+      indexStatus: "ready",
+      documentCount: 0,
+      lastIndexedAt: null,
+      activeBriefId: null,
+      excludedPaths: [],
+      connectedSources: [],
+    } as ClientWorkspace,
+    disabled: false,
+    refreshes: [],
+    onClientChange: vi.fn(),
+  };
+  const view = render(<ConnectedSources {...props} />);
+  const input = await screen.findByRole("textbox", { name: "Search records" });
+  fireEvent.change(input, { target: { value: "Acme" } });
+  const form = input.closest("form")!;
+  fireEvent.submit(form);
+  fireEvent.submit(form);
+  expect(search).toHaveBeenCalledOnce();
+  expect(input).toBeDisabled();
+  expect(await screen.findByText("Searching records…")).toHaveAttribute(
+    "role",
+    "status",
+  );
+  finish({ records: [], nextCursor: null });
+  expect(
+    await screen.findByText("No records found. Try another search."),
+  ).toHaveAttribute("role", "status");
+  view.rerender(<ConnectedSources {...props} disabled />);
+  expect(input).toBeDisabled();
+  fireEvent.submit(form);
+  expect(search).toHaveBeenCalledOnce();
+});
+
+it("omits Gong from new connections while retaining an existing selection", async () => {
+  vi.spyOn(api, "sourceConnections").mockResolvedValue([]);
+  const source = {
+    provider: "gong",
+    kind: "call",
+    accountId: "old-account",
+    recordId: "call-1",
+    title: "Saved Gong call",
+    url: "https://app.gong.io/call?id=call-1",
+    modifiedAt: null,
+    relativePath: "savvy-source-gong-old.md",
+    contentHash: "hash",
+    refreshedAt: "2026-10-18T00:00:00Z",
+  };
+  const client: ClientWorkspace = {
+    id: "client-1",
+    name: "Acme",
+    folderPath: "/tmp/acme",
+    indexStatus: "ready",
+    documentCount: 1,
+    lastIndexedAt: null,
+    activeBriefId: null,
+    excludedPaths: [],
+    connectedSources: [source],
+  };
+  const remove = vi
+    .spyOn(api, "removeConnectedSource")
+    .mockResolvedValue({ ...client, connectedSources: [] });
+  render(
+    <ConnectedSources
+      client={client}
+      disabled={false}
+      refreshes={[]}
+      onClientChange={vi.fn()}
+    />,
+  );
+  expect(
+    screen.queryByRole("option", { name: "Gong" }),
+  ).not.toBeInTheDocument();
+  expect(screen.getByText("Saved Gong call")).toBeVisible();
+  fireEvent.click(
+    screen.getByRole("button", { name: "Remove selection Saved Gong call" }),
+  );
+  await waitFor(() => expect(remove).toHaveBeenCalledWith(client.id, source));
 });

@@ -1,3 +1,4 @@
+import { Alert, Button, Input } from "./ui";
 import BrowserSignInLink from "./BrowserSignInLink";
 import ConfirmDialog from "./ConfirmDialog";
 import catalog from "../config/managed-catalog.json";
@@ -158,7 +159,7 @@ export default function ManagedAccount({
             key={option}
             className={`onboarding-provider managed-offer ${product === option ? "selected" : ""}`}
           >
-            <input
+            <Input
               type="radio"
               name="managed-offer"
               checked={product === option}
@@ -188,8 +189,8 @@ export default function ManagedAccount({
       <p>
         Account creation is free. Checkout is a separate step, hosted by Stripe.
       </p>
-      <button
-        className="button primary"
+      <Button
+        variant="primary"
         disabled={
           loading || busy || account?.purchaseAvailability?.[product] === false
         }
@@ -211,11 +212,10 @@ export default function ManagedAccount({
           : pending(product)
             ? "Reopen pending checkout"
             : "Continue to checkout"}
-      </button>
+      </Button>
       {busy && !account && <BrowserSignInLink url={code} />}
       {busy && !account && (
-        <button
-          className="button secondary"
+        <Button
           onClick={() =>
             void managedSignInCancel().catch((reason) =>
               setError(String(reason)),
@@ -223,9 +223,9 @@ export default function ManagedAccount({
           }
         >
           Cancel sign-in
-        </button>
+        </Button>
       )}
-      {error && <p role="alert">{error}</p>}
+      {error && <Alert role="alert">{error}</Alert>}
       <p>
         Returning from checkout does not confirm payment. Refresh your account
         to check the result.
@@ -236,7 +236,11 @@ export default function ManagedAccount({
   if (compact)
     return (
       <section aria-label="Managed assistance status">
-        <p role="status" aria-live="polite">
+        <Alert
+          variant={error ? "error" : warning ? "warning" : "info"}
+          role="status"
+          aria-live="polite"
+        >
           {error ||
             warning ||
             (account
@@ -244,18 +248,17 @@ export default function ManagedAccount({
               : loading
                 ? "Loading your account…"
                 : "Sign in to Savvy in Account before using managed assistance.")}
-        </p>
+        </Alert>
         {unbilled ? (
           <p>This backend has no billing.</p>
         ) : (
           <>
-            <button
-              className="button secondary"
+            <Button
               disabled={busy || !account}
               onClick={() => void run(() => managedBilling("pack"))}
             >
               {pending("pack") ? "Retry pending hours pack" : "Buy hours pack"}
-            </button>
+            </Button>
             <p>After buying, explicitly resume paused assistance.</p>
           </>
         )}
@@ -273,11 +276,12 @@ export default function ManagedAccount({
       </h2>
 
       {loading && !account ? (
-        <p role="status">Loading your account…</p>
+        <Alert variant="info" role="status">
+          Loading your account…
+        </Alert>
       ) : !account ? (
         <>
-          <button
-            className="button"
+          <Button
             disabled={busy}
             onClick={() =>
               void run(async () => {
@@ -289,15 +293,14 @@ export default function ManagedAccount({
             }
           >
             Sign in to Savvy
-          </button>
+          </Button>
           {busy && (
             <>
               <BrowserSignInLink url={code} />
-              <p role="status">
+              <Alert variant="info" role="status">
                 Continue sign-in in your browser. Your meeting stays paused.
-              </p>
-              <button
-                className="button secondary"
+              </Alert>
+              <Button
                 onClick={() =>
                   void managedSignInCancel()
                     .then(() => setCode(""))
@@ -305,7 +308,7 @@ export default function ManagedAccount({
                 }
               >
                 Cancel sign-in
-              </button>
+              </Button>
             </>
           )}
         </>
@@ -396,7 +399,9 @@ export default function ManagedAccount({
                     ? "Monthly plan payment"
                     : "Payment confirmation"}
               </h3>
-              <p role="status">Payment pending.</p>
+              <Alert variant="info" role="status">
+                Payment pending.
+              </Alert>
               <p>
                 We are checking your payment. You can keep using any remaining
                 allowance.
@@ -405,18 +410,18 @@ export default function ManagedAccount({
                 {Math.floor(remaining / 60000)} meeting minutes and{" "}
                 {account.briefsAvailable} briefs remain.
               </p>
-              <button
-                className="button primary"
+              <Button
+                variant="primary"
                 disabled={busy}
                 onClick={() => void refresh()}
               >
                 Refresh account
-              </button>
+              </Button>
               {(["monthly", "pack"] as const).map((kind) =>
                 pending(kind) ? (
-                  <button
+                  <Button
                     key={kind}
-                    className="button secondary"
+
                     disabled={
                       busy || account.purchaseAvailability?.[kind] === false
                     }
@@ -425,7 +430,7 @@ export default function ManagedAccount({
                     {kind === "monthly"
                       ? "Retry pending monthly plan"
                       : "Retry pending hours pack"}
-                  </button>
+                  </Button>
                 ) : null,
               )}
               <p>
@@ -438,21 +443,21 @@ export default function ManagedAccount({
             <p>Updated {new Date(account.nowMs).toLocaleTimeString()}.</p>
           )}
           {warning && !recoveryVisible && (
-            <p role="status" aria-live="polite">
+            <Alert variant="warning" role="status" aria-live="polite">
               {warning}
-            </p>
+            </Alert>
           )}
           {unbilled && <p>This backend has no billing.</p>}
           {!unbilled && !noPlan && !recoveryVisible && !paymentPending && (
             <>
               {!showUsage && !paymentPending && (
-                <button
+                <Button
                   ref={usageTrigger}
-                  className="button primary"
+                  variant="primary"
                   onClick={() => setShowUsage(true)}
                 >
                   Plan and usage
-                </button>
+                </Button>
               )}
               {showUsage && (
                 <section
@@ -469,8 +474,7 @@ export default function ManagedAccount({
               )}
               {(showUsage || paymentPending || failedProduct) && (
                 <>
-                  <button
-                    className="button"
+                  <Button
                     disabled={
                       busy ||
                       account.purchaseAvailability?.monthly === false ||
@@ -485,9 +489,8 @@ export default function ManagedAccount({
                     {pending("monthly")
                       ? "Retry pending monthly plan"
                       : "Monthly plan"}
-                  </button>
-                  <button
-                    className="button secondary"
+                  </Button>
+                  <Button
                     disabled={
                       busy || account.purchaseAvailability?.pack === false
                     }
@@ -496,26 +499,24 @@ export default function ManagedAccount({
                     {pending("pack")
                       ? "Retry pending hours pack"
                       : "Buy hours pack"}
-                  </button>
+                  </Button>
                 </>
               )}
-              <button
-                className="button secondary"
+              <Button
                 disabled={busy}
                 onClick={() => void run(() => managedBilling("portal"))}
               >
                 Manage billing
-              </button>
+              </Button>
               {showUsage && (
-                <button
-                  className="button secondary"
+                <Button
                   onClick={() => {
                     setShowUsage(false);
                     requestAnimationFrame(() => usageTrigger.current?.focus());
                   }}
                 >
                   Back to account
-                </button>
+                </Button>
               )}
               <p>
                 Checkout can take time to confirm. Returning from the browser
@@ -541,24 +542,23 @@ export default function ManagedAccount({
                 Plans and pricing
               </h3>
               {pricing}
-              <button
-                className="button secondary"
+              <Button
                 onClick={() => {
                   setShowPlans(false);
                   requestAnimationFrame(() => plansTrigger.current?.focus());
                 }}
               >
                 Back to account
-              </button>
+              </Button>
             </>
           ) : (
-            <button
+            <Button
               ref={plansTrigger}
-              className="button primary"
+              variant="primary"
               onClick={() => setShowPlans(true)}
             >
               View plans and pricing
-            </button>
+            </Button>
           )}
           <p>
             You can browse local history and prepare your context without a
@@ -572,24 +572,23 @@ export default function ManagedAccount({
           className="managed-empty-card managed-payment-recovery"
         >
           <h3>Payment not completed</h3>
-          <p role="status">
+          <Alert variant="info" role="status">
             This checkout attempt is closed. No time or briefs were added.
-          </p>
+          </Alert>
           <p>
             Your existing allowance is unchanged. You can try again when you are
             ready.
           </p>
-          <button
-            className="button primary"
+          <Button
+            variant="primary"
             disabled={
               busy || account?.purchaseAvailability?.[failedProduct] === false
             }
             onClick={() => void run(() => managedBilling(failedProduct))}
           >
             Try checkout again
-          </button>
-          <button
-            className="button secondary"
+          </Button>
+          <Button
             disabled={busy}
             onClick={() => {
               setDismissedPurchase(purchaseKey);
@@ -597,13 +596,14 @@ export default function ManagedAccount({
             }}
           >
             Back to account
-          </button>
+          </Button>
         </section>
       )}
       {confirmSignOut && (
         <ConfirmDialog
           title="Sign out of Savvy?"
           confirm="Sign out"
+          confirmVariant="danger"
           busy={busy}
           onCancel={() => setConfirmSignOut(false)}
           onConfirm={() =>
@@ -619,29 +619,22 @@ export default function ManagedAccount({
             does not cancel your subscription.
           </p>
           {!unbilled && (
-            <button
-              className="button secondary"
+            <Button
               disabled={busy}
               onClick={() => void run(() => managedBilling("portal"))}
             >
               Manage billing
-            </button>
+            </Button>
           )}
-          {error && <p role="alert">{error}</p>}
+          {error && <Alert role="alert">{error}</Alert>}
         </ConfirmDialog>
       )}
-      <button
-        className="button secondary"
-        disabled={busy}
-        onClick={() => setConfirmSignOut(true)}
-      >
+      <Button disabled={busy} onClick={() => setConfirmSignOut(true)}>
         Sign out
-      </button>
+      </Button>
       <p>Signing out or choosing your own providers does not cancel billing.</p>
       {!paymentPending && (
-        <button className="button secondary" onClick={() => void refresh()}>
-          Refresh account
-        </button>
+        <Button onClick={() => void refresh()}>Refresh account</Button>
       )}
       {!noPlan && !recoveryVisible && !paymentPending && (
         <details className="managed-processing">
@@ -660,7 +653,7 @@ export default function ManagedAccount({
           </p>
         </details>
       )}
-      {error && !confirmSignOut && <p role="alert">{error}</p>}
+      {error && !confirmSignOut && <Alert role="alert">{error}</Alert>}
     </section>
   );
 }

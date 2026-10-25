@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { Alert, Button, Input, Select } from "./ui";
+import { useEffect, useRef, useState } from "react";
 import {
   attachConnectedSource,
   removeConnectedSource,
@@ -13,7 +14,6 @@ import type { ClientWorkspace, SourceRecord, SourceRefresh } from "./types";
 const providers = [
   ["salesforce", "Salesforce", ["account", "opportunity", "note"]],
   ["hubspot", "HubSpot", ["company", "deal", "note"]],
-  ["gong", "Gong", ["call"]],
   ["gmail", "Gmail", ["thread"]],
   ["outlook", "Outlook", ["thread"]],
   ["notion", "Notion", ["page"]],
@@ -38,6 +38,9 @@ export default function ConnectedSources({
   const [records, setRecords] = useState<SourceRecord[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
+  const operationPending = useRef(false);
+  const [searching, setSearching] = useState(false);
+  const [searched, setSearched] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [connectUrl, setConnectUrl] = useState("");
   const connection = connections.find((item) => item.provider === provider);
@@ -64,6 +67,8 @@ export default function ConnectedSources({
   }, []);
 
   async function run(action: () => Promise<void>) {
+    if (disabled || operationPending.current) return;
+    operationPending.current = true;
     setWorking(true);
     setError(null);
     try {
@@ -71,11 +76,19 @@ export default function ConnectedSources({
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
+      operationPending.current = false;
       setWorking(false);
     }
   }
   async function search(next?: string | null) {
-    if (!connection?.accountId || !query.trim()) return;
+    if (
+      disabled ||
+      operationPending.current ||
+      !connection?.accountId ||
+      !query.trim()
+    )
+      return;
+    setSearching(true);
     await run(async () => {
       const result = await sourceSearch(
         provider,
@@ -88,7 +101,9 @@ export default function ConnectedSources({
         next ? (current) => [...current, ...result.records] : result.records,
       );
       setCursor(result.nextCursor);
+      setSearched(true);
     });
+    setSearching(false);
   }
   const attached = new Set(
     (client.connectedSources ?? []).map(
@@ -126,7 +141,7 @@ export default function ConnectedSources({
       <div className="connected-source-controls">
         <label>
           App{" "}
-          <select
+          <Select
             value={provider}
             disabled={disabled || working}
             onChange={(event) => {
@@ -136,6 +151,7 @@ export default function ConnectedSources({
                 providers.find((item) => item[0] === next)?.[2][0] ?? "account",
               );
               setRecords([]);
+              setSearched(false);
               setCursor(null);
               setConnectUrl("");
             }}
@@ -145,16 +161,17 @@ export default function ConnectedSources({
                 {label}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
         <label>
           Record type{" "}
-          <select
+          <Select
             value={kind}
             disabled={disabled || working}
             onChange={(event) => {
               setKind(event.target.value);
               setRecords([]);
+              setSearched(false);
               setCursor(null);
             }}
           >
@@ -163,11 +180,10 @@ export default function ConnectedSources({
                 {item}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
         {connection?.connected ? (
-          <button
-            className="button secondary"
+          <Button
             disabled={disabled || working}
             onClick={() =>
               void run(async () => {
@@ -179,10 +195,9 @@ export default function ConnectedSources({
             }
           >
             Disconnect
-          </button>
+          </Button>
         ) : (
-          <button
-            className="button secondary"
+          <Button
             disabled={disabled || working}
             onClick={() =>
               void run(async () => {
@@ -192,7 +207,7 @@ export default function ConnectedSources({
             }
           >
             Connect
-          </button>
+          </Button>
         )}
       </div>
       {connectUrl && !connection?.connected && (
@@ -200,7 +215,7 @@ export default function ConnectedSources({
           <summary>Browser didn’t open?</summary>
           <label>
             Copy this connection link into your browser
-            <input
+            <Input
               aria-label="Connection link"
               readOnly
               value={connectUrl}
@@ -210,9 +225,9 @@ export default function ConnectedSources({
         </details>
       )}
       {connection?.status && connection.status !== "DISCONNECTED" && (
-        <p role="status">
+        <Alert variant="info" role="status">
           Connection: {connection.status.toLowerCase().replace(/_/g, " ")}
-        </p>
+        </Alert>
       )}
       {connection?.connected && (
         <form
@@ -224,27 +239,36 @@ export default function ConnectedSources({
         >
           <label>
             Search records{" "}
-            <input
+            <Input
               value={query}
+              disabled={disabled || working}
               maxLength={120}
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setSearched(false);
+              }}
             />
           </label>
-          <button
-            className="button secondary"
-            disabled={disabled || working || !query.trim()}
-          >
-            Search
-          </button>
+          <Button type="submit" disabled={disabled || working || !query.trim()}>
+            {searching ? "Searching…" : "Search"}
+          </Button>
         </form>
       )}
+      {searching && <Alert variant="info">Searching records…</Alert>}
+      {connection?.connected &&
+        searched &&
+        !working &&
+        records.length === 0 &&
+        !error && (
+          <Alert variant="info">No records found. Try another search.</Alert>
+        )}
       {records.length > 0 && (
         <ul className="connected-source-list">
           {records.map((record) => (
             <li key={`${record.provider}:${record.kind}:${record.recordId}`}>
               <span>{record.title}</span>
-              <button
-                className="button secondary"
+              <Button
+                aria-label={`${attached.has(`${record.provider}:${record.kind}:${record.accountId}:${record.recordId}`) ? "Attached" : "Attach"} ${record.title}`}
                 disabled={
                   disabled ||
                   working ||
@@ -265,19 +289,18 @@ export default function ConnectedSources({
                 )
                   ? "Attached"
                   : "Attach"}
-              </button>
+              </Button>
             </li>
           ))}
         </ul>
       )}
       {cursor && (
-        <button
-          className="button secondary"
+        <Button
           disabled={disabled || working}
           onClick={() => void search(cursor)}
         >
           More results
-        </button>
+        </Button>
       )}
       {(client.connectedSources ?? []).length > 0 && (
         <>
@@ -299,7 +322,7 @@ export default function ConnectedSources({
                 <li
                   key={`${source.provider}:${source.kind}:${source.accountId}:${source.recordId}`}
                 >
-                  <span>
+                  <div className="connected-source-copy">
                     {source.title}{" "}
                     <small>
                       {source.provider} ·{" "}
@@ -310,15 +333,15 @@ export default function ConnectedSources({
                           : "Not refreshed"}
                     </small>
                     {status?.error && (
-                      <small role="alert">
+                      <Alert>
                         {status.error.startsWith("sign_in_required:")
                           ? "This selection belongs to a disconnected account. Reconnect the app, search and attach the record again, then remove this selection."
                           : status.error}
-                      </small>
+                      </Alert>
                     )}
-                  </span>
-                  <button
-                    className="button secondary"
+                  </div>
+                  <Button
+                    aria-label={`Remove selection ${source.title}`}
                     disabled={disabled || working}
                     onClick={() =>
                       void run(async () =>
@@ -329,14 +352,14 @@ export default function ConnectedSources({
                     }
                   >
                     Remove selection
-                  </button>
+                  </Button>
                 </li>
               );
             })}
           </ul>
         </>
       )}
-      {error && <p role="alert">{error}</p>}
+      {error && <Alert role="alert">{error}</Alert>}
     </section>
   );
 }

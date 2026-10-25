@@ -546,7 +546,6 @@ export async function sourceConnections(): Promise<SourceConnection[]> {
     return [
       "salesforce",
       "hubspot",
-      "gong",
       "gmail",
       "outlook",
       "notion",

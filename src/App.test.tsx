@@ -145,9 +145,12 @@ describe("App", () => {
       ),
     );
     fireEvent.click(screen.getByRole("button", { name: "Models" }));
-    expect(
-      await screen.findByRole("button", { name: /Windows Credential Manager/ }),
-    ).toBeInTheDocument();
+    fireEvent.focus(
+      await screen.findByRole("button", { name: "API Key information" }),
+    );
+    expect(screen.getByRole("tooltip")).toHaveTextContent(
+      "Windows Credential Manager",
+    );
   });
 
   it("shows managed assistance instead of a personal-provider model selector", async () => {
@@ -1757,7 +1760,7 @@ describe("App", () => {
       { timeout: 3_000 },
     );
     const startListeningInfo = screen.getByRole("button", {
-      name: /Start Listening: The keyboard shortcut/,
+      name: "Start Listening information",
     });
     fireEvent.mouseEnter(startListeningInfo.parentElement!);
     expect(screen.getByRole("tooltip")).toHaveTextContent(
@@ -1831,11 +1834,14 @@ describe("App", () => {
         screen.getByRole("button", { name: "Conversation language" }),
       ).toHaveTextContent("Catalan"),
     );
-    expect(
-      screen.getByRole("button", {
-        name: /Conversation language: .*via Deepgram Nova-3/,
-      }),
-    ).toBeInTheDocument();
+    const languageInfo = screen.getByRole("button", {
+      name: "Conversation language information",
+    });
+    fireEvent.focus(languageInfo);
+    expect(screen.getByRole("tooltip")).toHaveTextContent(
+      "via Deepgram Nova-3",
+    );
+    fireEvent.blur(languageInfo);
     fireEvent.click(screen.getByRole("button", { name: "Models" }));
     expect(
       await screen.findByRole("button", { name: "Transcription Provider" }),
@@ -1918,4 +1924,116 @@ describe("App", () => {
       await screen.findByRole("button", { name: "Up to date" }),
     ).toHaveAttribute("aria-disabled", "true");
   }, 15_000);
+  it("supports keyboard selection and keeps the client creation action outside the listbox", async () => {
+    render(<App />);
+    const trigger = await screen.findByRole("button", {
+      name: "Meeting context",
+    });
+    fireEvent.keyDown(trigger, { key: "ArrowDown" });
+    const list = screen.getByRole("listbox", { name: "Meeting context" });
+    const options = within(list).getAllByRole("option");
+    expect(
+      options.find((option) => option.getAttribute("aria-selected") === "true"),
+    ).toHaveFocus();
+    expect(
+      within(list).queryByRole("button", { name: /Add client folder/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Add client folder/ }),
+    ).toBeVisible();
+    fireEvent.keyDown(document.activeElement!, { key: "Home" });
+    expect(options[0]).toHaveFocus();
+    fireEvent.keyDown(document.activeElement!, { key: "End" });
+    expect(options[options.length - 1]).toHaveFocus();
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    expect(
+      screen.queryByRole("listbox", { name: "Meeting context" }),
+    ).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
+  it("moves from searchable select text to options and restores its trigger focus", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Prepare for your meeting" });
+    const trigger = screen.getByRole("button", {
+      name: "Conversation language",
+    });
+    fireEvent.click(trigger);
+    const search = screen.getByRole("textbox", { name: "Search languages" });
+    const list = screen.getByRole("listbox", { name: "Conversation language" });
+    expect(within(list).queryByRole("textbox")).not.toBeInTheDocument();
+    fireEvent.change(search, { target: { value: "Catalan" } });
+    fireEvent.keyDown(search, { key: "ArrowDown" });
+    const option = screen.getByRole("option", { name: "Catalan" });
+    expect(option).toHaveFocus();
+    fireEvent.click(option);
+    await waitFor(() => expect(trigger).toHaveTextContent("Catalan"));
+    expect(trigger).toHaveFocus();
+    fireEvent.click(trigger);
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Search languages" }),
+      { target: { value: "no such language" } },
+    );
+    expect(screen.getByRole("status", { name: "" })).toHaveTextContent(
+      "No matching options",
+    );
+    fireEvent.keyDown(
+      screen.getByRole("textbox", { name: "Search languages" }),
+      { key: "Escape" },
+    );
+    expect(trigger).toHaveFocus();
+  });
+
+  it("associates keyboard help with a viewport-safe tooltip and dismisses it with Escape", async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "General" }));
+    const info = screen.getByRole("button", {
+      name: "Start Listening information",
+    });
+    act(() => info.focus());
+    const tooltip = screen.getByRole("tooltip");
+    expect(info).toHaveAttribute("aria-describedby", tooltip.id);
+    expect(tooltip.parentElement).toBe(document.body);
+    fireEvent.mouseLeave(info.parentElement!);
+    expect(screen.getByRole("tooltip")).toBeVisible();
+    expect(Number.parseFloat(tooltip.style.left)).toBeGreaterThanOrEqual(12);
+    fireEvent.keyDown(info, { key: "Escape" });
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+  });
+
+  it("disables setting switches while their save is pending", async () => {
+    const settings = await api.getAppSettings();
+    let finish!: (value: typeof settings) => void;
+    vi.spyOn(api, "updateAppSettings").mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "General" }));
+    const toggle = screen.getByRole("switch", { name: "Microphone only" });
+    fireEvent.click(toggle);
+    await waitFor(() => expect(toggle).toBeDisabled());
+    await act(async () => {
+      finish({ ...settings, microphoneOnly: !settings.microphoneOnly });
+    });
+    await waitFor(() => expect(toggle).toBeEnabled());
+  });
+
+  it("reports a recording playback failure and leaves playback available to retry", async () => {
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockRejectedValueOnce(
+      new Error("Playback unavailable"),
+    );
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "History" }));
+    const play = await screen.findByRole("button", { name: "Play recording" });
+    fireEvent.click(play);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Could not play this recording",
+    );
+    expect(play).toBeEnabled();
+    expect(
+      screen.getByRole("heading", { name: "Meeting history", level: 1 }),
+    ).toBeVisible();
+  });
 });

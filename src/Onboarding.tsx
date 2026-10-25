@@ -1,3 +1,4 @@
+import { Alert, Button, Input } from "./ui";
 import BrowserSignInLink from "./BrowserSignInLink";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { transcriptionModels } from "./lib/transcriptionModels";
@@ -324,8 +325,7 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
         )}
         {isMacos && (
           <div className="onboarding-actions">
-            <button
-              className="button secondary"
+            <Button
               disabled={busy}
               onClick={() =>
                 void invoke("open_audio_settings", { system: false }).catch(
@@ -334,9 +334,8 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
               }
             >
               Microphone settings
-            </button>
-            <button
-              className="button secondary"
+            </Button>
+            <Button
               disabled={busy}
               onClick={() =>
                 void invoke("open_audio_settings", { system: true }).catch(
@@ -345,7 +344,7 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
               }
             >
               System audio settings
-            </button>
+            </Button>
           </div>
         )}
         <PermissionRow
@@ -381,17 +380,13 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
           <p className="onboarding-note">
             Already allowed in System Settings? macOS may need a fresh launch to
             recognize the change.
-            <button
-              className="button secondary"
-              disabled={busy}
-              onClick={() => void reopen()}
-            >
+            <Button disabled={busy} onClick={() => void reopen()}>
               Reopen Savvy
-            </button>
+            </Button>
           </p>
         )}
         <label>
-          <input
+          <Input
             type="checkbox"
             disabled={busy}
             checked={microphoneOnly}
@@ -400,23 +395,14 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
           Use microphone only
         </label>
         <ErrorNotice message={error} onDismiss={() => setError(null)} />
-        <button
-          className="button secondary"
-          disabled={busy}
-          onClick={onComplete}
-        >
+        <Button disabled={busy} onClick={onComplete}>
           Set up later
-        </button>
+        </Button>
         <div className="onboarding-actions">
-          <button
-            className="button secondary"
-            disabled={busy}
-            onClick={() => void refreshPermissions()}
-          >
+          <Button disabled={busy} onClick={() => void refreshPermissions()}>
             Check again
-          </button>
-          <button
-            className="button"
+          </Button>
+          <Button
             disabled={
               busy ||
               microphone !== "granted" ||
@@ -436,7 +422,7 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
             }}
           >
             Continue
-          </button>
+          </Button>
         </div>
         {microphone !== "granted" && microphone !== "checking" && (
           <p className="onboarding-note">
@@ -486,13 +472,12 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
   if (step === "waiting")
     return (
       <OnboardingShell subtitle="Finish signing in">
-        <p role="status">
+        <Alert variant="info" role="status">
           Continue in your browser. Savvy will verify your account before
           continuing.
-        </p>
+        </Alert>
         <BrowserSignInLink url={signInUrl} />
-        <button
-          className="button secondary"
+        <Button
           onClick={() =>
             void managedSignInCancel()
               .then(() => {
@@ -505,7 +490,7 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
           }
         >
           Cancel sign-in
-        </button>
+        </Button>
         <ErrorNotice message={error} onDismiss={() => setError(null)} />
       </OnboardingShell>
     );
@@ -539,38 +524,31 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
       >
         <h2>Your next meeting, prepared.</h2>
         <p>Savvy handles transcription and AI setup.</p>
-        <button
-          className="button primary"
+        <Button
+          variant="primary"
           disabled={busy}
           onClick={() => void signIn(true)}
         >
           Create account
-        </button>
-        <button
-          className="button secondary"
-          disabled={busy}
-          onClick={() => void signIn(false)}
-        >
+        </Button>
+        <Button disabled={busy} onClick={() => void signIn(false)}>
           Sign in
-        </button>
+        </Button>
         <div className="onboarding-browser-note">
           <p>Opens your browser. No purchase required.</p>
-          <button
+          <Button
+            variant="plain"
             className="onboarding-pricing-link"
             disabled={busy}
             onClick={() => setStep("managed")}
           >
             View pricing
-          </button>
+          </Button>
         </div>
         <hr />
-        <button
-          className="button secondary"
-          disabled={busy}
-          onClick={() => void choosePersonalProviders()}
-        >
+        <Button disabled={busy} onClick={() => void choosePersonalProviders()}>
           Use your own providers
-        </button>
+        </Button>
         <p>Connect your tools. No Savvy account needed.</p>
         <ErrorNotice message={error} onDismiss={() => setError(null)} />
       </OnboardingShell>
@@ -580,12 +558,10 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
       <OnboardingShell subtitle="Plans and pricing">
         <ManagedAccount pricingOnly />
         <div className="onboarding-actions">
-          <button className="button" onClick={onComplete}>
-            Explore Savvy
-          </button>
-          <button className="button secondary" onClick={() => setStep("path")}>
+          <Button onClick={onComplete}>Explore Savvy</Button>
+          <Button onClick={() => setStep("path")}>
             Back to provider paths
-          </button>
+          </Button>
         </div>
       </OnboardingShell>
     );
@@ -594,7 +570,8 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
     <OnboardingShell subtitle="Add a transcription key so Savvy can turn speech into text.">
       <div className="onboarding-providers">
         {PROVIDERS.map((option) => (
-          <button
+          <Button
+            variant="plain"
             key={option.id}
             type="button"
             className={`onboarding-provider ${provider === option.id ? "selected" : ""}`}
@@ -613,12 +590,12 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
                 <Check /> Key saved
               </span>
             )}
-          </button>
+          </Button>
         ))}
       </div>
       <label className="onboarding-field">
         <span>{PROVIDERS.find((o) => o.id === provider)?.label} API key</span>
-        <input
+        <Input
           type="password"
           value={apiKey}
           disabled={busy}
@@ -658,26 +635,24 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
         </p>
       )}
       {checkedProvider === provider && (
-        <p className="onboarding-note" role="status">
+        <Alert variant="info" className="onboarding-note" role="status">
           Key saved. Run the audio check to confirm transcription works.
-        </p>
+        </Alert>
       )}
       <ErrorNotice message={error} onDismiss={() => setError(null)} />
       <div className="onboarding-actions">
-        <button
-          className="button secondary"
+        <Button
           disabled={busy}
           onClick={() => void continueTranscriptionSetup()}
         >
           {hasSelectedKey ? "Done" : "Skip for now"}
-        </button>
-        <button
-          className="button"
+        </Button>
+        <Button
           disabled={busy || !apiKey.trim()}
           onClick={() => void saveKey()}
         >
           {keyCheckPending ? "Checking key…" : "Save key"}
-        </button>
+        </Button>
       </div>
       {!hasSelectedKey && (
         <p className="onboarding-note">
@@ -756,7 +731,8 @@ function PersonalAISetup({
         {(["codex", "claude"] as const).map((id) => {
           const status = health?.find((entry) => entry.provider === id);
           return (
-            <button
+            <Button
+              variant="plain"
               key={id}
               className={`onboarding-provider ${provider === id ? "selected" : ""}`}
               aria-pressed={provider === id}
@@ -769,11 +745,11 @@ function PersonalAISetup({
                   ? "Checking…"
                   : (status?.message ?? "Status unavailable")}
               </span>
-            </button>
+            </Button>
           );
         })}
       </div>
-      <p role="status">
+      <Alert variant="info" role="status">
         {health === null
           ? "Checking installation and sign-in…"
           : ready
@@ -783,14 +759,13 @@ function PersonalAISetup({
               : selected.available
                 ? "Open your selected AI tool in Terminal and finish signing in, then check again."
                 : "Install your selected AI tool and sign in, then reopen Savvy and check again."}
-      </p>
+      </Alert>
       <ErrorNotice message={error} onDismiss={() => setError(null)} />
       <div className="onboarding-actions">
-        <button className="button secondary" disabled={saving} onClick={onBack}>
+        <Button disabled={saving} onClick={onBack}>
           Back
-        </button>
-        <button
-          className="button secondary"
+        </Button>
+        <Button
           disabled={saving || health === null}
           onClick={() => {
             setHealth(null);
@@ -799,22 +774,17 @@ function PersonalAISetup({
           }}
         >
           Check again
-        </button>
-        <button
-          className="button"
+        </Button>
+        <Button
           disabled={saving || !ready}
           onClick={() => void continueSetup()}
         >
           Continue
-        </button>
+        </Button>
       </div>
-      <button
-        className="button secondary"
-        disabled={saving}
-        onClick={() => void continueSetup(true)}
-      >
+      <Button disabled={saving} onClick={() => void continueSetup(true)}>
         Set up later
-      </button>
+      </Button>
       <p>
         Skipping keeps your current provider path and leaves AI readiness
         unverified. You can finish setup in Models.
@@ -833,17 +803,18 @@ function ErrorNotice({
 }) {
   if (!message) return null;
   return (
-    <p className="onboarding-error" role="alert">
+    <Alert className="onboarding-error" role="alert">
       <span>{message}</span>
-      <button
+      <Button
+        variant="plain"
         type="button"
         aria-label="Dismiss alert"
         title="Dismiss"
         onClick={onDismiss}
       >
         <X />
-      </button>
-    </p>
+      </Button>
+    </Alert>
   );
 }
 
@@ -915,13 +886,9 @@ function PermissionRow({
           {status === "checking" ? "Checking…" : "Waiting…"}
         </span>
       ) : (
-        <button
-          className="button secondary"
-          disabled={disabled}
-          onClick={() => void onGrant()}
-        >
+        <Button disabled={disabled} onClick={() => void onGrant()}>
           Allow
-        </button>
+        </Button>
       )}
     </div>
   );

@@ -1,3 +1,4 @@
+import { Alert, Button } from "./ui";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   getMeetingTranscriptPage,
@@ -99,16 +100,12 @@ export function MeetingDetails({
         </p>
       </header>
       {error && (
-        <div role="alert" className="settings-error">
+        <Alert className="settings-error">
           <p>{error}</p>
-          <button
-            className="button"
-            disabled={loading}
-            onClick={() => changePage(page.offset)}
-          >
+          <Button disabled={loading} onClick={() => changePage(page.offset)}>
             Retry transcript
-          </button>
-        </div>
+          </Button>
+        </Alert>
       )}
       <section
         className="group-card meeting-details-transcript"
@@ -116,7 +113,7 @@ export function MeetingDetails({
         aria-busy={loading}
       >
         <h3>Transcript</h3>
-        {loading && <p role="status">Loading transcript…</p>}
+        {loading && <Alert variant="info">Loading transcript…</Alert>}
         {!loading && !error && page.turns.length === 0 && (
           <p>No transcript was saved for this meeting.</p>
         )}
@@ -150,45 +147,40 @@ export function MeetingDetails({
             aria-label="Transcript pages"
             className="meeting-details-actions"
           >
-            <button
-              className="button"
+            <Button
               disabled={loading || page.offset === 0}
               onClick={() => changePage(Math.max(0, page.offset - 50))}
             >
               Previous
-            </button>
+            </Button>
             <span aria-live="polite">
               Page {Math.floor(page.offset / 50) + 1}
             </span>
-            <button
-              className="button"
+            <Button
               disabled={loading || !page.more}
               onClick={() => changePage(page.offset + 50)}
             >
               Next
-            </button>
+            </Button>
           </nav>
         )}
       </section>
       <div className="meeting-details-actions">
-        <button
-          className="button primary"
+        <Button
+          variant="primary"
           onClick={() => void open(openMeetingTranscript)}
         >
           Open transcript
-        </button>
-        <button
-          className="button"
+        </Button>
+        <Button
           disabled={!meeting.session.audioPath}
           onClick={() => void open(openMeetingRecording)}
         >
           Show recording
-        </button>
+        </Button>
       </div>
       {!meeting.session.audioPath && <p>Recording is unavailable.</p>}
-      <button className="button" onClick={onBack}>
-        Back to history
-      </button>
+      <Button onClick={onBack}>Back to history</Button>
     </div>
   );
 }
