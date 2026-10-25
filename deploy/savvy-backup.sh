@@ -20,7 +20,7 @@ case "$1" in
     : > "$restart_flag"
     systemctl stop savvy-backend.service
     stamp=$(date -u +%Y%m%dT%H%M%SZ)
-    runuser -u savvy -- /opt/node-v22.23.2-linux-x64/bin/node \
+    runuser -u savvy -- /opt/node-v22.23.4-linux-x64/bin/node \
       --env-file=/etc/savvy/backend.env \
       /opt/savvy/current/backend/build/backup.js "/var/backups/savvy/$stamp"
     ;;
