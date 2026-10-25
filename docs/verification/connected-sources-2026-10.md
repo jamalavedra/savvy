@@ -154,3 +154,12 @@ The app was stopped, the original profile restored, and both original file hashe
 
 
 The native-control fix also sets `color-scheme: light` and `color-scheme: dark` in the existing explicit-theme overrides. The built browser interface was switched through About to Light and Dark; its root theme, computed color scheme, foreground, and background matched each selection. All 145 UI tests passed and the signed desktop bundle rebuilt successfully. The Mac locked before a visual check of explicit native theme selection; the browser check is not reported as native visual inspection. Its temporary test profile was restored with both original hashes matching.
+
+
+## Stop-alert regression on 2026-10-25
+
+The resumed run rechecked PR head `46504a9`: macOS, Windows, Linux, and website CI were green, and the Windows installer artifact was uploaded. Composio still reported six active connections and Gong `EXPIRED`. The resumed goal did not supply approval of Gong's contract, and the earlier browser draft lease had expired; no request was submitted.
+
+A local signal check received real microphone and system-audio levels. Review found that this check discards cleanup errors, so its stopped status is not evidence that the earlier ScreenCaptureKit stop alert was resolved. The audio library now treats only the exact observed `CaptureStopFailed` already-stopped result as a successful terminal stop. All other errors still propagate. The regression test checks successful cleanup, that known terminal result, an unrelated stop failure, and the same text in two non-stop error variants. All nine audio tests, the full Rust workspace with 143 passed and four environment-dependent fixtures ignored, audio Clippy, and Rust formatting passed.
+
+ScreenCaptureKit SDK 8 erases the underlying NSError codes. The guard therefore matches the exact English terminal message, and the code records this limitation. Unrecognized or localized errors continue to propagate. An installed smoke test and fresh CI are required after this change; it is not counted as live Gong verification.
