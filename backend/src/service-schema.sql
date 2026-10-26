@@ -21,6 +21,11 @@ CREATE TABLE IF NOT EXISTS audio_pacing (
             created_at_ms INTEGER NOT NULL,
             UNIQUE (issuer, subject)
         );
+        CREATE TABLE IF NOT EXISTS composio_sessions (
+            account_id INTEGER PRIMARY KEY REFERENCES accounts(id),
+            session_id TEXT NOT NULL UNIQUE,
+            user_id TEXT NOT NULL DEFAULT ''
+        );
         CREATE TABLE IF NOT EXISTS subscriptions (
             id INTEGER PRIMARY KEY,
             account_id INTEGER NOT NULL REFERENCES accounts (id),

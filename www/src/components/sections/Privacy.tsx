@@ -226,7 +226,11 @@ export function Privacy() {
                   </span>
                 ),
               },
-              { icon: FolderIcon, label: "Source files stay in their folders, unchanged" },
+              { icon: KeyIcon, label: "Composio stores connected-app credentials" },
+              {
+                icon: FolderIcon,
+                label: "Source files stay on your Mac; imported copies can refresh",
+              },
               { icon: ClockIcon, label: "Recordings and transcripts deleted after 30 days" },
               {
                 icon: WaveIcon,

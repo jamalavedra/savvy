@@ -761,13 +761,28 @@ impl AudioCapture for SystemAudioCapture {
         let Some(stream) = self.stream.take() else {
             return Ok(());
         };
-        stream
-            .stop_capture()
-            .map_err(|error| AudioError::Capture(error.to_string()))
+        system_stop_result(stream.stop_capture())
     }
 
     fn is_running(&self) -> bool {
         self.stream.is_some() && self.level().is_ok()
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn system_stop_result(
+    result: Result<(), screencapturekit::error::SCError>,
+) -> Result<(), AudioError> {
+    match result {
+        Ok(()) => Ok(()),
+        // shortcut: SDK 8 erases NSError codes; use the terminal message until codes are exposed.
+        Err(screencapturekit::error::SCError::CaptureStopFailed(message))
+            if message
+                == "Stream error: Failed to stop a stream that is already stopped or does not exist" =>
+        {
+            Ok(())
+        }
+        Err(error) => Err(AudioError::Capture(error.to_string())),
     }
 }
 
@@ -878,6 +893,25 @@ pub fn downmix_to_mono(frame: &AudioFrame) -> Vec<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn system_stop_accepts_only_the_known_already_stopped_error() {
+        use screencapturekit::error::SCError;
+
+        let terminal =
+            "Stream error: Failed to stop a stream that is already stopped or does not exist";
+        assert!(system_stop_result(Ok(())).is_ok());
+        assert!(system_stop_result(Err(SCError::CaptureStopFailed(terminal.into()))).is_ok());
+        assert!(
+            system_stop_result(Err(SCError::CaptureStopFailed("permission denied".into())))
+                .unwrap_err()
+                .to_string()
+                .contains("permission denied")
+        );
+        assert!(system_stop_result(Err(SCError::CaptureStartFailed(terminal.into()))).is_err());
+        assert!(system_stop_result(Err(SCError::stream_error(terminal))).is_err());
+    }
 
     #[cfg(target_os = "macos")]
     #[test]

@@ -94,6 +94,7 @@ export function migrateService(db: Db) {
       readFileSync(new URL("./service-schema.sql", import.meta.url), "utf8"),
     );
     const columns = [
+      ["composio_sessions", "user_id", "TEXT NOT NULL DEFAULT ''"],
       ["managed_sessions", "lifecycle_command", "INTEGER NOT NULL DEFAULT 0"],
       ["checkouts", "created_at_ms", "INTEGER NOT NULL DEFAULT 0"],
       ["checkouts", "price_id", "TEXT"],

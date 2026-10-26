@@ -14,11 +14,11 @@ use savvy_audio::{
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 use savvy_domain::RecommendationLifecycle;
 use savvy_domain::{
-    AppStatus, BriefSnapshot, BriefStatus, ClientWorkspace, ContextPack, ContextSourceKind,
-    DashboardSnapshot, IndexStatus, IndexedSourceChunk, LanguagePolicy, MeetingLedger,
-    MeetingSession, MeetingState, NegotiationBrief, PreparationSnapshot, ProviderHealth,
-    Recommendation, SourceReadiness, SourceReference, SpeakerChannel, TranscriptTurn,
-    TranscriptUpdate, Trigger,
+    AppStatus, BriefSnapshot, BriefStatus, ClientWorkspace, ConnectedSource, ContextPack,
+    ContextSourceKind, DashboardSnapshot, IndexStatus, IndexedSourceChunk, LanguagePolicy,
+    MeetingLedger, MeetingSession, MeetingState, NegotiationBrief, PreparationSnapshot,
+    ProviderHealth, Recommendation, SourceReadiness, SourceReference, SpeakerChannel,
+    TranscriptTurn, TranscriptUpdate, Trigger,
 };
 #[cfg(any(target_os = "macos", target_os = "windows", test))]
 use savvy_domain::{Concession, GroundedFact, OutlineSection};
@@ -49,7 +49,8 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::{
     collections::{HashMap, HashSet},
-    fs,
+    fs::{self, OpenOptions},
+    io::{Read, Write},
     path::{Path, PathBuf},
     sync::Mutex,
 };
@@ -1253,17 +1254,18 @@ fn commit_client_scan(
         .into_iter()
         .find(|client| client.id == client_id)
         .ok_or_else(|| "client was removed while its documents were being scanned".to_owned())?;
+    client.index_status = readiness.index_status;
     if readiness.index_status == IndexStatus::Ready {
-        storage
-            .replace_source_scope(ContextSourceKind::Client, client.id, chunks)
-            .map_err(|error| error.to_string())?;
         client.document_count = readiness.document_count;
         client.last_indexed_at = readiness.checked_at;
+        storage
+            .save_client_source_scope(&client, chunks)
+            .map_err(|error| error.to_string())?;
+    } else {
+        storage
+            .save_client(&client)
+            .map_err(|error| error.to_string())?;
     }
-    client.index_status = readiness.index_status;
-    storage
-        .save_client(&client)
-        .map_err(|error| error.to_string())?;
     Ok(client)
 }
 
@@ -1802,6 +1804,399 @@ fn find_client(state: &AppState, client_id: &str) -> Result<ClientWorkspace, Str
         .into_iter()
         .find(|client| client.id == client_id)
         .ok_or_else(|| "client does not exist".to_owned())
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SourceRecord {
+    provider: String,
+    kind: String,
+    account_id: String,
+    record_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FetchedSource {
+    provider: String,
+    kind: String,
+    account_id: String,
+    record_id: String,
+    title: String,
+    url: String,
+    modified_at: Option<String>,
+    content: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SourceRefresh {
+    provider: String,
+    kind: String,
+    account_id: String,
+    record_id: String,
+    title: String,
+    relative_path: PathBuf,
+    status: &'static str,
+    refreshed_at: Option<DateTime<Utc>>,
+    saved_copy_available: bool,
+    error: Option<String>,
+}
+
+fn source_copy_available(root: &Path, relative: &Path) -> bool {
+    relative.components().count() == 1
+        && relative.extension().is_some_and(|value| value == "md")
+        && savvy_dossier::open_verified(&root.join(relative)).is_ok()
+}
+
+fn source_filename(source: &SourceRecord) -> Result<PathBuf, String> {
+    if ![
+        "salesforce",
+        "hubspot",
+        "gong",
+        "gmail",
+        "outlook",
+        "notion",
+        "googledrive",
+    ]
+    .contains(&source.provider.as_str())
+        || source.account_id.is_empty()
+        || source.record_id.is_empty()
+        || source.record_id.len() > 512
+    {
+        return Err("invalid connected source".into());
+    }
+    Ok(PathBuf::from(format!(
+        "savvy-source-{}-{}.md",
+        source.provider,
+        &sha256(&format!(
+            "{}:{}:{}",
+            source.account_id, source.kind, source.record_id
+        ))[..20]
+    )))
+}
+
+fn write_source_copy(
+    root: &Path,
+    relative: &Path,
+    content: &str,
+    previous: Option<&str>,
+) -> Result<String, String> {
+    if relative.components().count() != 1 || relative.extension().is_none_or(|value| value != "md")
+    {
+        return Err("invalid source filename".into());
+    }
+    if content.len() > 256 * 1024 {
+        return Err("connected record exceeds the 256 KiB import limit".into());
+    }
+    let root = root.canonicalize().map_err(|error| error.to_string())?;
+    let target = root.join(relative);
+    let check = || -> Result<(), String> {
+        match fs::symlink_metadata(&target) {
+            Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => {
+                let current = fs::read(&target).map_err(|error| error.to_string())?;
+                let current_hash = format!("{:x}", Sha256::digest(&current));
+                if previous != Some(current_hash.as_str()) {
+                    return Err("local copy was edited; its changes were preserved".into());
+                }
+            }
+            Ok(_) => return Err("source path is not a regular file".into()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound && previous.is_none() => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Err("local copy is missing".into())
+            }
+            Err(error) => return Err(error.to_string()),
+        }
+        Ok(())
+    };
+    check()?;
+    let temporary = root.join(format!(".savvy-source-{}.tmp", Uuid::new_v4()));
+    let result = (|| -> Result<String, String> {
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options
+            .open(&temporary)
+            .map_err(|error| error.to_string())?;
+        file.write_all(content.as_bytes())
+            .map_err(|error| error.to_string())?;
+        file.sync_all().map_err(|error| error.to_string())?;
+        check()?;
+        fs::rename(&temporary, &target).map_err(|error| error.to_string())?;
+        Ok(sha256(content))
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result
+}
+
+fn fetched(source: &SourceRecord) -> Result<FetchedSource, String> {
+    let body = serde_json::json!({"provider":source.provider,"kind":source.kind,"accountId":source.account_id,"recordId":source.record_id});
+    let value = managed::source_fetch(&body)?;
+    let value: FetchedSource =
+        serde_json::from_value(value).map_err(|_| "connected source returned an invalid record")?;
+    if value.provider != source.provider
+        || value.kind != source.kind
+        || value.account_id != source.account_id
+        || value.record_id != source.record_id
+    {
+        return Err("connected source identity changed during fetch".into());
+    }
+    Ok(value)
+}
+
+fn reindex_client(
+    state: &AppState,
+    client_id: Uuid,
+    root: &Path,
+) -> Result<ClientWorkspace, String> {
+    let (readiness, chunks) = scan_source_scope(Some(root), ContextSourceKind::Client, client_id);
+    if readiness.index_status != IndexStatus::Ready {
+        return Err("client folder could not be indexed after source refresh".into());
+    }
+    let mut storage = state.storage.lock().map_err(|_| "storage lock poisoned")?;
+    commit_client_scan(&mut storage, client_id, &readiness, &chunks)
+}
+
+#[tauri::command]
+async fn source_connections() -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(managed::source_connections)
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn source_connect(provider: String, app: AppHandle) -> Result<String, String> {
+    let url = tauri::async_runtime::spawn_blocking(move || managed::source_connect(&provider))
+        .await
+        .map_err(|error| error.to_string())??;
+    app.opener()
+        .open_url(url.clone(), None::<&str>)
+        .map_err(|error| error.to_string())?;
+    Ok(url)
+}
+
+#[tauri::command]
+async fn source_disconnect(provider: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || managed::source_disconnect(&provider))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn source_search(
+    provider: String,
+    kind: String,
+    account_id: String,
+    query: String,
+    cursor: Option<String>,
+) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(move || managed::source_search(&serde_json::json!({"provider":provider,"kind":kind,"accountId":account_id,"query":query,"cursor":cursor}))).await.map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn attach_connected_source(
+    client_id: String,
+    source: SourceRecord,
+    app: AppHandle,
+) -> Result<ClientWorkspace, String> {
+    run_app_command(app, move |_, state| {
+        attach_connected_source_inner(state, &client_id, source)
+    })
+    .await
+}
+
+fn attach_connected_source_inner(
+    state: &AppState,
+    client_id: &str,
+    source: SourceRecord,
+) -> Result<ClientWorkspace, String> {
+    let client = find_client(state, client_id)?;
+    let relative = source_filename(&source)?;
+    let record = fetched(&source)?;
+    let mut storage = state.storage.lock().map_err(|_| "storage lock poisoned")?;
+    let current = storage
+        .list_clients()
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .find(|item| item.id == client.id)
+        .ok_or("client was removed")?;
+    save_connected_source(&mut storage, current, relative, record)
+}
+
+fn save_connected_source(
+    storage: &mut Storage,
+    mut client: ClientWorkspace,
+    relative: PathBuf,
+    record: FetchedSource,
+) -> Result<ClientWorkspace, String> {
+    let target = client.folder_path.join(&relative);
+    let mut created_hash = None;
+    if !client.connected_sources.iter().any(|item| {
+        item.provider == record.provider
+            && item.kind == record.kind
+            && item.account_id == record.account_id
+            && item.record_id == record.record_id
+    }) {
+        let existed = fs::symlink_metadata(&target).is_ok();
+        let previous = existed.then(|| sha256(&record.content));
+        let hash = write_source_copy(
+            &client.folder_path,
+            &relative,
+            &record.content,
+            previous.as_deref(),
+        )?;
+        if !existed {
+            created_hash = Some(hash.clone());
+        }
+        client.connected_sources.push(ConnectedSource {
+            provider: record.provider,
+            kind: record.kind,
+            account_id: record.account_id,
+            record_id: record.record_id,
+            title: record.title,
+            url: record.url,
+            modified_at: record.modified_at,
+            relative_path: relative,
+            content_hash: Some(hash),
+            refreshed_at: Some(Utc::now()),
+        });
+    }
+    let mut result = (|| {
+        let (readiness, chunks) = scan_source_scope(
+            Some(&client.folder_path),
+            ContextSourceKind::Client,
+            client.id,
+        );
+        if readiness.index_status != IndexStatus::Ready {
+            return Err("client folder could not be indexed after source import".to_owned());
+        }
+        client.document_count = readiness.document_count;
+        client.last_indexed_at = readiness.checked_at;
+        client.index_status = readiness.index_status;
+        storage
+            .save_client_source_scope(&client, &chunks)
+            .map_err(|error| error.to_string())?;
+        Ok(client)
+    })();
+    if let (Err(error), Some(expected)) = (&mut result, created_hash) {
+        // Roll back only this attempt's unchanged copy; user edits remain user-owned.
+        let unchanged = savvy_dossier::open_verified(&target)
+            .and_then(|file| {
+                let mut bytes = Vec::new();
+                file.take(256 * 1024 + 1).read_to_end(&mut bytes)?;
+                Ok(format!("{:x}", Sha256::digest(&bytes)) == expected)
+            })
+            .unwrap_or(false);
+        if unchanged {
+            if let Err(cleanup) = fs::remove_file(&target) {
+                *error = format!("{error}; imported copy could not be removed: {cleanup}");
+            }
+        }
+    }
+    result
+}
+
+#[tauri::command]
+async fn remove_connected_source(
+    client_id: String,
+    provider: String,
+    kind: String,
+    account_id: String,
+    record_id: String,
+    app: AppHandle,
+) -> Result<ClientWorkspace, String> {
+    run_app_command(app, move |_, state| {
+        let storage = state.storage.lock().map_err(|_| "storage lock poisoned")?;
+        let mut client = storage
+            .list_clients()
+            .map_err(|error| error.to_string())?
+            .into_iter()
+            .find(|item| item.id.to_string() == client_id)
+            .ok_or("client does not exist")?;
+        client.connected_sources.retain(|item| {
+            !(item.provider == provider
+                && item.kind == kind
+                && item.account_id == account_id
+                && item.record_id == record_id)
+        });
+        storage
+            .save_client(&client)
+            .map_err(|error| error.to_string())?;
+        Ok(client)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn refresh_connected_sources(
+    client_id: String,
+    app: AppHandle,
+) -> Result<Vec<SourceRefresh>, String> {
+    run_app_command(app, move |_, state| {
+        refresh_connected_sources_inner(state, &client_id)
+    })
+    .await
+}
+
+fn refresh_connected_sources_inner(
+    state: &AppState,
+    client_id: &str,
+) -> Result<Vec<SourceRefresh>, String> {
+    let mut client = find_client(state, client_id)?;
+    let mut results = Vec::new();
+    for item in &mut client.connected_sources {
+        let request = SourceRecord {
+            provider: item.provider.clone(),
+            kind: item.kind.clone(),
+            account_id: item.account_id.clone(),
+            record_id: item.record_id.clone(),
+        };
+        let outcome = fetched(&request).and_then(|record| {
+            let hash = write_source_copy(
+                &client.folder_path,
+                &item.relative_path,
+                &record.content,
+                item.content_hash.as_deref(),
+            )?;
+            item.title = record.title;
+            item.url = record.url;
+            item.modified_at = record.modified_at;
+            item.content_hash = Some(hash);
+            item.refreshed_at = Some(Utc::now());
+            Ok(())
+        });
+        let status = match &outcome {
+            Ok(()) => "fresh",
+            Err(message) if message.contains("edited") => "conflict",
+            Err(_) => "failed",
+        };
+        results.push(SourceRefresh {
+            provider: item.provider.clone(),
+            kind: item.kind.clone(),
+            account_id: item.account_id.clone(),
+            record_id: item.record_id.clone(),
+            title: item.title.clone(),
+            relative_path: item.relative_path.clone(),
+            status,
+            refreshed_at: item.refreshed_at,
+            saved_copy_available: source_copy_available(&client.folder_path, &item.relative_path),
+            error: outcome.err(),
+        });
+    }
+    {
+        let storage = state.storage.lock().map_err(|_| "storage lock poisoned")?;
+        storage
+            .save_client(&client)
+            .map_err(|error| error.to_string())?;
+    }
+    reindex_client(state, client.id, &client.folder_path)?;
+    Ok(results)
 }
 
 fn with_context_removal<T>(
@@ -2685,6 +3080,8 @@ async fn start_meeting(
     client_id: Option<String>,
     brief_id: Option<String>,
     expected_brief_hash: Option<String>,
+    exclude_source_paths: Vec<String>,
+    stale_source_paths: Vec<String>,
     app: AppHandle,
 ) -> Result<MeetingSession, String> {
     let managed = managed_mode_from(&app);
@@ -2704,6 +3101,7 @@ async fn start_meeting(
             client_id,
             brief_id,
             expected_brief_hash,
+            (exclude_source_paths, stale_source_paths),
             session_id,
             app,
             state,
@@ -2746,6 +3144,7 @@ fn start_meeting_inner(
     client_id: Option<String>,
     brief_id: Option<String>,
     expected_brief_hash: Option<String>,
+    source_choices: (Vec<String>, Vec<String>),
     session_id: Uuid,
     app: &AppHandle,
     state: &AppState,
@@ -2797,7 +3196,33 @@ fn start_meeting_inner(
         general_guidelines_brief(&settings)
     };
     brief.response_language = recommendation_language(&meeting_language);
-    let context_pack = build_context_pack(state, client_id, brief_id, &brief, &meeting_language)?;
+    let (exclude_source_paths, stale_source_paths) = source_choices;
+    let call_excluded = exclude_source_paths
+        .into_iter()
+        .map(PathBuf::from)
+        .collect::<Vec<_>>();
+    let call_stale = stale_source_paths
+        .into_iter()
+        .map(PathBuf::from)
+        .collect::<Vec<_>>();
+    if call_excluded.iter().any(|path| {
+        path.components()
+            .any(|part| !matches!(part, std::path::Component::Normal(_)))
+    }) || call_stale.iter().any(|path| {
+        path.components()
+            .any(|part| !matches!(part, std::path::Component::Normal(_)))
+    }) {
+        return Err("invalid source exclusion".into());
+    }
+    let context_pack = build_context_pack(
+        state,
+        client_id,
+        brief_id,
+        &brief,
+        &meeting_language,
+        &call_excluded,
+        &call_stale,
+    )?;
     match service_mode {
         ServiceMode::Managed => {
             let request = managed::meeting_context_request(session_id, &brief, &context_pack)?;
@@ -2934,6 +3359,8 @@ fn build_context_pack(
     brief_id: Option<Uuid>,
     brief: &NegotiationBrief,
     meeting_language: &str,
+    call_excluded: &[PathBuf],
+    call_stale: &[PathBuf],
 ) -> Result<ContextPack, String> {
     let guidance_folder = state
         .settings
@@ -2943,7 +3370,7 @@ fn build_context_pack(
         .clone();
     let guideline_sources = current_guideline_sources(guidance_folder.as_deref().map(Path::new))?;
     let storage = state.storage.lock().map_err(|_| "storage lock poisoned")?;
-    let excluded_paths = client_id
+    let mut excluded_paths = client_id
         .map(|id| {
             storage
                 .list_clients()
@@ -2958,8 +3385,9 @@ fn build_context_pack(
         })
         .transpose()?
         .unwrap_or_default();
+    excluded_paths.extend_from_slice(call_excluded);
     let excluded = excluded_paths.iter().collect::<HashSet<_>>();
-    let client_sources = client_id
+    let mut client_sources = client_id
         .map(|id| {
             storage
                 .source_references_for_scope(ContextSourceKind::Client, id, usize::MAX)
@@ -2970,6 +3398,11 @@ fn build_context_pack(
         .into_iter()
         .filter(|source| !excluded.contains(&source.relative_path))
         .collect::<Vec<_>>();
+    for source in &mut client_sources {
+        if call_stale.contains(&source.relative_path) {
+            source.locator.label.push_str(" (stale copy)");
+        }
+    }
     let guideline_revision =
         sha256(&serde_json::to_string(&guideline_sources).map_err(|error| error.to_string())?);
     let client_revision = client_id
@@ -4228,7 +4661,12 @@ fn is_terminal_managed_failure(message: &str) -> bool {
 
 fn managed_stream_message(message: &str, label: &str) -> String {
     if message.contains("capture_unavailable") {
-        format!("Savvy assistance paused: {label} capture stopped supplying audio. Unlock your Mac, check audio permissions, then resume the meeting to restart capture.")
+        let recovery = if cfg!(target_os = "windows") {
+            "Check your Windows audio output, then resume the meeting to restart capture."
+        } else {
+            "Unlock your Mac, check audio permissions, then resume the meeting to restart capture."
+        };
+        format!("Savvy assistance paused: {label} capture stopped supplying audio. {recovery}")
     } else if message.contains("quota_exhausted") {
         "Savvy assistance paused: your included time ran out. Add time, then explicitly resume the meeting.".to_owned()
     } else if message.contains("sign_in_required") {
@@ -4453,7 +4891,7 @@ fn set_meeting_listening(
         #[cfg(any(target_os = "macos", target_os = "windows"))]
         cancel_reasoning(state);
         // Close both transports so buffered tails cannot enter a later resume.
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
         {
             if let Ok(mut stop) = state.transcription_stop.lock() {
                 if let Some(stop) = stop.take() {
@@ -4627,7 +5065,7 @@ async fn resume_meeting(session_id: String, app: AppHandle) -> Result<MeetingSes
                 let session = set_meeting_listening(session_id.clone(), true, app, state)?;
                 // Install workers before releasing either the application or resume
                 // lock. A deferred restart could attach after a later pause/resume.
-                #[cfg(target_os = "macos")]
+                #[cfg(any(target_os = "macos", target_os = "windows"))]
                 {
                     if let Err(error) = start_transcription_worker(app, state, parsed) {
                         log::warn!("transcription could not reattach: {error}");
@@ -6515,6 +6953,13 @@ pub fn run() {
             open_meeting_transcript,
             delete_meeting,
             add_client_folder,
+            source_connections,
+            source_connect,
+            source_disconnect,
+            source_search,
+            attach_connected_source,
+            remove_connected_source,
+            refresh_connected_sources,
             remove_client_context,
             list_client_documents,
             set_client_document_selection,
@@ -6551,6 +6996,553 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    #[test]
+    #[ignore = "driven by the backend connected-source E2E fixture"]
+    fn connected_source_e2e_bridge() {
+        use super::*;
+        use tauri::Manager;
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct SourceCase {
+            provider: String,
+            kind: String,
+            query: String,
+            account_id: String,
+        }
+        #[derive(Deserialize)]
+        struct Fixture {
+            directory: PathBuf,
+            service_url: String,
+            phase: String,
+            token_file: Option<PathBuf>,
+            #[serde(default)]
+            sources: Vec<SourceCase>,
+            model_question: Option<String>,
+            model_expected: Option<String>,
+            model_alternative: Option<String>,
+        }
+        let input = std::env::var("SAVVY_CONNECTED_E2E_IN").unwrap();
+        let output = std::env::var("SAVVY_CONNECTED_E2E_OUT").unwrap();
+        let fixture: Fixture = serde_json::from_slice(&fs::read(input).unwrap()).unwrap();
+        let sources = if fixture.sources.is_empty() {
+            vec![
+                SourceCase {
+                    provider: "hubspot".into(),
+                    kind: "company".into(),
+                    query: "Acme".into(),
+                    account_id: "hubspot-account".into(),
+                },
+                SourceCase {
+                    provider: "googledrive".into(),
+                    kind: "document".into(),
+                    query: "Playbook".into(),
+                    account_id: "googledrive-account".into(),
+                },
+            ]
+        } else {
+            fixture.sources
+        };
+        fs::create_dir_all(&fixture.directory).unwrap();
+        let token = fixture
+            .token_file
+            .as_ref()
+            .map(|path| {
+                serde_json::from_slice::<serde_json::Value>(&fs::read(path).unwrap()).unwrap()
+                    ["access_token"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned()
+            })
+            .unwrap_or_else(|| "a".into());
+        managed::install_connected_e2e_service(&fixture.service_url, &token);
+        let settings = AppSettings {
+            service_mode: ServiceMode::Managed,
+            ..AppSettings::default()
+        };
+        let app = tauri::test::mock_builder()
+            .manage(AppState {
+                storage: Mutex::new(
+                    Storage::open(&fixture.directory.join("desktop.sqlite")).unwrap(),
+                ),
+                live_meeting: Mutex::new(None),
+                settings: Mutex::new(settings),
+                app_operation: Mutex::new(false),
+                settings_path: fixture.directory.join("settings.json"),
+                provider_health: Mutex::new(Vec::new()),
+                #[cfg(any(target_os = "macos", target_os = "windows"))]
+                microphone: Mutex::new(MicrophoneCapture::new()),
+                #[cfg(any(target_os = "macos", target_os = "windows"))]
+                system_audio: Mutex::new(SystemAudioCapture::new()),
+                #[cfg(any(target_os = "macos", target_os = "windows"))]
+                transcription_stop: Mutex::new(None),
+                #[cfg(any(target_os = "macos", target_os = "windows"))]
+                transcription_assembly: Mutex::new(None),
+                #[cfg(any(target_os = "macos", target_os = "windows"))]
+                codex_server: Mutex::new(None),
+                #[cfg(any(target_os = "macos", target_os = "windows"))]
+                claude_child: Mutex::new(None),
+            })
+            .invoke_handler(tauri::generate_handler![source_connections, source_search])
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .unwrap();
+        let invoke = |command: &str, body: serde_json::Value| {
+            tauri::test::get_ipc_response(
+                &webview,
+                tauri::webview::InvokeRequest {
+                    cmd: command.into(),
+                    callback: tauri::ipc::CallbackFn(0),
+                    error: tauri::ipc::CallbackFn(1),
+                    url: if cfg!(target_os = "windows") {
+                        "http://tauri.localhost"
+                    } else {
+                        "tauri://localhost"
+                    }
+                    .parse()
+                    .unwrap(),
+                    body: tauri::ipc::InvokeBody::Json(body),
+                    headers: Default::default(),
+                    invoke_key: tauri::test::INVOKE_KEY.into(),
+                },
+            )
+        };
+        let state = app.state::<AppState>();
+        let client = if fixture.phase == "fresh" {
+            let root = fixture.directory.join("client");
+            fs::create_dir_all(&root).unwrap();
+            let client = ClientWorkspace::new("Acme", root);
+            state.storage.lock().unwrap().save_client(&client).unwrap();
+            let status: serde_json::Value = invoke("source_connections", serde_json::json!({}))
+                .unwrap()
+                .deserialize()
+                .unwrap();
+            for source in &sources {
+                assert!(status["connections"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|item| item["provider"] == source.provider && item["connected"] == true));
+            }
+            for source in &sources {
+                let search: serde_json::Value = invoke(
+                    "source_search",
+                    serde_json::json!({"provider": source.provider, "kind": source.kind, "accountId": source.account_id, "query": source.query, "cursor": null}),
+                )
+                .unwrap()
+                .deserialize()
+                .unwrap();
+                let record: SourceRecord =
+                    serde_json::from_value(search["records"][0].clone()).unwrap();
+                attach_connected_source_inner(&state, &client.id.to_string(), record).unwrap();
+            }
+            client
+        } else {
+            state
+                .storage
+                .lock()
+                .unwrap()
+                .list_clients()
+                .unwrap()
+                .pop()
+                .unwrap()
+        };
+        let refresh = refresh_connected_sources_inner(&state, &client.id.to_string()).unwrap();
+        assert_eq!(refresh.len(), sources.len());
+        assert!(refresh.iter().all(|item| item.status
+            == if fixture.phase == "fresh" {
+                "fresh"
+            } else {
+                "failed"
+            }));
+        let selected = state
+            .storage
+            .lock()
+            .unwrap()
+            .list_clients()
+            .unwrap()
+            .pop()
+            .unwrap();
+        let primary_path = selected
+            .connected_sources
+            .iter()
+            .find(|item| item.provider == sources[0].provider)
+            .unwrap()
+            .relative_path
+            .clone();
+        let brief = general_guidelines_brief(&state.settings.lock().unwrap());
+        let (stale, excluded) = if fixture.phase == "fresh" {
+            (vec![], vec![])
+        } else {
+            (vec![primary_path.clone()], vec![primary_path])
+        };
+        let snapshot =
+            build_context_pack(&state, Some(client.id), None, &brief, "en", &[], &stale).unwrap();
+        let evidence =
+            retrieve_snapshot_evidence(&snapshot, "Acme renewal price implementation capacity", 6);
+        assert_eq!(evidence.len(), sources.len());
+        let excluded_snapshot =
+            build_context_pack(&state, Some(client.id), None, &brief, "en", &excluded, &[])
+                .unwrap();
+        let excluded_evidence = retrieve_snapshot_evidence(
+            &excluded_snapshot,
+            "Acme renewal price implementation capacity",
+            6,
+        );
+        if fixture.phase != "fresh" {
+            assert_eq!(excluded_evidence.len(), sources.len() - 1);
+            assert!(evidence
+                .iter()
+                .any(|item| item.locator.label.contains("stale copy")));
+        }
+        let mut model_request = None;
+        let mut model_advice = None;
+        if fixture.phase == "fresh" && std::env::var_os("SAVVY_CONNECTED_E2E_MODEL").is_some() {
+            let settings = AppSettings::default();
+            let expected = fixture.model_expected.as_deref().unwrap_or("24,000");
+            let alternative = fixture.model_alternative.as_deref().unwrap_or("18,000");
+            let question = fixture
+                .model_question
+                .as_deref()
+                .unwrap_or("What renewal price is in the Acme CRM record?");
+            let crm_id = evidence
+                .iter()
+                .find(|source| source.excerpt.contains(expected))
+                .unwrap()
+                .chunk_id;
+            if fixture.model_expected.is_some() {
+                let session = MeetingSession {
+                    id: Uuid::new_v4(),
+                    client_id: Some(client.id),
+                    brief_id: None,
+                    state: MeetingState::Recording,
+                    started_at: Utc::now(),
+                    ended_at: None,
+                    audio_path: None,
+                    context_pack_hash: snapshot.hash.clone(),
+                    source_index_revision: snapshot.source_revision.clone(),
+                };
+                *state.live_meeting.lock().unwrap() = Some(LiveMeeting {
+                    session: session.clone(),
+                    outline: OutlineTracker::new(brief.agenda.clone(), 0.12),
+                    context: RollingContext::new(90_000),
+                    trigger_detector: TriggerDetector::new(Vec::new()),
+                    context_pack: snapshot.clone(),
+                    ledger: MeetingLedger::default(),
+                    coordinator: RecommendationCoordinator::new(session.id),
+                    last_scan_ms: 0,
+                    scan_turn_ids: Vec::new(),
+                    scan_accelerated: false,
+                    provider_warning_sent: false,
+                    started_monotonic: std::time::Instant::now(),
+                    brief: brief.clone(),
+                });
+            }
+            for answer in [expected, alternative] {
+                let request = if fixture.model_expected.is_some() {
+                    let seed = {
+                        let mut meeting = state.live_meeting.lock().unwrap();
+                        let live = meeting.as_mut().unwrap();
+                        if answer != expected {
+                            let source = live
+                                .context_pack
+                                .client_sources
+                                .iter_mut()
+                                .find(|source| source.chunk_id == crm_id)
+                                .unwrap();
+                            source.excerpt = source.excerpt.replace(expected, answer);
+                        }
+                        let turn = TranscriptTurn {
+                            id: Uuid::new_v4(),
+                            session_id: live.session.id,
+                            channel: SpeakerChannel::Other,
+                            text: question.into(),
+                            language: "en".into(),
+                            start_ms: 40_000,
+                            end_ms: 42_000,
+                            is_final: true,
+                            confidence: 0.95,
+                        };
+                        live.context.push(turn.clone());
+                        live.coordinator.observe_turn();
+                        generation_seed(live, vec![turn.id], Trigger::Manual, None, turn.end_ms)
+                    };
+                    prepare_generation(&state, seed).unwrap().request
+                } else {
+                    let mut request = synthetic_opportunity_request(&[question]);
+                    request.trigger = Trigger::Manual;
+                    request.evidence = evidence.clone();
+                    if answer != expected {
+                        let crm = request
+                            .evidence
+                            .iter_mut()
+                            .find(|source| source.chunk_id == crm_id)
+                            .unwrap();
+                        crm.excerpt = crm.excerpt.replace(expected, answer);
+                    }
+                    request
+                };
+                assert!(request
+                    .evidence
+                    .iter()
+                    .any(|source| source.chunk_id == crm_id));
+                let prompt = build_recommendation_prompt(&request).unwrap();
+                let advice = run_provider_json::<ProviderAdvice>(
+                    "codex",
+                    &prompt,
+                    &settings.codex_model,
+                    &settings.codex_service_tier,
+                    ProviderRequest {
+                        schema: PROVIDER_OUTPUT_SCHEMA,
+                        result_name: "advice",
+                        timeout_seconds: 90,
+                        reasoning_effort: "low",
+                        cancellation: None,
+                    },
+                )
+                .unwrap();
+                assert_eq!(advice.action, "show");
+                assert!(advice.evidence_ids.contains(&crm_id));
+                assert!(format!("{} {}", advice.say, advice.rationale).contains(answer));
+                if answer == expected {
+                    model_request = Some(request.to_wire());
+                    model_advice = Some(advice.clone());
+                }
+                let resolved =
+                    resolve_provider_advice(Uuid::new_v4(), request, advice, "codex", None)
+                        .unwrap();
+                assert!(resolved.recommendation.is_some());
+            }
+        }
+        let wire = evidence
+            .iter()
+            .map(savvy_providers::WireEvidence::from)
+            .collect::<Vec<_>>();
+        let excluded_wire = excluded_evidence
+            .iter()
+            .map(savvy_providers::WireEvidence::from)
+            .collect::<Vec<_>>();
+        fs::write(output, serde_json::to_vec(&serde_json::json!({"evidence": wire, "excluded": excluded_wire, "refresh": refresh, "modelRequest": model_request, "modelAdvice": model_advice})).unwrap()).unwrap();
+        managed::clear_connected_e2e_service();
+    }
+
+    #[test]
+    fn failed_source_import_preserves_selection_and_retry_reindexes() {
+        for preexisting_copy in [false, true] {
+            let root = std::env::temp_dir().join(format!("savvy-import-retry-{}", Uuid::new_v4()));
+            let folder = root.join("client");
+            fs::create_dir_all(&folder).unwrap();
+            let mut storage = Storage::open(&root.join("desktop.sqlite")).unwrap();
+            let client = ClientWorkspace::new("Acme", folder.clone());
+            storage.save_client(&client).unwrap();
+            for index in 0..100 {
+                fs::write(
+                    folder.join(format!("existing-{index}.md")),
+                    "Existing evidence",
+                )
+                .unwrap();
+            }
+            let source = SourceRecord {
+                provider: "notion".into(),
+                kind: "page".into(),
+                account_id: "account-1".into(),
+                record_id: "page-1".into(),
+            };
+            let relative = source_filename(&source).unwrap();
+            let record = || FetchedSource {
+                provider: source.provider.clone(),
+                kind: source.kind.clone(),
+                account_id: source.account_id.clone(),
+                record_id: source.record_id.clone(),
+                title: "Acme pilot".into(),
+                url: "https://example.com/acme".into(),
+                modified_at: None,
+                content: "# Acme\n\nTwo-week pilot".into(),
+            };
+            if preexisting_copy {
+                fs::write(folder.join(&relative), &record().content).unwrap();
+            }
+            let original = serde_json::to_value(&client).unwrap();
+            assert!(save_connected_source(
+                &mut storage,
+                client.clone(),
+                relative.clone(),
+                record()
+            )
+            .unwrap_err()
+            .contains("indexed"));
+            assert_eq!(
+                serde_json::to_value(&storage.list_clients().unwrap()[0]).unwrap(),
+                original
+            );
+            assert_eq!(folder.join(&relative).exists(), preexisting_copy);
+            if preexisting_copy {
+                assert_eq!(
+                    fs::read_to_string(folder.join(&relative)).unwrap(),
+                    record().content
+                );
+            }
+            fs::remove_file(folder.join("existing-0.md")).unwrap();
+            let attached =
+                save_connected_source(&mut storage, client, relative.clone(), record()).unwrap();
+            assert_eq!(attached.connected_sources.len(), 1);
+            assert_eq!(attached.index_status, IndexStatus::Ready);
+            assert!(storage
+                .source_references_for_scope(ContextSourceKind::Client, attached.id, 1000)
+                .unwrap()
+                .iter()
+                .any(|item| item.relative_path == relative));
+            storage
+                .replace_source_scope(ContextSourceKind::Client, attached.id, &[])
+                .unwrap();
+            let retried =
+                save_connected_source(&mut storage, attached, relative.clone(), record()).unwrap();
+            assert_eq!(retried.connected_sources.len(), 1);
+            assert!(storage
+                .source_references_for_scope(ContextSourceKind::Client, retried.id, 1000)
+                .unwrap()
+                .iter()
+                .any(|item| item.relative_path == relative));
+            drop(storage);
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn saved_source_copy_requires_a_readable_regular_file() {
+        let root =
+            std::env::temp_dir().join(format!("savvy-source-availability-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        let relative = Path::new("source.md");
+        assert!(!source_copy_available(&root, relative));
+        fs::create_dir(root.join(relative)).unwrap();
+        assert!(!source_copy_available(&root, relative));
+        fs::remove_dir(root.join(relative)).unwrap();
+        fs::write(root.join(relative), "Saved evidence").unwrap();
+        assert!(source_copy_available(&root, relative));
+        assert!(!source_copy_available(&root, Path::new("../source.md")));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::{symlink, PermissionsExt};
+            symlink(root.join(relative), root.join("linked.md")).unwrap();
+            assert!(!source_copy_available(&root, Path::new("linked.md")));
+            fs::set_permissions(root.join(relative), fs::Permissions::from_mode(0o000)).unwrap();
+            assert!(!source_copy_available(&root, relative));
+            fs::set_permissions(root.join(relative), fs::Permissions::from_mode(0o600)).unwrap();
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn connected_copy_is_cited_and_user_edits_survive_refresh() {
+        use super::*;
+        let root = std::env::temp_dir().join(format!("savvy-connected-source-{}", Uuid::new_v4()));
+        fs::create_dir(&root).unwrap();
+        let request = SourceRecord {
+            provider: "salesforce".into(),
+            kind: "account".into(),
+            account_id: "account-1".into(),
+            record_id: "record/1".into(),
+        };
+        let relative = source_filename(&request).unwrap();
+        assert_eq!(relative.components().count(), 1);
+        assert_ne!(
+            relative,
+            source_filename(&SourceRecord {
+                kind: "opportunity".into(),
+                ..request.clone()
+            })
+            .unwrap()
+        );
+        let first = write_source_copy(
+            &root,
+            &relative,
+            "# Acme\n\nContract renewal in October",
+            None,
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(root.join(&relative))
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+        }
+        assert_eq!(
+            write_source_copy(
+                &root,
+                &relative,
+                "# Acme\n\nContract renewal in October",
+                Some(&first),
+            )
+            .unwrap(),
+            first
+        );
+        fs::write(
+            root.join("playbook.md"),
+            "# Playbook\n\nProtect implementation capacity",
+        )
+        .unwrap();
+        let (readiness, chunks) =
+            scan_source_scope(Some(&root), ContextSourceKind::Client, Uuid::new_v4());
+        assert_eq!(readiness.index_status, IndexStatus::Ready);
+        assert!(chunks
+            .iter()
+            .any(|chunk| chunk.source.relative_path == relative
+                && chunk.source.excerpt.contains("Contract renewal")));
+        let mut meeting = scan_meeting(&[]);
+        meeting.context_pack.client_sources =
+            chunks.into_iter().map(|chunk| chunk.source).collect();
+        let citations = retrieve_snapshot_evidence(
+            &meeting.context_pack,
+            "contract renewal and implementation capacity",
+            6,
+        );
+        assert!(citations
+            .iter()
+            .any(|citation| citation.relative_path == relative));
+        assert!(citations
+            .iter()
+            .any(|citation| citation.relative_path.as_path() == Path::new("playbook.md")));
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        {
+            let mut request = synthetic_opportunity_request(&["What changed for Acme?"]);
+            request.evidence = citations.clone();
+            let wire = request.to_wire();
+            assert!(wire
+                .evidence
+                .iter()
+                .any(|item| item.relative_path == relative));
+            assert!(wire
+                .evidence
+                .iter()
+                .any(|item| item.relative_path.as_path() == Path::new("playbook.md")));
+        }
+        fs::write(root.join(&relative), "# My edits\n\nDo not overwrite").unwrap();
+        assert!(write_source_copy(
+            &root,
+            &relative,
+            "# Acme\n\nNew upstream text",
+            Some(&first)
+        )
+        .unwrap_err()
+        .contains("preserved"));
+        assert_eq!(
+            fs::read_to_string(root.join(&relative)).unwrap(),
+            "# My edits\n\nDo not overwrite"
+        );
+        fs::write(root.join(&relative), b"\xff").unwrap();
+        assert!(write_source_copy(&root, &relative, "# Acme", Some(&first)).is_err());
+        assert_eq!(fs::read(root.join(&relative)).unwrap(), b"\xff");
+        fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn unavailable_capture_pauses_managed_assistance_and_explains_restart() {
         assert!(super::is_terminal_managed_failure("capture_unavailable"));

@@ -1,3 +1,4 @@
+import { Alert, Button, Input } from "./ui";
 import { useEffect, useRef, useState } from "react";
 import AudioCheck from "./AudioCheck";
 import {
@@ -163,7 +164,7 @@ export default function MeetingReadiness({
           <dd>{reading?.assistance ?? pending}</dd>
         </div>
       </dl>
-      {error && <p role="alert">Could not check readiness: {error}</p>}
+      {error && <Alert role="alert">Could not check readiness: {error}</Alert>}
       <p>
         {reading?.allowance != null &&
           `${Math.floor(reading.allowance / 60000)} minutes available. `}
@@ -184,33 +185,27 @@ export default function MeetingReadiness({
         )}
       </p>
       <div className="onboarding-actions">
-        <button
-          className="button secondary"
+        <Button
           disabled={busy || audioOpen}
           onClick={() => setRevision((value) => value + 1)}
         >
           Recheck
-        </button>
-        <button
-          className="button secondary"
-          disabled={busy || audioOpen}
-          onClick={onConfigure}
-        >
+        </Button>
+        <Button disabled={busy || audioOpen} onClick={onConfigure}>
           Account and providers
-        </button>
+        </Button>
         {native && (
-          <button
-            className="button secondary"
+          <Button
             disabled={busy}
             onClick={() => setAudioOpen((value) => !value)}
           >
             {audioOpen ? "Close audio check" : "Check audio"}
-          </button>
+          </Button>
         )}
       </div>
       {reading && !reading.assistanceAvailable && (
         <label>
-          <input
+          <Input
             type="checkbox"
             checked={allowUnavailableAI}
             disabled={busy}
@@ -226,11 +221,11 @@ export default function MeetingReadiness({
         />
       )}
       <div className="onboarding-actions readiness-actions">
-        <button className="button secondary" disabled={busy} onClick={onBack}>
+        <Button disabled={busy} onClick={onBack}>
           Back
-        </button>
-        <button
-          className="button primary"
+        </Button>
+        <Button
+          variant="primary"
           disabled={
             busy ||
             audioOpen ||
@@ -240,7 +235,7 @@ export default function MeetingReadiness({
           onClick={onStart}
         >
           {busy ? "Starting…" : "Start meeting"}
-        </button>
+        </Button>
       </div>
     </div>
   );

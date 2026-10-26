@@ -19,6 +19,8 @@ import type {
   TranscriptTurn,
   TranscriptionKeyStatus,
   ClientDocument,
+  SourceRecord,
+  SourceRefresh,
 } from "../types";
 
 declare global {
@@ -533,6 +535,73 @@ export async function setClientDocumentSelection(
   });
 }
 
+export type SourceConnection = {
+  provider: string;
+  accountId: string | null;
+  connected: boolean;
+  status?: string;
+};
+export async function sourceConnections(): Promise<SourceConnection[]> {
+  if (!window.__TAURI_INTERNALS__)
+    return [
+      "salesforce",
+      "hubspot",
+      "gmail",
+      "outlook",
+      "notion",
+      "googledrive",
+    ].map((provider) => ({ provider, accountId: null, connected: false }));
+  const result = await invoke<{ connections: SourceConnection[] }>(
+    "source_connections",
+  );
+  return result.connections;
+}
+export async function sourceConnect(provider: string): Promise<string> {
+  if (!window.__TAURI_INTERNALS__) return "";
+  return invoke("source_connect", { provider });
+}
+export async function sourceDisconnect(provider: string): Promise<void> {
+  if (!window.__TAURI_INTERNALS__) return;
+  return invoke("source_disconnect", { provider });
+}
+export async function sourceSearch(
+  provider: string,
+  kind: string,
+  accountId: string,
+  query: string,
+  cursor?: string | null,
+): Promise<{ records: SourceRecord[]; nextCursor: string | null }> {
+  if (!window.__TAURI_INTERNALS__) return { records: [], nextCursor: null };
+  return invoke("source_search", { provider, kind, accountId, query, cursor });
+}
+export async function attachConnectedSource(
+  clientId: string,
+  source: SourceRecord,
+): Promise<ClientWorkspace> {
+  if (!window.__TAURI_INTERNALS__)
+    throw new Error("Connected sources require the desktop app.");
+  return invoke("attach_connected_source", { clientId, source });
+}
+export async function removeConnectedSource(
+  clientId: string,
+  source: SourceRecord,
+): Promise<ClientWorkspace> {
+  if (!window.__TAURI_INTERNALS__) return demoClient;
+  return invoke("remove_connected_source", {
+    clientId,
+    provider: source.provider,
+    kind: source.kind,
+    accountId: source.accountId,
+    recordId: source.recordId,
+  });
+}
+export async function refreshConnectedSources(
+  clientId: string,
+): Promise<SourceRefresh[]> {
+  if (!window.__TAURI_INTERNALS__) return [];
+  return invoke("refresh_connected_sources", { clientId });
+}
+
 export async function removeClientContext(clientId: string): Promise<void> {
   if (!window.__TAURI_INTERNALS__) {
     // Mutate the browser fixtures too, otherwise removal silently does nothing in
@@ -691,6 +760,8 @@ export async function startMeeting(
   clientId: string | null,
   briefId: string | null,
   reviewedContent?: string,
+  excludeSourcePaths: string[] = [],
+  staleSourcePaths: string[] = [],
 ): Promise<MeetingSession> {
   if (!window.__TAURI_INTERNALS__) {
     if (browserSettings.serviceMode === "managed") {
@@ -731,6 +802,8 @@ export async function startMeeting(
     clientId,
     briefId,
     expectedBriefHash,
+    excludeSourcePaths,
+    staleSourcePaths,
   });
 }
 

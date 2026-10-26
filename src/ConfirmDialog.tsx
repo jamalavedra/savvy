@@ -1,18 +1,23 @@
+import { Button } from "./ui";
 import { useEffect, useRef } from "react";
 export default function ConfirmDialog({
   title,
   children,
   confirm,
+  cancelLabel = "Cancel",
   onConfirm,
   onCancel,
   busy = false,
+  confirmVariant = "primary",
 }: {
   title: string;
   children: React.ReactNode;
   confirm: string;
+  cancelLabel?: string;
   onConfirm: () => void;
   onCancel: () => void;
   busy?: boolean;
+  confirmVariant?: "primary" | "secondary" | "danger";
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const cancel = useRef<HTMLButtonElement>(null);
@@ -39,17 +44,12 @@ export default function ConfirmDialog({
       <h2>{title}</h2>
       {children}
       <div className="onboarding-actions">
-        <button
-          className="button secondary"
-          ref={cancel}
-          onClick={onCancel}
-          disabled={busy}
-        >
-          Cancel
-        </button>
-        <button className="button" onClick={onConfirm} disabled={busy}>
+        <Button ref={cancel} onClick={onCancel} disabled={busy}>
+          {cancelLabel}
+        </Button>
+        <Button variant={confirmVariant} onClick={onConfirm} disabled={busy}>
           {confirm}
-        </button>
+        </Button>
       </div>
     </dialog>
   );

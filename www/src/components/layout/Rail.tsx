@@ -19,10 +19,11 @@ export function Rail({ active = "/" }: { active?: string }) {
             <Link
               key={item.href}
               href={item.href}
+              aria-current={item.href === active ? "page" : undefined}
               className={
                 item.href === active
-                  ? "font-semibold"
-                  : "text-muted transition-colors hover:text-foreground"
+                  ? "focus-ring font-semibold"
+                  : "focus-ring text-muted transition-colors hover:text-foreground"
               }
             >
               {item.label}

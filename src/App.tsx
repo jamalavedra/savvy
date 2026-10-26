@@ -1,3 +1,4 @@
+import { Button, Input, Textarea, Alert } from "./ui";
 import { MeetingDetails } from "./MeetingDetails";
 import { transcriptionModels } from "./lib/transcriptionModels";
 import ConfirmDialog from "./ConfirmDialog";
@@ -9,16 +10,20 @@ import {
   briefReviewPages,
 } from "./lib/briefReview";
 import ManagedAccount from "./ManagedAccount";
+import ConnectedSources from "./ConnectedSources";
 import {
   useCallback,
   useEffect,
   useEffectEvent,
   useMemo,
+  useId,
+  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
   type SVGProps,
 } from "react";
+import { createPortal } from "react-dom";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
@@ -37,6 +42,7 @@ import {
   MicOff,
   Pause,
   Play,
+  Plug,
   RotateCcw,
   Settings,
   Sparkles,
@@ -87,6 +93,7 @@ import {
   setTranscriptionApiKey,
   setShortcutRecording,
   startMeeting,
+  refreshConnectedSources,
   stopMeeting,
   updateAppSettings,
 } from "./lib/api";
@@ -122,6 +129,7 @@ import type {
   TranscriptionKeyStatus,
   ClientDocument,
   DocumentKind,
+  SourceRefresh,
 } from "./types";
 
 type View =
@@ -220,6 +228,12 @@ function App() {
   const contextSelectionInFlight = useRef(false);
   const preparationRead = useRef(0);
   const [busy, setBusy] = useState(false);
+  const [sourcesOpen, setSourcesOpen] = useState(false);
+  const [sourceRefreshes, setSourceRefreshes] = useState<SourceRefresh[]>([]);
+  const [staleDecision, setStaleDecision] = useState<{
+    source: SourceRefresh;
+    resolve: (useCopy: boolean) => void;
+  } | null>(null);
   const [readinessOpen, setReadinessOpen] = useState(false);
   const [readinessBrief, setReadinessBrief] = useState<NegotiationBrief | null>(
     null,
@@ -894,11 +908,37 @@ function App() {
           }
         }
       }
+      const excludeSourcePaths: string[] = [];
+      const staleSourcePaths: string[] = [];
+      if (
+        appSettings?.serviceMode === "managed" &&
+        activeClient?.connectedSources?.length
+      ) {
+        const results = await refreshConnectedSources(activeClient.id);
+        setSourceRefreshes(results);
+        await refreshDashboard();
+        for (const result of results) {
+          if (result.status === "fresh") continue;
+          const useCopy =
+            result.refreshedAt && result.savedCopyAvailable === true
+              ? await new Promise<boolean>((resolve) =>
+                  setStaleDecision({ source: result, resolve }),
+                )
+              : false;
+          if (!useCopy) {
+            excludeSourcePaths.push(result.relativePath);
+          } else {
+            staleSourcePaths.push(result.relativePath);
+          }
+        }
+      }
       const meetingBrief = brief;
       const session = await startMeeting(
         activeClient?.id ?? null,
         meetingBrief?.id ?? null,
         meetingBrief?.documentContent,
+        excludeSourcePaths,
+        staleSourcePaths,
       );
       setReadinessOpen(false);
       setTranscriptTurns([]);
@@ -990,19 +1030,18 @@ function App() {
   if (!dashboard)
     return dashboardError ? (
       <div className="startup-error">
-        <p role="alert" tabIndex={0}>
-          Could not load Savvy: {dashboardError}
-        </p>
-        <button
+        <Alert tabIndex={0}>Could not load Savvy: {dashboardError}</Alert>
+        <Button
+          variant="primary"
           type="button"
-          className="button primary"
+
           onClick={() => {
             setDashboardError(null);
             setDashboardAttempt((attempt) => attempt + 1);
           }}
         >
           Retry loading
-        </button>
+        </Button>
       </div>
     ) : (
       <LoadingState />
@@ -1095,9 +1134,9 @@ function App() {
 
       <main className="workspace">
         {contextSelection && (
-          <div
+          <Alert
             className="error-banner"
-            role={contextSelection.error ? "alert" : "status"}
+            variant={contextSelection.error ? "error" : "info"}
           >
             <span>
               {contextSelection.error
@@ -1105,8 +1144,9 @@ function App() {
                 : "Saving context selection…"}
             </span>
             {contextSelection.error && (
-              <button
-                className="button secondary"
+              <Button
+                variant="secondary"
+
                 onClick={() =>
                   void saveContextSelection(
                     contextSelection.clientId,
@@ -1115,22 +1155,23 @@ function App() {
                 }
               >
                 Retry context selection
-              </button>
+              </Button>
             )}
-          </div>
+          </Alert>
         )}
         {error && (
-          <div className="error-banner" role="alert">
+          <Alert className="error-banner">
             <span>{error}</span>
-            <button
+            <Button
+              variant="plain"
               type="button"
               aria-label="Dismiss alert"
               title="Dismiss"
               onClick={() => setError(null)}
             >
               <X />
-            </button>
-          </div>
+            </Button>
+          </Alert>
         )}
         <div className="page-scroll">
           {briefProgress && view === "prepare" && (
@@ -1204,13 +1245,37 @@ function App() {
                 dashboard={dashboard}
                 activeClient={activeClient}
                 preparation={preparation}
-                onSelectClient={setActiveClientId}
+                onSelectClient={(id) => {
+                  setActiveClientId(id);
+                  setSourceRefreshes([]);
+                }}
                 onAddClient={addClient}
+                sourcesOpen={sourcesOpen}
+                onToggleSources={() => setSourcesOpen((open) => !open)}
                 onRemoveClient={(client) => {
                   setError(null);
                   setPendingRemoval({ kind: "client", client });
                 }}
                 onSelectionChange={saveContextSelection}
+                sourceRefreshes={sourceRefreshes}
+                onClientChange={(updated) => {
+                  setDashboard((current) =>
+                    current
+                      ? {
+                          ...current,
+                          clients: current.clients.map((item) =>
+                            item.id === updated.id ? updated : item,
+                          ),
+                        }
+                      : current,
+                  );
+                  setPreparation((current) =>
+                    current?.client?.id === updated.id
+                      ? { ...current, client: updated }
+                      : current,
+                  );
+                  setSourceRefreshes([]);
+                }}
                 objective={meetingObjective}
                 onObjectiveChange={setMeetingObjective}
                 generationPrompt={appSettings?.briefGenerationPrompt ?? ""}
@@ -1273,6 +1338,7 @@ function App() {
               : "Unselect brief?"
           }
           confirm={busy ? "Removing…" : "Remove"}
+          confirmVariant="danger"
           busy={busy}
           onCancel={() => setPendingRemoval(null)}
           onConfirm={() => {
@@ -1286,7 +1352,31 @@ function App() {
               ? `Remove ${pendingRemoval.client.name} from Savvy? This removes its local briefs and meeting history. The source folder and its files stay untouched.`
               : "The meeting will run on general guidelines only. The Markdown file stays on disk."}
           </p>
-          {error && <p role="alert">{error}</p>}
+          {error && <Alert>{error}</Alert>}
+        </ConfirmDialog>
+      )}
+      {staleDecision && (
+        <ConfirmDialog
+          key={staleDecision.source.relativePath}
+          title="Source refresh failed"
+          confirm="Use saved copy"
+          cancelLabel="Exclude for this call"
+          onCancel={() => {
+            setStaleDecision(null);
+            staleDecision.resolve(false);
+          }}
+          onConfirm={() => {
+            setStaleDecision(null);
+            staleDecision.resolve(true);
+          }}
+        >
+          <p>
+            {staleDecision.source.title} could not be refreshed:{" "}
+            {staleDecision.source.error ?? staleDecision.source.status}. The
+            saved copy from{" "}
+            {new Date(staleDecision.source.refreshedAt!).toLocaleString()} will
+            be marked stale if you use it in this meeting.
+          </p>
         </ConfirmDialog>
       )}
       <AppFooter
@@ -1313,7 +1403,8 @@ function NavButton({
 }) {
   const Icon = icon;
   return (
-    <button
+    <Button
+      variant="plain"
       className={`nav-button ${active ? "active" : ""}`}
       onClick={onClick}
       aria-current={active ? "page" : undefined}
@@ -1322,7 +1413,7 @@ function NavButton({
         <Icon width={24} height={24} />
       </span>
       <span>{label}</span>
-    </button>
+    </Button>
   );
 }
 
@@ -1332,8 +1423,12 @@ function PrepareView({
   preparation,
   onSelectClient,
   onAddClient,
+  sourcesOpen,
+  onToggleSources,
   onRemoveClient,
   onSelectionChange,
+  sourceRefreshes,
+  onClientChange,
   objective,
   onObjectiveChange,
   generationPrompt,
@@ -1360,11 +1455,15 @@ function PrepareView({
   preparation: PreparationSnapshot | null;
   onSelectClient: (id: string | null) => void;
   onAddClient: () => void;
+  sourcesOpen: boolean;
+  onToggleSources: () => void;
   onRemoveClient: (client: ClientWorkspace) => void;
   onSelectionChange: (
     clientId: string,
     excludedPaths: string[],
   ) => Promise<void>;
+  sourceRefreshes: SourceRefresh[];
+  onClientChange: (client: ClientWorkspace) => void;
   objective: string;
   onObjectiveChange: (value: string) => void;
   generationPrompt: string;
@@ -1409,6 +1508,7 @@ function PrepareView({
       ),
   );
   const guidanceFolderName = guidanceFolder?.split(/[\\/]/).pop() ?? null;
+  const selectedSourceCount = activeClient?.connectedSources?.length ?? 0;
 
   return (
     <div className="page-content prepare-page">
@@ -1432,7 +1532,8 @@ function PrepareView({
             />
             {activeClient && <span className="prepare-tag">this client</span>}
             {activeClient && (
-              <button
+              <Button
+                variant="plain"
                 type="button"
                 className="prepare-card-expand"
                 aria-label={documentsOpen ? "Hide documents" : "Show documents"}
@@ -1443,38 +1544,98 @@ function PrepareView({
                 <ChevronDown
                   className={`chevron ${documentsOpen ? "open" : ""}`}
                 />
-              </button>
+              </Button>
             )}
           </div>
           {activeClient && documentsOpen && (
             <div id="client-documents-panel" className="prepare-card-body">
               <ClientDocumentList
-                key={activeClient.id}
+                key={`${activeClient.id}:${activeClient.lastIndexedAt ?? ""}`}
                 client={activeClient}
                 disabled={busy || settingsBusy}
                 onSelectionChange={onSelectionChange}
               />
               <div className="prepare-card-actions">
-                <button
-                  className="button secondary"
+                <Button
+                  variant="secondary"
+
                   disabled={busy || settingsBusy}
                   onClick={() => void revealPath(activeClient.folderPath)}
                 >
                   <FolderOpen /> Open client folder
-                </button>
-                <button
-                  className="button danger"
+                </Button>
+                <Button
+                  variant="danger"
+
                   disabled={busy || settingsBusy}
                   onClick={() => onRemoveClient(activeClient)}
                 >
                   <Trash2 /> Remove client
-                </button>
+                </Button>
               </div>
             </div>
           )}
         </div>
+        {provider === "managed" && (
+          <div className="prepare-card connected-sources-card">
+            <Button
+              variant="plain"
+              className="prepare-card-header"
+              aria-expanded={sourcesOpen}
+              aria-controls="connected-sources-panel"
+              onClick={onToggleSources}
+            >
+              <span className="tile-icon">
+                <Plug />
+              </span>
+              <span className="prepare-card-title">
+                <strong>Connect sources</strong>
+                <small>
+                  Salesforce, HubSpot, Gmail, Outlook, Notion and Google Drive
+                </small>
+              </span>
+              {selectedSourceCount > 0 && (
+                <span className="prepare-tag">
+                  {selectedSourceCount} selected
+                </span>
+              )}
+              <ChevronDown className={`chevron ${sourcesOpen ? "open" : ""}`} />
+            </Button>
+            {sourcesOpen && (
+              <div
+                id="connected-sources-panel"
+                className="prepare-card-body connected-sources-panel"
+              >
+                {activeClient ? (
+                  <ConnectedSources
+                    key={activeClient.id}
+                    client={activeClient}
+                    disabled={busy || settingsBusy}
+                    refreshes={sourceRefreshes}
+                    onClientChange={onClientChange}
+                  />
+                ) : (
+                  <>
+                    <p>
+                      Source records attach to a client. Select a client using
+                      Meeting context above, or add a client folder to connect
+                      sources.
+                    </p>
+                    <Button
+                      disabled={busy || settingsBusy}
+                      onClick={onAddClient}
+                    >
+                      Add client folder to connect sources
+                    </Button>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        )}
         <div className="prepare-card">
-          <button
+          <Button
+            variant="plain"
             type="button"
             className="prepare-card-header"
             aria-expanded={guidelinesOpen}
@@ -1494,7 +1655,7 @@ function PrepareView({
             <ChevronDown
               className={`chevron ${guidelinesOpen ? "open" : ""}`}
             />
-          </button>
+          </Button>
           {guidelinesOpen && (
             <div id="general-guidelines-panel" className="prepare-card-body">
               <GuidanceFolderSetting
@@ -1509,7 +1670,7 @@ function PrepareView({
 
       <section className="prepare-section prepare-objective">
         <label htmlFor="meeting-objective">Meeting objective</label>
-        <input
+        <Input
           id="meeting-objective"
           value={objective}
           maxLength={2000}
@@ -1524,28 +1685,31 @@ function PrepareView({
         </p>
       </section>
       <div className="prepare-main-actions">
-        <button
-          className="button primary"
+        <Button
+          variant="primary"
+
           disabled={busy || settingsBusy || !preparation}
           onClick={() => onPrepareBrief(prompt)}
         >
           Prepare brief
-        </button>
-        <button
-          className="button secondary"
+        </Button>
+        <Button
+          variant="secondary"
+
           onClick={onStartMeeting}
           disabled={busy || settingsBusy || !preparation}
           title={`Check readiness (${formatShortcut(shortcut)})`}
         >
           Check readiness
-        </button>
+        </Button>
       </div>
       <details className="prepare-options">
         <summary>Meeting options</summary>
         <section className="prepare-section">
           <h2 className="group-title">BRIEF AND LANGUAGE</h2>
           <div className="prepare-card">
-            <button
+            <Button
+              variant="plain"
               type="button"
               className="prepare-card-header"
               aria-expanded={promptOpen}
@@ -1558,13 +1722,13 @@ function PrepareView({
               </span>
               <span className="prepare-tag">this brief</span>
               <ChevronDown className={`chevron ${promptOpen ? "open" : ""}`} />
-            </button>
+            </Button>
             {promptOpen && (
               <div id="brief-prompt-panel" className="prepare-card-body">
                 <label htmlFor="brief-generation-prompt">
                   Generation prompt
                 </label>
-                <textarea
+                <Textarea
                   id="brief-generation-prompt"
                   value={prompt}
                   disabled={busy}
@@ -1652,13 +1816,26 @@ function MeetingContextSelector({
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const listId = useId();
+  useLayoutEffect(() => {
+    if (open)
+      ref.current
+        ?.querySelector<HTMLButtonElement>(
+          '[role="option"][aria-selected="true"]',
+        )
+        ?.focus();
+  }, [open]);
   useEffect(() => {
     if (!open) return;
     const close = (event: MouseEvent) => {
       if (!ref.current?.contains(event.target as Node)) setOpen(false);
     };
     const escape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key === "Escape") {
+        trigger.current?.focus();
+        setOpen(false);
+      }
     };
     document.addEventListener("mousedown", close);
     document.addEventListener("keydown", escape);
@@ -1669,10 +1846,25 @@ function MeetingContextSelector({
   }, [open]);
 
   return (
-    <div className="meeting-context-selector" ref={ref}>
-      <button
+    <div
+      className="meeting-context-selector"
+      ref={ref}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
+      }}
+    >
+      <Button
+        variant="plain"
         type="button"
         className="meeting-context-control"
+        ref={trigger}
+        aria-controls={open ? listId : undefined}
+        onKeyDown={(event) => {
+          if (["ArrowDown", "ArrowUp"].includes(event.key)) {
+            event.preventDefault();
+            setOpen(true);
+          }
+        }}
         disabled={disabled}
         aria-label="Meeting context"
         aria-haspopup="listbox"
@@ -1691,53 +1883,63 @@ function MeetingContextSelector({
           </small>
         </span>
         <ChevronsUpDown />
-      </button>
+      </Button>
       {open && !disabled && (
-        <div
-          className="meeting-context-menu"
-          role="listbox"
-          aria-label="Meeting context"
-        >
-          <button
-            type="button"
-            role="option"
-            aria-selected={!selectedClient}
-            className={!selectedClient ? "selected" : ""}
-            onClick={() => {
-              onSelect(null);
-              setOpen(false);
-            }}
+        <div className="meeting-context-menu">
+          <div
+            id={listId}
+            role="listbox"
+            aria-label="Meeting context"
+            onKeyDown={moveListboxFocus}
           >
-            <span className="client-avatar">
-              <Sparkles />
-            </span>
-            <span className="setting-copy">
-              <strong>General guidelines only</strong>
-              <small>No client folder required</small>
-            </span>
-            {!selectedClient && <Check />}
-          </button>
-          {clients.map((client) => (
-            <button
+            <Button
+              variant="plain"
               type="button"
               role="option"
-              aria-selected={client.id === selectedClient?.id}
-              className={client.id === selectedClient?.id ? "selected" : ""}
-              key={client.id}
+              tabIndex={-1}
+              aria-selected={!selectedClient}
+              className={!selectedClient ? "selected" : ""}
               onClick={() => {
-                onSelect(client.id);
+                trigger.current?.focus();
+                onSelect(null);
                 setOpen(false);
               }}
             >
-              <span className="client-avatar">{initials(client.name)}</span>
-              <span className="setting-copy">
-                <strong>{client.name}</strong>
-                <small>{client.documentCount} source documents</small>
+              <span className="client-avatar">
+                <Sparkles />
               </span>
-              {client.id === selectedClient?.id && <Check />}
-            </button>
-          ))}
-          <button
+              <span className="setting-copy">
+                <strong>General guidelines only</strong>
+                <small>No client folder required</small>
+              </span>
+              {!selectedClient && <Check />}
+            </Button>
+            {clients.map((client) => (
+              <Button
+                variant="plain"
+                type="button"
+                role="option"
+                tabIndex={-1}
+                aria-selected={client.id === selectedClient?.id}
+                className={client.id === selectedClient?.id ? "selected" : ""}
+                key={client.id}
+                onClick={() => {
+                  trigger.current?.focus();
+                  onSelect(client.id);
+                  setOpen(false);
+                }}
+              >
+                <span className="client-avatar">{initials(client.name)}</span>
+                <span className="setting-copy">
+                  <strong>{client.name}</strong>
+                  <small>{client.documentCount} source documents</small>
+                </span>
+                {client.id === selectedClient?.id && <Check />}
+              </Button>
+            ))}
+          </div>
+          <Button
+            variant="plain"
             type="button"
             className="add-context-option"
             onClick={() => {
@@ -1751,7 +1953,7 @@ function MeetingContextSelector({
             <span className="setting-copy">
               <strong>Add client folder…</strong>
             </span>
-          </button>
+          </Button>
         </div>
       )}
     </div>
@@ -1837,7 +2039,8 @@ function ClientDocumentList({
   const groups = groupDocuments(documents ?? [], client.name);
   return (
     <div className="document-list">
-      <button
+      <Button
+        variant="plain"
         type="button"
         className="link-button"
         disabled={disabled}
@@ -1850,12 +2053,8 @@ function ClientDocumentList({
         }}
       >
         {error ? "Retry reading documents" : "Refresh documents"}
-      </button>
-      {error && (
-        <p className="document-list-note" role="alert">
-          {error}
-        </p>
-      )}
+      </Button>
+      {error && <Alert className="document-list-note">{error}</Alert>}
       {!documents && !error && (
         <p className="document-list-note" role="status">
           Reading folder…
@@ -1869,7 +2068,8 @@ function ClientDocumentList({
       {documents && !error && (
         <>
           <div className="document-list-toolbar">
-            <button
+            <Button
+              variant="plain"
               type="button"
               className="link-button"
               disabled={
@@ -1878,8 +2078,9 @@ function ClientDocumentList({
               onClick={() => setAll(true)}
             >
               Select all
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="plain"
               type="button"
               className="link-button"
               disabled={
@@ -1888,7 +2089,7 @@ function ClientDocumentList({
               onClick={() => setAll(false)}
             >
               Select none
-            </button>
+            </Button>
             <span className="document-list-note">
               Unselected files stay in the folder
             </span>
@@ -1910,7 +2111,7 @@ function ClientDocumentList({
             return (
               <div key={group.key} className="document-group">
                 <div className="document-group-header">
-                  <input
+                  <Input
                     type="checkbox"
                     aria-label={`${group.label} folder`}
                     checked={allIncluded}
@@ -1931,7 +2132,8 @@ function ClientDocumentList({
                       )
                     }
                   />
-                  <button
+                  <Button
+                    variant="plain"
                     type="button"
                     className="document-group-toggle"
                     aria-expanded={open}
@@ -1949,7 +2151,7 @@ function ClientDocumentList({
                         ? `${group.files.length} not supported`
                         : `${includedCount} of ${groupSupported.length}`}
                     </span>
-                  </button>
+                  </Button>
                 </div>
                 {open &&
                   group.files.map((document) => {
@@ -1960,7 +2162,7 @@ function ClientDocumentList({
                         className={`document-row ${unsupported ? "unsupported" : ""}`}
                         title={document.relativePath}
                       >
-                        <input
+                        <Input
                           type="checkbox"
                           checked={document.included}
                           disabled={disabled || unsupported}
@@ -2077,15 +2279,16 @@ function BriefGenerationProgress({
           ? "Cancelling brief generation… Waiting for the current request to finish."
           : "You can cancel while this runs. Your meeting objective and selected context will be kept."}
       </p>
-      <button
+      <Button
+        variant="secondary"
         type="button"
-        className="button secondary"
+
         aria-label="Cancel brief generation"
         disabled={cancelling || stage === "saving"}
         onClick={onCancel}
       >
         Cancel
-      </button>
+      </Button>
     </section>
   );
 }
@@ -2113,12 +2316,12 @@ function BriefEmptyState({
         </p>
       </div>
       <div className="brief-empty-actions">
-        <button className="button primary" disabled={busy} onClick={onGenerate}>
+        <Button variant="primary" disabled={busy} onClick={onGenerate}>
           <Sparkles /> {busy ? "Generating…" : `Generate with ${providerName}`}
-        </button>
-        <button className="button secondary" disabled={busy} onClick={onImport}>
+        </Button>
+        <Button variant="secondary" disabled={busy} onClick={onImport}>
           Choose Markdown file
-        </button>
+        </Button>
       </div>
     </section>
   );
@@ -2203,24 +2406,26 @@ function BriefReview({
       </section>
       {pages.length > 1 && (
         <nav className="brief-review-links" aria-label="Brief pages">
-          <button
+          <Button
+            variant="plain"
             className="link-button"
             disabled={busy || page === 0}
             onClick={() => changePage(page - 1)}
           >
             Previous page
-          </button>
+          </Button>
           <span role="status">
             Page {page + 1} of {pages.length}. Review every page before
             continuing.
           </span>
-          <button
+          <Button
+            variant="plain"
             className="link-button"
             disabled={busy || page === pages.length - 1}
             onClick={() => changePage(page + 1)}
           >
             Next page
-          </button>
+          </Button>
         </nav>
       )}
       <p className="brief-policy-note">
@@ -2230,34 +2435,42 @@ function BriefReview({
         context.
       </p>
       <div className="brief-review-links">
-        <button
+        <Button
+          variant="plain"
           className="link-button"
           disabled={busy || !brief.documentPath}
           onClick={onOpen}
         >
           Open full brief
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="plain"
           className="link-button"
           disabled={busy || !brief.documentPath}
           onClick={onRefresh}
         >
           Refresh from file
-        </button>
+        </Button>
       </div>
       <div className="onboarding-actions readiness-actions">
-        <button className="link-button" disabled={busy} onClick={onEdit}>
+        <Button
+          variant="plain"
+          className="link-button"
+          disabled={busy}
+          onClick={onEdit}
+        >
           Edit context
-        </button>
-        <button
-          className="button primary"
+        </Button>
+        <Button
+          variant="primary"
+
           disabled={
             busy || !brief.documentContent.trim() || page !== pages.length - 1
           }
           onClick={onReadiness}
         >
           Check readiness
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -2300,7 +2513,8 @@ function BriefPreview({
           </small>
         </span>
         <span className="brief-header-actions">
-          <button
+          <Button
+            variant="plain"
             type="button"
             className="link-button"
             disabled={busy || !hasFile}
@@ -2308,15 +2522,16 @@ function BriefPreview({
             onClick={onOpen}
           >
             Open
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="plain"
             type="button"
             className="link-button"
             disabled={busy || !hasFile}
             onClick={onRefresh}
           >
             Refresh
-          </button>
+          </Button>
         </span>
       </div>
       <div className="brief-markdown-preview">
@@ -2325,26 +2540,28 @@ function BriefPreview({
         )}
       </div>
       <div className="prepare-card-body prepare-card-actions">
-        <button className="button primary" disabled={busy} onClick={onReview}>
+        <Button variant="primary" disabled={busy} onClick={onReview}>
           Review brief
-        </button>
-        <button
-          className="button secondary"
+        </Button>
+        <Button
+          variant="secondary"
+
           disabled={busy}
           onClick={onRegenerate}
         >
           <RotateCcw /> Regenerate
-        </button>
-        <button
-          className="button secondary"
+        </Button>
+        <Button
+          variant="secondary"
+
           disabled={busy}
           onClick={onReplace}
         >
           Choose another file
-        </button>
-        <button className="button danger" disabled={busy} onClick={onRemove}>
+        </Button>
+        <Button variant="danger" disabled={busy} onClick={onRemove}>
           <X /> Unselect brief
-        </button>
+        </Button>
       </div>
     </section>
   );
@@ -2455,7 +2672,8 @@ function RecommendationPreview({
             "Live recommendation"}
         </span>
         {onDismiss && (
-          <button
+          <Button
+            variant="plain"
             className={`recommendation-dismiss ${autoDismiss ? "auto-dismiss" : ""}`}
             type="button"
             onClick={autoDismiss ? onKeep : onDismiss}
@@ -2474,7 +2692,7 @@ function RecommendationPreview({
           >
             <span>{autoDismiss ? "Keep" : "Dismiss"}</span>
             {autoDismiss ? <Pause /> : <X />}
-          </button>
+          </Button>
         )}
       </div>
       <div className="say-block">
@@ -2497,17 +2715,18 @@ function RecommendationPreview({
           <p>{recommendation.avoid}</p>
         </div>
       )}
-      {recommendation?.sources[0] && (
-        <button
-          className="source-button"
-          title={recommendation.sources[0].relativePath}
-        >
-          <span className="source-path">
-            ⌁ {recommendation.sources[0].relativePath}
-          </span>
-          <span>↗</span>
-        </button>
-      )}
+      {recommendation?.sources.map((source) => (
+        <details className="source-citation" key={source.chunkId}>
+          <summary className="source-button" title={source.relativePath}>
+            <span className="source-path">⌁ {source.relativePath}</span>
+            <span>View excerpt</span>
+          </summary>
+          <blockquote>
+            <small>{source.locator.label}</small>
+            <p>{source.excerpt}</p>
+          </blockquote>
+        </details>
+      ))}
     </section>
   );
 }
@@ -2720,13 +2939,15 @@ export function MeetingOverlay({
                   and any further insights.
                 </p>
                 <div>
-                  <button
+                  <Button
+                    variant="plain"
                     type="button"
                     onClick={() => setConfirmingStop(false)}
                   >
                     Keep listening
-                  </button>
-                  <button
+                  </Button>
+                  <Button
+                    variant="plain"
                     type="button"
                     className="danger"
                     onClick={() => {
@@ -2735,14 +2956,12 @@ export function MeetingOverlay({
                     }}
                   >
                     Stop meeting
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}
             {displayedError && (
-              <p className="overlay-error" role="alert">
-                {displayedError}
-              </p>
+              <Alert className="overlay-error">{displayedError}</Alert>
             )}
           </div>
         </div>
@@ -2768,7 +2987,8 @@ export function MeetingOverlay({
             </span>
           </span>
           {lastTurn && (
-            <button
+            <Button
+              variant="plain"
               className={`sx srecommend ${thinking ? "thinking" : ""}`}
               onClick={onRequestRecommendation}
               disabled={
@@ -2782,7 +3002,7 @@ export function MeetingOverlay({
             >
               <Sparkles />
               {!thinking && <span>Advice</span>}
-            </button>
+            </Button>
           )}
         </div>
 
@@ -2800,7 +3020,8 @@ export function MeetingOverlay({
         >
           <h1 className="sr-only">Live transcript</h1>
           <div className="sbase-l">
-            <button
+            <Button
+              variant="plain"
               className="sx spause"
               onClick={onTogglePause}
               disabled={busy || stopped || !session}
@@ -2808,7 +3029,7 @@ export function MeetingOverlay({
               title={paused ? "Unmute microphone" : "Mute microphone"}
             >
               {paused ? <Mic /> : <MicOff />}
-            </button>
+            </Button>
           </div>
           <div className="swave" aria-hidden="true">
             {[0.35, 0.55, 0.8, 1, 0.7, 0.9, 0.6, 0.45, 0.3].map(
@@ -2824,7 +3045,8 @@ export function MeetingOverlay({
           </div>
           <div className="sbase-r">
             <span className="stimer">{elapsedLabel}</span>
-            <button
+            <Button
+              variant="plain"
               className="sx sstop"
               onClick={() => setConfirmingStop(true)}
               disabled={busy || !session}
@@ -2841,7 +3063,7 @@ export function MeetingOverlay({
                   fill="currentColor"
                 />
               </svg>
-            </button>
+            </Button>
           </div>
         </div>
       </section>
@@ -2890,20 +3112,19 @@ function HistoryView() {
     <div className="page-content">
       <section className="settings-group">
         <div className="history-heading">
-          <h2 className="group-title" ref={heading} tabIndex={-1}>
+          <h1 className="group-title" ref={heading} tabIndex={-1}>
             Meeting history
-          </h2>
-          <button
-            className="button"
+          </h1>
+          <Button
+            variant="secondary"
+
             onClick={() => void openRecordingsFolder().catch(reportError)}
           >
             <FolderOpen width={13} height={13} /> Open recordings
-          </button>
+          </Button>
         </div>
         {historyError && !pendingDelete && (
-          <p className="settings-error" role="alert">
-            {historyError}
-          </p>
+          <Alert className="settings-error">{historyError}</Alert>
         )}
         <div className="group-card">
           {meetings === null ? (
@@ -2917,7 +3138,7 @@ function HistoryView() {
               <span className="large-mark">
                 <History width={23} height={23} />
               </span>
-              <h1>Your recordings stay on this {isWindows() ? "PC" : "Mac"}</h1>
+              <h2>Your recordings stay on this {isWindows() ? "PC" : "Mac"}</h2>
               <p>Completed meeting transcripts and insights appear here.</p>
             </div>
           ) : (
@@ -2942,6 +3163,7 @@ function HistoryView() {
       {pendingDelete && (
         <ConfirmDialog
           title="Delete meeting?"
+          confirmVariant="danger"
           confirm={deleting ? "Deleting…" : "Delete permanently"}
           busy={deleting}
           onCancel={() => setPendingDelete(null)}
@@ -2969,9 +3191,7 @@ function HistoryView() {
             insights will be permanently removed.
           </p>
           {historyError && (
-            <p className="settings-error" role="alert">
-              {historyError}
-            </p>
+            <Alert className="settings-error">{historyError}</Alert>
           )}
         </ConfirmDialog>
       )}
@@ -3009,29 +3229,32 @@ function MeetingHistoryRow({
           </small>
         </span>
         <div className="history-actions">
-          <button
-            className="button"
+          <Button
+            variant="secondary"
+
             id={`history-details-${meeting.session.id}`}
             onClick={onOpen}
           >
             View details
-          </button>
-          <button
-            className="button history-transcript-button"
+          </Button>
+          <Button
+            variant="secondary"
+            className="history-transcript-button"
             onClick={() =>
               void openMeetingTranscript(meeting.session.id).catch(onError)
             }
           >
             <FolderOpen width={13} height={13} /> Show transcript file
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="plain"
             className="history-meeting-delete"
             onClick={onDelete}
             aria-label="Delete meeting"
             title="Delete meeting"
           >
             <Trash2 width={13} />
-          </button>
+          </Button>
         </div>
       </header>
       <MeetingAudioPlayer path={meeting.session.audioPath} />
@@ -3044,6 +3267,7 @@ function MeetingAudioPlayer({ path }: { path: string | null }) {
   const [playing, setPlaying] = useState(false);
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [playbackError, setPlaybackError] = useState<string | null>(null);
 
   if (!path)
     return <small className="history-audio-missing">Audio unavailable</small>;
@@ -3056,7 +3280,14 @@ function MeetingAudioPlayer({ path }: { path: string | null }) {
       document.querySelectorAll("audio").forEach((other) => {
         if (other !== player) other.pause();
       });
-      void player.play();
+      setPlaybackError(null);
+      void player
+        .play()
+        .catch(() =>
+          setPlaybackError(
+            "Could not play this recording. Try again or open the recordings folder.",
+          ),
+        );
     } else {
       player.pause();
     }
@@ -3074,7 +3305,8 @@ function MeetingAudioPlayer({ path }: { path: string | null }) {
         onTimeUpdate={(event) => setPosition(event.currentTarget.currentTime)}
         onLoadedMetadata={(event) => setDuration(event.currentTarget.duration)}
       />
-      <button
+      <Button
+        variant="plain"
         className="history-audio-play"
         onClick={togglePlayback}
         aria-label={playing ? "Pause recording" : "Play recording"}
@@ -3084,9 +3316,9 @@ function MeetingAudioPlayer({ path }: { path: string | null }) {
         ) : (
           <Play width={13} fill="currentColor" />
         )}
-      </button>
+      </Button>
       <span>{formatAudioTime(position)}</span>
-      <input
+      <Input
         aria-label="Recording position"
         type="range"
         min="0"
@@ -3100,6 +3332,9 @@ function MeetingAudioPlayer({ path }: { path: string | null }) {
         }}
       />
       <span>{formatAudioTime(duration)}</span>
+      {playbackError && (
+        <Alert className="history-playback-error">{playbackError}</Alert>
+      )}
     </div>
   );
 }
@@ -3359,6 +3594,16 @@ function SettingsView({
           </PreferenceRow>
         </SettingsGroup>
         <AudioCheck
+          key={JSON.stringify([
+            settings.serviceMode,
+            settings.selectedMicrophone,
+            settings.selectedChannel,
+            settings.selectedSystemOutputDevice,
+            settings.microphoneOnly,
+            settings.transcriptionProvider,
+            settings.transcriptionModel,
+            settings.transcriptionLanguage,
+          ])}
           managed={settings.serviceMode === "managed"}
           microphoneOnly={settings.microphoneOnly}
         />
@@ -3448,7 +3693,7 @@ function SettingsView({
             disabled={!settings.audioFeedback}
           >
             <label className="volume-control">
-              <input
+              <Input
                 type="range"
                 min="0"
                 max="1"
@@ -3475,12 +3720,13 @@ function SettingsView({
       return (
         <div className="page-content preference-page">
           <ManagedAccount />
-          <button
-            className="button secondary"
+          <Button
+            variant="secondary"
+
             onClick={() => setConfigureProviders(true)}
           >
             Configure your own providers
-          </button>
+          </Button>
         </div>
       );
     const selectedProvider = settings.transcriptionProvider;
@@ -3525,11 +3771,23 @@ function SettingsView({
         </SettingsGroup>
         <ManagedAccount />
         {settings.serviceMode === "managed" ? (
-          <p>
-            Savvy supplies Deepgram Nova-3 transcription and Fireworks GLM-5.3
-            reasoning. Personal provider settings below apply only when you
-            select your own providers.
-          </p>
+          <>
+            <p>
+              Savvy supplies Deepgram Nova-3 transcription and Fireworks GLM-5.3
+              reasoning. Personal provider settings below apply only when you
+              select your own providers.
+            </p>
+            <p>
+              Connected sales apps use Composio to hold app credentials. Records
+              you select in Prepare pass through Savvy's backend to this
+              computer and remain as Markdown files in the client folder. Cited
+              excerpts can reach Savvy's AI supplier during advice. Disconnect
+              an app in Prepare to revoke access. Google and Microsoft may grant
+              Composio broader mail, calendar, contact, and Drive permissions
+              than Savvy's read-only connectors use; review the provider's
+              consent screen before connecting.
+            </p>
+          </>
         ) : null}
         <SettingsGroup title="Live Transcript">
           <SettingSelect
@@ -3587,7 +3845,7 @@ function SettingsView({
             disabled={keyBusy}
           >
             <span className="credential-control">
-              <input
+              <Input
                 type="password"
                 value={apiKey}
                 disabled={keyBusy}
@@ -3600,7 +3858,8 @@ function SettingsView({
                   setKeyError(null);
                 }}
               />
-              <button
+              <Button
+                variant="plain"
                 type="button"
                 disabled={keyBusy || !apiKey.trim()}
                 onClick={() => {
@@ -3622,9 +3881,10 @@ function SettingsView({
                 }}
               >
                 Save
-              </button>
+              </Button>
               {configured && (
-                <button
+                <Button
+                  variant="plain"
                   type="button"
                   className="credential-remove"
                   disabled={keyBusy}
@@ -3647,11 +3907,11 @@ function SettingsView({
                   }}
                 >
                   Remove
-                </button>
+                </Button>
               )}
             </span>
           </PreferenceRow>
-          {keyError && <p className="settings-error">{keyError}</p>}
+          {keyError && <Alert className="settings-error">{keyError}</Alert>}
         </SettingsGroup>
         <SettingsGroup title="Reasoning Models">
           <div
@@ -3668,7 +3928,8 @@ function SettingsView({
               );
               const Icon = provider.icon;
               return (
-                <button
+                <Button
+                  variant="plain"
                   type="button"
                   className={
                     settings.recommendationProvider === provider.value
@@ -3705,7 +3966,7 @@ function SettingsView({
                       {health?.message ?? "Checking provider status"}
                     </small>
                   </span>
-                </button>
+                </Button>
               );
             })}
           </div>
@@ -3933,13 +4194,14 @@ function DirectorySetting({
       </span>
       <span className="path-display">
         <code title={path}>{path}</code>
-        <button
+        <Button
+          variant="plain"
           type="button"
           disabled={disabled}
           onClick={() => void revealPath(path)}
         >
           Open
-        </button>
+        </Button>
       </span>
     </div>
   );
@@ -3961,7 +4223,8 @@ function GuidanceFolderSetting({
         <FolderOpen />
       </span>
       {path ? (
-        <button
+        <Button
+          variant="plain"
           type="button"
           className="folder-row-path"
           disabled={disabled}
@@ -3970,16 +4233,17 @@ function GuidanceFolderSetting({
         >
           <strong>{name}</strong>
           <small>{abbreviatePath(path)}</small>
-        </button>
+        </Button>
       ) : (
         <span className="folder-row-path">
           <strong>No guidance folder</strong>
           <small>Choose a folder Savvy reads before every meeting.</small>
         </span>
       )}
-      <button
+      <Button
+        variant="secondary"
         type="button"
-        className="button secondary"
+
         disabled={disabled}
         onClick={() =>
           void chooseGuidanceFolder().then((guidanceFolder) => {
@@ -3988,9 +4252,10 @@ function GuidanceFolderSetting({
         }
       >
         {path ? "Change…" : "Choose…"}
-      </button>
+      </Button>
       {path && (
-        <button
+        <Button
+          variant="plain"
           type="button"
           className="icon-button"
           aria-label="Clear guidance folder"
@@ -3999,7 +4264,7 @@ function GuidanceFolderSetting({
           onClick={() => void onSave({ guidanceFolder: null })}
         >
           <X />
-        </button>
+        </Button>
       )}
     </div>
   );
@@ -4017,27 +4282,82 @@ function abbreviatePath(path: string) {
 
 function InfoTooltip({ title, detail }: { title: string; detail: string }) {
   const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState({ top: 0, left: 0, width: 200 });
+  const trigger = useRef<HTMLButtonElement>(null);
+  const tooltip = useRef<HTMLSpanElement>(null);
+  const id = useId();
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    const update = () => {
+      const rect = trigger.current?.getBoundingClientRect();
+      if (!rect) return;
+      const width = Math.max(0, Math.min(200, window.innerWidth - 24));
+      const height = tooltip.current?.offsetHeight ?? 60;
+      const below = rect.bottom + 8;
+      setPosition({
+        top:
+          below + height > window.innerHeight - 12
+            ? Math.max(12, rect.top - height - 8)
+            : below,
+        left: Math.max(
+          12,
+          Math.min(
+            rect.left + (rect.width - width) / 2,
+            window.innerWidth - width - 12,
+          ),
+        ),
+        width,
+      });
+    };
+    update();
+    window.addEventListener("scroll", update, true);
+    window.addEventListener("resize", update);
+    return () => {
+      window.removeEventListener("scroll", update, true);
+      window.removeEventListener("resize", update);
+    };
+  }, [open]);
+
   return (
     <span
       className="info-tooltip"
       onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
+      onMouseLeave={() => {
+        if (document.activeElement !== trigger.current) setOpen(false);
+      }}
     >
-      <button
-        type="button"
+      <Button
+        variant="plain"
+        ref={trigger}
         className="info-button"
-        aria-label={`${title}: ${detail}`}
-        onClick={() => setOpen((current) => !current)}
+        aria-label={`${title} information`}
+        aria-describedby={open ? id : undefined}
+        onClick={() => setOpen(true)}
         onFocus={() => setOpen(true)}
         onBlur={() => setOpen(false)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            setOpen(false);
+          }
+        }}
       >
         <Info width={14} height={14} strokeWidth={2} />
-      </button>
-      {open && (
-        <span className="info-tooltip-bubble" role="tooltip">
-          {detail}
-        </span>
-      )}
+      </Button>
+      {open &&
+        createPortal(
+          <span
+            ref={tooltip}
+            id={id}
+            className="info-tooltip-bubble"
+            role="tooltip"
+            style={position}
+          >
+            {detail}
+          </span>,
+          document.body,
+        )}
     </span>
   );
 }
@@ -4088,19 +4408,21 @@ function ToggleSetting({
 }) {
   return (
     <PreferenceRow title={title} detail={detail} disabled={disabled}>
-      <button
+      <Button
+        variant="plain"
         type="button"
         className={`toggle ${checked ? "on" : ""}`}
         role="switch"
         aria-label={title}
         aria-checked={checked}
+        disabled={disabled}
         aria-disabled={disabled}
         onClick={() => {
           if (!disabled) onChange(!checked);
         }}
       >
         <i />
-      </button>
+      </Button>
     </PreferenceRow>
   );
 }
@@ -4200,7 +4522,8 @@ function ShortcutEditor({
 
   return (
     <span className="shortcut-control" ref={controlRef}>
-      <button
+      <Button
+        variant="plain"
         type="button"
         className={`shortcut-chip ${recording ? "recording" : ""}`}
         disabled={disabled}
@@ -4216,8 +4539,9 @@ function ShortcutEditor({
         }}
       >
         {recording ? "Press keys…" : formatShortcut(value)}
-      </button>
-      <button
+      </Button>
+      <Button
+        variant="plain"
         type="button"
         className="reset-button"
         title="Reset shortcut"
@@ -4226,7 +4550,7 @@ function ShortcutEditor({
         onClick={() => void onChange(defaultListeningShortcut())}
       >
         <RotateCcw width={13} height={13} />
-      </button>
+      </Button>
     </span>
   );
 }
@@ -4245,6 +4569,35 @@ function PreferenceValue({
       <span className="preference-static">{value}</span>
     </PreferenceRow>
   );
+}
+
+function moveListboxFocus(event: React.KeyboardEvent<HTMLElement>) {
+  const keys = ["ArrowDown", "ArrowUp", "Home", "End"];
+  if (!keys.includes(event.key)) return;
+  if (
+    event.target instanceof HTMLInputElement &&
+    ["Home", "End"].includes(event.key)
+  )
+    return;
+  const options = Array.from(
+    event.currentTarget.querySelectorAll<HTMLButtonElement>(
+      '[role="option"]:not(:disabled)',
+    ),
+  );
+  if (!options.length) return;
+  const current = options.indexOf(document.activeElement as HTMLButtonElement);
+  const next =
+    event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? options.length - 1
+        : event.key === "ArrowDown"
+          ? (current + 1) % options.length
+          : current < 0
+            ? options.length - 1
+            : (current - 1 + options.length) % options.length;
+  event.preventDefault();
+  options[next].focus();
 }
 
 function Dropdown({
@@ -4268,7 +4621,21 @@ function Dropdown({
   const [query, setQuery] = useState("");
   const ref = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const listId = useId();
   const selected = options.find((option) => option.value === selectedValue);
+  const visibleOptions = options.filter((option) =>
+    option.label.toLowerCase().includes(query.toLowerCase()),
+  );
+
+  useLayoutEffect(() => {
+    if (open && !searchable) {
+      const option =
+        ref.current?.querySelector<HTMLButtonElement>(
+          '[role="option"][aria-selected="true"]',
+        ) ?? ref.current?.querySelector<HTMLButtonElement>('[role="option"]');
+      option?.focus();
+    }
+  }, [open, searchable]);
 
   useEffect(() => {
     if (!open) return;
@@ -4294,44 +4661,56 @@ function Dropdown({
   }, [open]);
 
   return (
-    <div className={`settings-dropdown ${compact ? "compact" : ""}`} ref={ref}>
-      <button
+    <div
+      className={`settings-dropdown ${compact ? "compact" : ""}`}
+      ref={ref}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) {
+          setOpen(false);
+          setQuery("");
+        }
+      }}
+    >
+      <Button
+        variant="plain"
         ref={trigger}
-        type="button"
         className="dropdown-control"
         disabled={disabled}
         aria-label={label}
         aria-haspopup="listbox"
+        aria-controls={open ? listId : undefined}
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
+        onKeyDown={(event) => {
+          if (["ArrowDown", "ArrowUp"].includes(event.key)) {
+            event.preventDefault();
+            setOpen(true);
+          }
+        }}
       >
         {compact && <i className="footer-dot" />}
         <span>{selected?.label ?? "Select an option…"}</span>
         <ChevronDown width={15} height={15} />
-      </button>
+      </Button>
       {open && !disabled && (
-        <div className="dropdown-menu" role="listbox" aria-label={label}>
+        <div className="dropdown-menu" onKeyDown={moveListboxFocus}>
           {searchable && (
-            <input
+            <Input
               className="dropdown-search"
               value={query}
               placeholder="Search languages…"
               aria-label="Search languages"
+              aria-controls={listId}
               onChange={(event) => setQuery(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Escape") setOpen(false);
-              }}
               autoFocus
             />
           )}
-          {options
-            .filter((option) =>
-              option.label.toLowerCase().includes(query.toLowerCase()),
-            )
-            .map((option) => (
-              <button
-                type="button"
+          <div id={listId} role="listbox" aria-label={label}>
+            {visibleOptions.map((option) => (
+              <Button
+                variant="plain"
                 role="option"
+                tabIndex={-1}
                 aria-selected={option.value === selectedValue}
                 className={option.value === selectedValue ? "selected" : ""}
                 key={`${option.value}-${option.label}`}
@@ -4343,8 +4722,14 @@ function Dropdown({
                 }}
               >
                 {option.label}
-              </button>
+              </Button>
             ))}
+          </div>
+          {visibleOptions.length === 0 && (
+            <span className="dropdown-empty" role="status">
+              No matching options
+            </span>
+          )}
         </div>
       )}
     </div>
@@ -4450,7 +4835,8 @@ function AppFooter({
         </span>
       )}
       <span className="footer-update">
-        <button
+        <Button
+          variant="plain"
           type="button"
           aria-disabled={updateStatus !== "idle"}
           onClick={() => {
@@ -4458,7 +4844,7 @@ function AppFooter({
           }}
         >
           {updateStatusLabels[updateStatus]}
-        </button>
+        </Button>
         <span>•</span>
         <span>v{version}</span>
       </span>
@@ -4468,7 +4854,7 @@ function AppFooter({
 
 function LoadingState() {
   return (
-    <div className="loading-state" aria-label="Loading">
+    <div className="loading-state" role="status" aria-label="Loading">
       <span />
       <span />
       <span />

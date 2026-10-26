@@ -59,6 +59,39 @@ the signing secret and the native client ID before the first sign-in. Never chan
 any of these afterwards: installed desktops, refresh tokens and account identities
 depend on them. Any alias hostname must terminate at this same backend.
 
+### Connected-source rollout
+
+The release exposes Salesforce, HubSpot, Gmail, Outlook, Notion and Google Drive.
+Gong connection and read requests are disabled until live acceptance is complete;
+disconnect remains available for an existing Gong account. Keep its local source
+copies and selections intact.
+
+Configure `COMPOSIO_API_KEY` privately in the production environment before
+connected-source rollout. It was absent in the read-only production check on
+25 October 2026. Readiness alone does not verify this optional feature. The key
+must permit session creation and proxy execution. Never print it, embed it in a
+desktop build, or copy staging databases or test grants to production.
+
+Composio identities combine a SHA-256 digest of the exact backend issuer with the
+internal account ID. Cached sessions are bound to that full identity. Different
+issuers can therefore share a Composio project without sharing their connected
+accounts, even when both databases allocate the same numeric ID. A different API
+key in the same project is not itself an isolation boundary. Preserve the issuer
+and verify issuer separation before rollout.
+
+The additive cache migration preserves legacy session rows but never reuses them
+until a matching identity is stored. Existing legacy `savvy:4` connections stay
+untouched in Composio; they are not transferred to the new staging identity.
+Reconnect the six providers under that identity and repeat live adapter/import
+acceptance before treating the new candidate as verified. User-owned local copies
+remain available, with the existing saved-copy or exclude choice after a failed
+refresh. Do not restore an older financial database to roll back a session cache.
+
+Merging into main can deploy the backend automatically after Verify passes.
+Preparing a candidate does not require merging it. The desktop candidate is
+version 0.1.4; complete checks on the final commit, then build signed/notarized
+draft artifacts and run the production-client smoke before publishing the release.
+
 On Epistoma, use the existing remotely managed Cloudflare Tunnel directly:
 `api.savvycopilot.com` routes to `http://127.0.0.1:8788` and the separate staging
 hostname routes to `http://127.0.0.1:8789`. Insert each ingress rule before the

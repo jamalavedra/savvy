@@ -1,3 +1,4 @@
+import { Input } from "./ui";
 /** Lets users move an in-progress sign-in to another browser. */
 export default function BrowserSignInLink({ url }: { url: string }) {
   if (!url) return null;
@@ -6,7 +7,7 @@ export default function BrowserSignInLink({ url }: { url: string }) {
       <summary>Browser didn’t open?</summary>
       <label>
         Copy this sign-in link into your browser
-        <input
+        <Input
           aria-label="Sign-in link"
           type="text"
           readOnly

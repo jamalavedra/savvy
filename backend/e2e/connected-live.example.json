@@ -1,0 +1,76 @@
+{
+  "issuer": "https://staging-api.savvycopilot.com",
+  "accountId": "1",
+  "cases": [
+    {
+      "provider": "salesforce",
+      "kind": "account",
+      "query": "Test",
+      "recordId": "REPLACE",
+      "expectedText": "REPLACE"
+    },
+    {
+      "provider": "salesforce",
+      "kind": "opportunity",
+      "query": "Test",
+      "recordId": "REPLACE",
+      "expectedText": "REPLACE"
+    },
+    {
+      "provider": "salesforce",
+      "kind": "note",
+      "query": "Test",
+      "recordId": "REPLACE",
+      "expectedText": "REPLACE"
+    },
+    {
+      "provider": "hubspot",
+      "kind": "company",
+      "query": "Test",
+      "recordId": "REPLACE",
+      "expectedText": "REPLACE"
+    },
+    {
+      "provider": "hubspot",
+      "kind": "deal",
+      "query": "Test",
+      "recordId": "REPLACE",
+      "expectedText": "REPLACE"
+    },
+    {
+      "provider": "hubspot",
+      "kind": "note",
+      "query": "Test",
+      "recordId": "REPLACE",
+      "expectedText": "REPLACE"
+    },
+    {
+      "provider": "gmail",
+      "kind": "thread",
+      "query": "Test",
+      "recordId": "REPLACE",
+      "expectedText": "REPLACE"
+    },
+    {
+      "provider": "outlook",
+      "kind": "thread",
+      "query": "Test",
+      "recordId": "REPLACE",
+      "expectedText": "REPLACE"
+    },
+    {
+      "provider": "notion",
+      "kind": "page",
+      "query": "Test",
+      "recordId": "REPLACE",
+      "expectedText": "REPLACE"
+    },
+    {
+      "provider": "googledrive",
+      "kind": "document",
+      "query": "Test",
+      "recordId": "REPLACE",
+      "expectedText": "REPLACE"
+    }
+  ]
+}

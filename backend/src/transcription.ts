@@ -82,11 +82,12 @@ function bytes(data: RawData) {
 }
 function send(socket: WebSocket, data: Buffer | string, limit: number) {
   return new Promise<void>((resolve, reject) => {
-    if (
-      socket.readyState !== WebSocket.OPEN ||
-      socket.bufferedAmount + Buffer.byteLength(data) > limit
-    ) {
-      reject(new Error("socket output unavailable"));
+    if (socket.readyState !== WebSocket.OPEN) {
+      reject(new Error("socket not open"));
+      return;
+    }
+    if (socket.bufferedAmount + Buffer.byteLength(data) > limit) {
+      reject(new Error("socket output limit"));
       return;
     }
     const timer = setTimeout(
@@ -300,6 +301,7 @@ async function relay(
   let lastReceived: bigint | null = null;
   let receivedBytes = 0;
   let deliveredBytes = 0;
+  let upstreamWriteFailure: string | null = null;
   let pumpTask = Promise.resolve();
   const queue: Buffer[] = [];
   const writes = new Set<Promise<void>>();
@@ -345,6 +347,8 @@ async function relay(
         supplierCloseCode,
         clientState: client.readyState,
         upstreamState: upstream?.readyState ?? null,
+        upstreamBufferedBytes: upstream?.bufferedAmount ?? null,
+        upstreamWriteFailure,
       }),
     );
     if (supplierFailure) console.warn("transcription provider unavailable");
@@ -384,6 +388,7 @@ async function relay(
           session.local_session_id,
           source,
           generation,
+          reason === "client_closed" && clientCloseCode === 1006,
         );
     } catch {
       /* Ledger recovery releases any unsettled reservation on lease expiry. */
@@ -420,7 +425,16 @@ async function relay(
           nextDelivery =
             Math.max(nextDelivery, performance.now() - 50) + chunk.length / 32;
           await send(upstream, chunk, MAX_AUDIO);
-        } catch {
+        } catch (error) {
+          upstreamWriteFailure =
+            error instanceof Error &&
+            [
+              "socket not open",
+              "socket output limit",
+              "socket write deadline",
+            ].includes(error.message)
+              ? error.message
+              : "socket write callback";
           supplierFailure = true;
           throw new ApiError(
             "provider_unavailable",

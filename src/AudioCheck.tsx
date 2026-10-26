@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { Alert, Button, Select } from "./ui";
+import { useEffect, useId, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getAppSettings, getInputDevices, updateAppSettings } from "./lib/api";
@@ -35,6 +36,7 @@ export default function AudioCheck({
     "microphone",
   );
   const heading = useRef<HTMLHeadingElement>(null);
+  const meterId = useId();
   useEffect(() => {
     if (configureInput) heading.current?.focus();
   }, [configureInput, step]);
@@ -224,12 +226,60 @@ export default function AudioCheck({
     if (running) return "No signal detected yet.";
     return "No signal detected. Check your input and permissions in System Settings, then quit and reopen Savvy.";
   };
+  function signalRow(
+    source: "microphone" | "system",
+    label: string,
+    level: number,
+  ) {
+    const hasSignal = detected[source];
+    const state = hasSignal
+      ? "detected"
+      : reading.status === "idle"
+        ? "idle"
+        : running
+          ? "waiting"
+          : "missing";
+    const status = hasSignal
+      ? "Input detected"
+      : state === "idle"
+        ? "Not checked"
+        : state === "waiting"
+          ? "Waiting for signal"
+          : "No signal detected";
+    return (
+      <div className="audio-signal-row">
+        <div className="audio-signal-heading">
+          <label htmlFor={`${meterId}-${source}`}>{label} signal</label>
+          <p
+            className="audio-signal-status"
+            data-state={state}
+            aria-live="polite"
+            aria-label={`${label} signal status`}
+          >
+            <span aria-hidden="true">{status}</span>
+            <span className="sr-only">{signalStatus(hasSignal)}</span>
+          </p>
+        </div>
+        <meter
+          id={`${meterId}-${source}`}
+          className="audio-signal-meter"
+          min={0}
+          max={1}
+          value={Number.isFinite(level) ? Math.min(1, Math.max(0, level)) : 0}
+        />
+      </div>
+    );
+  }
   return (
     <section
-      className={`settings-group ${configureInput ? "audio-setup-step" : ""}`}
+      className={`settings-group audio-check ${configureInput ? "audio-setup-step" : ""}`}
       aria-label="Audio checks"
     >
-      <h2 ref={heading} tabIndex={-1}>
+      <h2
+        ref={heading}
+        tabIndex={-1}
+        className={configureInput ? undefined : "group-title"}
+      >
         {!configureInput
           ? "Check your audio"
           : step === "microphone"
@@ -238,284 +288,303 @@ export default function AudioCheck({
               ? "Check meeting audio"
               : "Check transcription"}
       </h2>
-      {configureInput && step === "microphone" && (
-        <div className="audio-input-setup">
-          {!inputReady && !inputError && <p>Loading microphones…</p>}
-          <label>
-            Microphone
-            <select
-              value={input ?? ""}
-              disabled={!inputReady || inputBusy || running}
-              onChange={(event) =>
-                void saveInput(event.target.value || null, null)
-              }
-            >
-              <option value="">
-                System default
-                {inputs.find((device) => device.isDefault)?.name
-                  ? ` (${inputs.find((device) => device.isDefault)?.name})`
-                  : ""}
-              </option>
-              {input && !inputs.some((device) => device.name === input) && (
-                <option value={input}>{input} (disconnected)</option>
-              )}
-              {inputs.map((device) => (
-                <option key={device.name} value={device.name}>
-                  {device.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <details>
-            <summary>Input options</summary>
-            <p>
-              If your preferred microphone is disconnected, capture uses the
-              system default.
-            </p>
-            {(selectedDevice?.channels ?? 0) > 1 && (
-              <label>
-                Input channel
-                <select
-                  value={channel ?? ""}
-                  disabled={!inputReady || inputBusy || running}
-                  onChange={(event) =>
-                    void saveInput(
-                      input,
-                      event.target.value === ""
-                        ? null
-                        : Number(event.target.value),
-                    )
-                  }
-                >
-                  <option value="">Average all channels</option>
-                  {Array.from(
-                    { length: selectedDevice?.channels ?? 0 },
-                    (_, index) => (
-                      <option key={index} value={index}>
-                        Channel {index + 1}
-                      </option>
-                    ),
-                  )}
-                </select>
-              </label>
-            )}
-            <button
-              className="button secondary"
-              disabled={running || inputBusy}
-              onClick={() => {
-                resetCheck();
-                setInputRefresh((value) => value + 1);
-              }}
-            >
-              Refresh microphones
-            </button>
-          </details>
-          {inputReady && inputs.length === 0 && (
-            <p>No microphones found. Connect an input and refresh.</p>
-          )}
-          {inputBusy && <p>Saving input…</p>}
-          {inputError && <p role="alert">{inputError}</p>}
-        </div>
-      )}
-      {configureInput && step !== "transcription" ? (
-        <p>
-          {step === "microphone"
-            ? "Speak naturally. The meter should move with your voice."
-            : "Play meeting audio or another sound on your Mac. The meter should move."}{" "}
-          Choose Check signal to start local capture. This does not test
-          transcription.
-        </p>
-      ) : (
-        <p>
-          {!configureInput && "Signal checks use local capture. "}
-          Transcription tests send audio to your selected provider for up to 30
-          seconds.
-          {managed && " This uses your managed meeting allowance."} Nothing
-          starts until you choose a check.
-        </p>
-      )}
-      {(!configureInput ||
-        !connected ||
-        step === "transcription" ||
-        reading.status === "failed" ||
-        reading.status === "starting") && (
-        <p role="status">
-          {reading.message ||
-            (transcribing
-              ? "Listening for a real transcript…"
-              : "Speak to check your microphone. Play meeting audio to check system sound.")}
-        </p>
-      )}
-      {passed && (
-        <>
-          <div
-            className="audio-test-transcript"
-            role="region"
-            aria-label="Test transcript"
-          >
-            <h3>Test transcript</h3>
-            <p>{reading.transcript}</p>
-          </div>
-          <p>
-            Transcription is working. No meeting starts until you choose Start.
-          </p>
-          {onComplete && (
-            <button
-              className="button"
-              disabled={inputBusy}
-              onClick={onComplete}
-            >
-              Finish setup
-            </button>
-          )}
-        </>
-      )}
-      {!passed && (!configureInput || step === "transcription") && (
-        <p>
-          After starting the transcription test, say: I am ready for my meeting.
-        </p>
-      )}
-      {!transcribing && (!configureInput || step !== "transcription") && (
-        <>
-          {(!configureInput || step === "microphone") && (
-            <>
-              <label>
-                Microphone signal{" "}
-                <meter min={0} max={1} value={reading.microphoneLevel} />
-              </label>
-              <p aria-live="polite" aria-label="Microphone signal status">
-                {signalStatus(detected.microphone)}
-              </p>
-            </>
-          )}
-          {!microphoneOnly && (!configureInput || step === "system") && (
-            <>
-              <label>
-                System audio signal{" "}
-                <meter min={0} max={1} value={reading.systemLevel} />
-              </label>
-              <p aria-live="polite" aria-label="System audio signal status">
-                {signalStatus(detected.system)}
-              </p>
-            </>
-          )}
-        </>
-      )}
-      <div className="onboarding-actions">
-        {(!configureInput || step !== "transcription") && (
-          <button
-            className="button secondary"
-            disabled={!connected || running || !inputReady || inputBusy}
-            onClick={() => void start(false)}
-          >
-            Check signal
-          </button>
-        )}
-        {configureInput && step !== "transcription" && (
-          <button
-            className="button"
-            disabled={
-              inputBusy ||
-              reading.status === "failed" ||
-              !(step === "microphone" ? detected.microphone : detected.system)
-            }
-            onClick={() => {
-              const next =
-                step === "microphone" && !microphoneOnly
-                  ? "system"
-                  : "transcription";
-              if (next === "transcription") stopCheck();
-              setStep(next);
-            }}
-          >
-            Continue
-          </button>
-        )}
-        {(!configureInput || step === "transcription") && (
-          <button
-            className="button"
-            disabled={!connected || running || !inputReady || inputBusy}
-            onClick={() => void start(true)}
-          >
-            {passed ? "Test again" : "Start transcription test"}
-          </button>
-        )}
-        {running && (
-          <button className="button secondary" onClick={stopCheck}>
-            Stop check
-          </button>
-        )}
-      </div>
-      {configureInput && step !== "microphone" && (
-        <button
-          className="button secondary"
-          disabled={running || inputBusy}
-          onClick={() => {
-            setTranscribing(false);
-            resetCheck();
-            setStep("microphone");
-          }}
-        >
-          Choose a different input
-        </button>
-      )}
-      {!connected && reading.status === "failed" && (
-        <button
-          className="button secondary"
-          onClick={() => {
-            setReading((r) => ({
-              ...r,
-              status: "idle",
-              message: "Connecting audio checks…",
-            }));
-            setConnectionAttempt((value) => value + 1);
-          }}
-        >
-          Reconnect audio checks
-        </button>
-      )}
-      {connected &&
-        (reading.status === "failed" ||
-          (reading.status === "finished" &&
-            (!detected.microphone || (!microphoneOnly && !detected.system)))) &&
-        Boolean(window.__TAURI_INTERNALS__) && (
-          <div className="onboarding-actions">
-            {(microphoneOnly ? [false] : [false, true]).map((system) => (
-              <button
-                key={String(system)}
-                className="button secondary"
-                onClick={() =>
-                  void invoke("open_audio_settings", { system }).catch(
-                    (reason) =>
-                      setReading((r) => ({ ...r, message: String(reason) })),
-                  )
+      <div className="group-card audio-check-card">
+        {configureInput && step === "microphone" && (
+          <div className="audio-input-setup">
+            {!inputReady && !inputError && <p>Loading microphones…</p>}
+            <label>
+              Microphone
+              <Select
+                value={input ?? ""}
+                disabled={!inputReady || inputBusy || running}
+                onChange={(event) =>
+                  void saveInput(event.target.value || null, null)
                 }
               >
-                {system
-                  ? "Open meeting audio settings"
-                  : "Open microphone settings"}
-              </button>
-            ))}
+                <option value="">
+                  System default
+                  {inputs.find((device) => device.isDefault)?.name
+                    ? ` (${inputs.find((device) => device.isDefault)?.name})`
+                    : ""}
+                </option>
+                {input && !inputs.some((device) => device.name === input) && (
+                  <option value={input}>{input} (disconnected)</option>
+                )}
+                {inputs.map((device) => (
+                  <option key={device.name} value={device.name}>
+                    {device.name}
+                  </option>
+                ))}
+              </Select>
+            </label>
+            <details>
+              <summary>Input options</summary>
+              <p>
+                If your preferred microphone is disconnected, capture uses the
+                system default.
+              </p>
+              {(selectedDevice?.channels ?? 0) > 1 && (
+                <label>
+                  Input channel
+                  <Select
+                    value={channel ?? ""}
+                    disabled={!inputReady || inputBusy || running}
+                    onChange={(event) =>
+                      void saveInput(
+                        input,
+                        event.target.value === ""
+                          ? null
+                          : Number(event.target.value),
+                      )
+                    }
+                  >
+                    <option value="">Average all channels</option>
+                    {Array.from(
+                      { length: selectedDevice?.channels ?? 0 },
+                      (_, index) => (
+                        <option key={index} value={index}>
+                          Channel {index + 1}
+                        </option>
+                      ),
+                    )}
+                  </Select>
+                </label>
+              )}
+              <Button
+                disabled={running || inputBusy}
+                onClick={() => {
+                  resetCheck();
+                  setInputRefresh((value) => value + 1);
+                }}
+              >
+                Refresh microphones
+              </Button>
+            </details>
+            {inputReady && inputs.length === 0 && (
+              <p>No microphones found. Connect an input and refresh.</p>
+            )}
+            {inputBusy && <p>Saving input…</p>}
+            {inputError && <Alert role="alert">{inputError}</Alert>}
           </div>
         )}
-      {configureInput && onComplete && (
-        <>
-          <button
-            className="button secondary"
-            disabled={inputBusy}
-            onClick={onComplete}
+
+        {(!configureInput || step !== "transcription") && (
+          <div className="audio-check-section">
+            <div className="audio-check-section-heading">
+              <h3>Local signal</h3>
+              <span className="audio-check-meta">On this device</span>
+            </div>
+            <p className="audio-check-description">
+              Audio stays on this device. Signal alone does not verify
+              transcription.
+            </p>
+            {!transcribing && (
+              <div className="audio-signal-list">
+                {(!configureInput || step === "microphone") &&
+                  signalRow(
+                    "microphone",
+                    "Microphone",
+                    reading.microphoneLevel,
+                  )}
+                {!microphoneOnly &&
+                  (!configureInput || step === "system") &&
+                  signalRow("system", "System audio", reading.systemLevel)}
+              </div>
+            )}
+            {running && !transcribing && (
+              <p className="audio-check-instruction">
+                {configureInput && step === "system"
+                  ? "Play meeting audio or another sound. The system audio meter should move."
+                  : microphoneOnly || configureInput
+                    ? "Speak naturally. The microphone meter should move with your voice."
+                    : "Speak naturally, then play meeting audio. Both meters should move."}
+              </p>
+            )}
+            <div className="audio-check-actions">
+              <Button
+                variant={configureInput ? "secondary" : "primary"}
+                disabled={!connected || running || !inputReady || inputBusy}
+                onClick={() => void start(false)}
+              >
+                Check signal
+              </Button>
+              {configureInput && (
+                <Button
+                  variant="primary"
+                  disabled={
+                    inputBusy ||
+                    reading.status === "failed" ||
+                    !(step === "microphone"
+                      ? detected.microphone
+                      : detected.system)
+                  }
+                  onClick={() => {
+                    const next =
+                      step === "microphone" && !microphoneOnly
+                        ? "system"
+                        : "transcription";
+                    if (next === "transcription") stopCheck();
+                    setStep(next);
+                  }}
+                >
+                  Continue
+                </Button>
+              )}
+              {running && !transcribing && (
+                <Button onClick={stopCheck}>Stop check</Button>
+              )}
+            </div>
+          </div>
+        )}
+        {(!configureInput || step === "transcription") && (
+          <div className="audio-check-section">
+            <div className="audio-check-section-heading">
+              <h3>Provider transcription</h3>
+              <span className="audio-check-meta">Up to 30 seconds</span>
+            </div>
+            <p className="audio-check-description">
+              This sends audio to your selected provider.
+              {managed && " This uses your managed meeting allowance."} Nothing
+              starts until you choose the test.
+            </p>
+            {running && transcribing && (
+              <p className="audio-check-instruction">
+                Say: I am ready for my meeting.
+              </p>
+            )}
+            {passed && (
+              <>
+                <div
+                  className="audio-test-transcript"
+                  role="region"
+                  aria-label="Test transcript"
+                >
+                  <h3>Test transcript</h3>
+                  <p>{reading.transcript}</p>
+                </div>
+                <p className="audio-check-description">
+                  Transcription is working. No meeting starts until you choose
+                  Start.
+                </p>
+              </>
+            )}
+            <div className="audio-check-actions">
+              {passed && onComplete && (
+                <Button
+                  variant="primary"
+                  disabled={inputBusy}
+                  onClick={onComplete}
+                >
+                  Finish setup
+                </Button>
+              )}
+              <Button
+                variant={configureInput && !passed ? "primary" : "secondary"}
+                disabled={!connected || running || !inputReady || inputBusy}
+                onClick={() => void start(true)}
+              >
+                {passed ? "Test again" : "Start transcription test"}
+              </Button>
+              {running && transcribing && (
+                <Button onClick={stopCheck}>Stop check</Button>
+              )}
+            </div>
+          </div>
+        )}
+        {(!configureInput ||
+          !connected ||
+          step === "transcription" ||
+          reading.status === "failed" ||
+          reading.status === "starting") && (
+          <Alert
+            className="audio-check-result"
+            data-state={reading.status}
+            variant={reading.status === "failed" ? "error" : "info"}
+            role="status"
           >
-            Explore Savvy
-          </button>
-          <p>Skipping a check leaves audio readiness unverified.</p>
-        </>
-      )}
-      {!window.__TAURI_INTERNALS__ && (
-        <p>
-          Real audio checks are available in the macOS app. This browser demo
-          does not capture audio.
-        </p>
-      )}
+            {reading.message ||
+              (transcribing
+                ? "Listening for a real transcript…"
+                : running
+                  ? "Local signal check running."
+                  : "Audio has not been checked.")}
+          </Alert>
+        )}
+        {configureInput && step !== "microphone" && (
+          <Button
+            variant="ghost"
+            disabled={running || inputBusy}
+            onClick={() => {
+              setTranscribing(false);
+              resetCheck();
+              setStep("microphone");
+            }}
+          >
+            Choose a different input
+          </Button>
+        )}
+        {!connected && reading.status === "failed" && (
+          <Button
+            onClick={() => {
+              setReading((r) => ({
+                ...r,
+                status: "idle",
+                message: "Connecting audio checks…",
+              }));
+              setConnectionAttempt((value) => value + 1);
+            }}
+          >
+            Reconnect audio checks
+          </Button>
+        )}
+        {connected &&
+          (reading.status === "failed" ||
+            (reading.status === "finished" &&
+              (!detected.microphone ||
+                (!microphoneOnly && !detected.system)))) &&
+          Boolean(window.__TAURI_INTERNALS__) && (
+            <div className="audio-check-recovery">
+              <p className="audio-check-description">
+                Check your input and permissions in System Settings, then quit
+                and reopen Savvy.
+              </p>
+              <div className="audio-check-actions">
+                {(microphoneOnly ? [false] : [false, true]).map((system) => (
+                  <Button
+                    key={String(system)}
+                    onClick={() =>
+                      void invoke("open_audio_settings", { system }).catch(
+                        (reason) =>
+                          setReading((r) => ({
+                            ...r,
+                            message: String(reason),
+                          })),
+                      )
+                    }
+                  >
+                    {system
+                      ? "Open meeting audio settings"
+                      : "Open microphone settings"}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          )}
+        {configureInput && onComplete && !passed && (
+          <div className="audio-check-skip">
+            <Button variant="ghost" disabled={inputBusy} onClick={onComplete}>
+              Explore Savvy
+            </Button>
+            <small>Skipping a check leaves audio readiness unverified.</small>
+          </div>
+        )}
+        {!window.__TAURI_INTERNALS__ && (
+          <p className="audio-check-description audio-check-demo">
+            Real audio checks are available in the desktop app. This browser
+            demo does not capture audio.
+          </p>
+        )}
+      </div>
     </section>
   );
 }

@@ -12,6 +12,8 @@
     "test": "tsx --test src/*.test.ts",
     "test:browser": "pnpm build && tsx --test src/browser.check.ts",
     "test:desktop": "tsx --test src/desktop.check.ts",
+    "test:connected-e2e": "node --env-file=scripts/connected-e2e.flags --import tsx --test --test-name-pattern=\"connected CRM and document\" src/ai.test.ts",
+    "test:connected-live": "tsx src/composio.live.ts",
     "build:server": "tsc -p tsconfig.server.json && node scripts/copy-assets.mjs",
     "build:ui": "vite build",
     "test:native-auth": "pnpm build && cargo test -p savvy --lib local_stripe_sandbox_desktop_transport --locked --no-run && node --env-file=scripts/native-auth.flags --import tsx --test src/browser.check.ts",
@@ -21,6 +23,7 @@
   },
   "dependencies": {
     "@better-auth/oauth-provider": "1.7.4",
+    "@composio/core": "0.21.0",
     "better-auth": "1.7.4",
     "better-call": "1.4.0",
     "better-sqlite3": "13.0.3",
