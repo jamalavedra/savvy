@@ -108,7 +108,7 @@ jobs:
               ...repo, asset_id: asset.id, headers: { accept: 'application/octet-stream' },
             });
             const manifest = JSON.parse(Buffer.from(data).toString());
-            const updated = Buffer.from(JSON.stringify(publicUpdater(manifest, release.assets), null, 2));
+            const updated = Buffer.from(JSON.stringify(publicUpdater(manifest, release.assets, release.tag_name), null, 2));
             await github.rest.repos.deleteReleaseAsset({ ...repo, asset_id: asset.id });
             await github.rest.repos.uploadReleaseAsset({
               ...repo, release_id, name: 'latest.json', data: updated,
