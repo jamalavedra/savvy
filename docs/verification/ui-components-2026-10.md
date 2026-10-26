@@ -6,7 +6,7 @@ Three agents reviewed release readiness, desktop leaf views, and the application
 
 ## Component mapping
 
-Handy uses its own React Button, Input, Textarea, Select, ToggleSwitch, Dialog, Alert, Badge, Tooltip, SettingContainer, and SettingsGroup components. Its styles use theme tokens and Tailwind, and its Select wraps react-select. Savvy can use the same component boundaries with its existing CSS and native accessible controls. A Tailwind or react-select migration is unnecessary for this change.
+Handy uses its own React Button, Input, Textarea, Select, ToggleSwitch, Dialog, Alert, Badge, Tooltip, SettingContainer, and SettingsGroup components. Its styles use theme tokens and Tailwind, and its Select wraps react-select. Savvy now shares its existing styled dropdown across Settings, the footer, connected sources, and audio setup. Native text and choice controls retain their semantics with shared styling. No Tailwind or react-select dependency is needed to reuse Savvy's existing controls.
 
 | Surface | Review coverage | Component convention |
 | --- | --- | --- |
@@ -37,8 +37,21 @@ The initial desktop inventory found 131 raw button sites, fourteen inputs, four 
 
 Handy's implementations were reviewed rather than copied indiscriminately. Its custom dropdown and toggle have accessibility gaps that should not be reproduced in Savvy.
 
+## Follow-up after native UI review, 26 October
+
+The first sweep missed a visible mismatch: the new `Select` was a thin native wrapper, while Settings used a separate styled dropdown. The Mac's native selectors consequently looked different despite the shared component name. All callers now use one extracted `Select`, including its keyboard navigation and selected-value description. Its menu renders in a viewport-bounded portal so scrolling panels cannot clip it. Tab order includes disclosure summaries and skips controls hidden inside closed disclosures.
+
+The shared text-field rule also had enough specificity to override context spacing and focus styling. Its exclusions now use `:where`, allowing the existing field and focus rules to work. Shared checkbox/radio styles retain checked, mixed, disabled and forced-color states. A shared `Slider` supplies the themed rail and thumb for volume and playback position. Disclosures, authentication-link fields, connected-source typography, and account helper text use the same spacing and type conventions.
+
+The latest-release API was checked again on 26 October and still reports Handy v0.9.8. This follow-up adds no dependency and changes no backend, billing, capture or source-import behavior.
+
 ## Verification
 
 The integrated desktop suite passed 156 tests in 14 files. TypeScript, Vite production build, ESLint, formatting, and the native CRM/document/outage fixture passed. Focused tests cover keyboard selection/focus, tooltip association and Escape, disabled switches, playback failure, primitive ref forwarding, form submission guards, empty search feedback, and semantic text contrast in both themes. ESLint now rejects raw desktop button/input/select/textarea elements outside the shared primitive implementation.
 
 Brave rendered the updated Prepare and About views in both Light and Dark. The context popup separated the Add action from options and restored trigger focus after Escape. A help tooltip appeared and its text disappeared after Escape. These are browser-demo checks, not an installed managed call. Earlier Composio evidence remains in [the connected-sources record](connected-sources-2026-10.md); it does not substitute for checking the new issuer-scoped identity or the final native bundle.
+
+
+The 26 October follow-up passed all 176 desktop tests in 16 files with one worker, plus TypeScript, ESLint, formatting, the Vite production build, and a signed macOS application build. Concurrent runs during native compilation hit timeouts; the affected Windows control test passed independently and the complete serial run passed without increasing timeouts. New coverage includes disabled options, portal placement, Tab through disclosures, Enter/Space selection exactly once, search-field behavior, and slider bounds/ref/event handling.
+
+Helium's browser demo was checked in Light and Dark. The source fields use the shared 36px controls, the text-field spacing is restored, and the volume slider has a 24px input area around its 6px rail. Arrow/End navigation followed by Enter selected Notion, closed the menu and restored trigger focus; Escape also restored focus. The final signed production-configured build was installed locally, its executable hash matched the built bundle, and its connected-source menu was visually checked at 680 × 570. A verified profile backup preceded replacement; the existing selected Notion source remained visible. This UI follow-up did not repeat provider authorization, live-call audio, Windows native rendering, or a public desktop release.

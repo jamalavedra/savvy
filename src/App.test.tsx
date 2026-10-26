@@ -1953,14 +1953,16 @@ describe("App", () => {
     expect(sources).toHaveAttribute("aria-expanded", "false");
     expect(documents).toHaveAttribute("aria-expanded", "false");
     expect(
-      screen.queryByRole("combobox", { name: "App" }),
+      screen.queryByRole("button", { name: "App" }),
     ).not.toBeInTheDocument();
     fireEvent.click(sources);
     expect(sources).toHaveAttribute("aria-expanded", "true");
     expect(documents).toHaveAttribute("aria-expanded", "false");
-    const app = await screen.findByRole("combobox", { name: "App" });
+    const app = await screen.findByRole("button", { name: "App" });
+    fireEvent.click(app);
+    const providers = screen.getByRole("listbox", { name: "App" });
     expect(
-      within(app)
+      within(providers)
         .getAllByRole("option")
         .map((option) => option.textContent),
     ).toEqual([
@@ -2001,7 +2003,7 @@ describe("App", () => {
     );
     expect(screen.getByText(/Source records attach to a client/)).toBeVisible();
     expect(
-      screen.queryByRole("combobox", { name: "App" }),
+      screen.queryByRole("button", { name: "App" }),
     ).not.toBeInTheDocument();
     expect(choose).not.toHaveBeenCalled();
     expect(connect).not.toHaveBeenCalled();
@@ -2011,7 +2013,7 @@ describe("App", () => {
       }),
     );
     expect(choose).toHaveBeenCalledOnce();
-    expect(await screen.findByRole("combobox", { name: "App" })).toBeVisible();
+    expect(await screen.findByRole("button", { name: "App" })).toBeVisible();
     expect(
       screen.getByRole("button", { name: "Meeting context" }),
     ).toHaveTextContent("Chosen client");

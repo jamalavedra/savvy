@@ -204,7 +204,7 @@ export default function MeetingReadiness({
         )}
       </div>
       {reading && !reading.assistanceAvailable && (
-        <label>
+        <label className="ui-choice">
           <Input
             type="checkbox"
             checked={allowUnavailableAI}

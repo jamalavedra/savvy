@@ -1,7 +1,7 @@
 import { createRef, type FormEvent } from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
-import { Alert, Button, Input, Select, Textarea } from "./ui";
+import { Alert, Button, Input, Textarea } from "./ui";
 
 it("keeps ordinary actions out of form submission and allows an explicit submit", () => {
   const submit = vi.fn((event: FormEvent) => event.preventDefault());
@@ -29,12 +29,7 @@ it("preserves native labels, control types, disabled state and focus refs", () =
       <label>
         Keep copy <Input type="checkbox" defaultChecked disabled />
       </label>
-      <label>
-        Provider{" "}
-        <Select defaultValue="notion">
-          <option value="notion">Notion</option>
-        </Select>
-      </label>
+
       <label>
         Notes <Textarea defaultValue="Ready" />
       </label>
@@ -46,9 +41,7 @@ it("preserves native labels, control types, disabled state and focus refs", () =
   expect(screen.getByRole("searchbox", { name: "Query" })).toHaveFocus();
   expect(screen.getByRole("checkbox", { name: "Keep copy" })).toBeChecked();
   expect(screen.getByRole("checkbox", { name: "Keep copy" })).toBeDisabled();
-  expect(screen.getByRole("combobox", { name: "Provider" })).toHaveValue(
-    "notion",
-  );
+
   expect(screen.getByRole("textbox", { name: "Notes" })).toHaveValue("Ready");
 });
 
