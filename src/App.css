@@ -418,11 +418,13 @@ button.setting-row:hover {
   background: transparent;
 }
 
-.ui-input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
-.ui-textarea,
-.ui-select {
+.ui-input:where(
+  :not([type="checkbox"]):not([type="radio"]):not([type="range"])
+),
+.ui-textarea {
   min-width: 0;
   max-width: 100%;
+  min-height: 32px;
   padding: 6px 8px;
   border: 1px solid color-mix(in srgb, var(--muted), transparent 20%);
   border-radius: 6px;
@@ -435,38 +437,240 @@ button.setting-row:hover {
     border-color 140ms ease;
 }
 
+.ui-input:where(
+  :not([type="checkbox"]):not([type="radio"]):not([type="range"])
+) {
+  font-weight: 600;
+}
+
 .ui-textarea {
   width: 100%;
   min-height: 100px;
   resize: vertical;
 }
 
-.ui-input:not([type="checkbox"]):not([type="radio"]):not(
-    [type="range"]
+.ui-input:where(
+    :not([type="checkbox"]):not([type="radio"]):not([type="range"])
   ):hover:not(:disabled),
-.ui-textarea:hover:not(:disabled),
-.ui-select:hover:not(:disabled) {
+.ui-textarea:hover:not(:disabled) {
   border-color: var(--accent);
+  background: var(--accent-pale);
 }
 
 .ui-input:focus-visible,
-.ui-textarea:focus-visible,
-.ui-select:focus-visible {
+.ui-textarea:focus-visible {
   border-color: var(--accent);
   background: var(--accent-pale);
 }
 
 .ui-input:disabled,
-.ui-textarea:disabled,
-.ui-select:disabled {
+.ui-textarea:disabled {
   cursor: not-allowed;
   opacity: 0.6;
 }
 
-.ui-input[type="checkbox"],
-.ui-input[type="radio"],
-.ui-input[type="range"] {
-  accent-color: var(--accent);
+.ui-input:where([type="checkbox"], [type="radio"]) {
+  appearance: none;
+  display: inline-grid;
+  place-content: center;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  margin: 0;
+  border: 1px solid var(--muted);
+  border-radius: 4px;
+  vertical-align: middle;
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.ui-input:where([type="checkbox"], [type="radio"]):checked,
+.ui-input[type="checkbox"]:indeterminate {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.ui-input[type="checkbox"]::after {
+  content: "";
+  width: 8px;
+  height: 5px;
+  margin-top: -2px;
+  border-bottom: 2px solid var(--on-accent);
+  border-left: 2px solid var(--on-accent);
+  transform: rotate(-45deg) scale(0);
+}
+
+.ui-input[type="checkbox"]:checked::after {
+  transform: rotate(-45deg) scale(1);
+}
+
+.ui-input[type="checkbox"]:indeterminate::after {
+  height: 2px;
+  margin: 0;
+  border: 0;
+  background: var(--on-accent);
+  transform: none;
+}
+
+.ui-input[type="radio"] {
+  border-radius: 50%;
+}
+
+.ui-input[type="radio"]::after {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--on-accent);
+  transform: scale(0);
+}
+
+.ui-input[type="radio"]:checked::after {
+  transform: scale(1);
+}
+
+.ui-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.ui-choice .ui-input {
+  margin-top: 2px;
+}
+
+.ui-choice:has(:disabled) {
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.ui-slider {
+  appearance: none;
+  min-width: 0;
+  height: 24px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background-color: transparent;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 100% 6px;
+  cursor: pointer;
+}
+
+.ui-slider::-webkit-slider-runnable-track {
+  height: 6px;
+  background: transparent;
+}
+
+.ui-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  margin-top: -5px;
+  border: 2px solid var(--background);
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+.ui-slider::-moz-range-track {
+  height: 6px;
+  background: transparent;
+}
+
+.ui-slider::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--background);
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+.ui-slider:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+@media (forced-colors: active) {
+  .ui-input:where([type="checkbox"], [type="radio"]) {
+    forced-color-adjust: none;
+    border-color: CanvasText;
+    background: Canvas;
+  }
+
+  .ui-input:where([type="checkbox"], [type="radio"]):checked,
+  .ui-input[type="checkbox"]:indeterminate {
+    border-color: Highlight;
+    background: Highlight;
+  }
+
+  .ui-input[type="checkbox"]::after {
+    border-color: HighlightText;
+  }
+
+  .ui-input[type="checkbox"]:indeterminate::after,
+  .ui-input[type="radio"]::after {
+    background: HighlightText;
+  }
+
+  .ui-slider {
+    forced-color-adjust: none;
+    border: 1px solid CanvasText;
+    background: Canvas !important;
+  }
+
+  .ui-slider::-webkit-slider-thumb {
+    border-color: CanvasText;
+    background: Highlight;
+  }
+
+  .ui-slider::-moz-range-thumb {
+    border-color: CanvasText;
+    background: Highlight;
+  }
+}
+
+.ui-disclosure {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.ui-disclosure > summary {
+  padding: 8px 10px;
+  border-radius: inherit;
+  color: var(--text);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ui-disclosure > summary:hover {
+  background: var(--accent-pale);
+}
+
+.ui-disclosure[open] > summary {
+  border-bottom: 1px solid var(--border);
+}
+
+.ui-disclosure > :not(summary) {
+  margin: 10px;
+}
+
+.ui-disclosure > label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+}
+
+.ui-disclosure > label .ui-input {
+  width: 100%;
 }
 
 .ui-alert {
@@ -476,6 +680,7 @@ button.setting-row:hover {
   border-radius: 8px;
   color: var(--alert-color);
   background: color-mix(in srgb, var(--alert-color) 8%, var(--background));
+  font-size: 13px;
   overflow-wrap: anywhere;
 }
 
@@ -507,9 +712,14 @@ button.setting-row:hover {
 .connected-sources h3,
 .connected-sources h4 {
   margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
 }
 .connected-sources p {
   margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
 }
 .connected-source-controls {
   display: flex;
@@ -520,11 +730,27 @@ button.setting-row:hover {
 }
 .connected-source-controls label {
   display: grid;
+  min-width: 0;
   gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
 }
 .connected-source-controls input,
-.connected-source-controls select {
+.connected-source-controls .dropdown-control,
+.connected-source-controls > .button {
   min-height: 36px;
+}
+.connected-source-controls .settings-dropdown {
+  width: 160px;
+}
+.connected-source-controls label:has(> .ui-input) {
+  flex: 1;
+}
+.connected-source-controls .ui-input {
+  width: 100%;
+}
+.connected-sources .ui-alert {
+  font-size: 12px;
 }
 .connected-source-list {
   list-style: none;
@@ -541,11 +767,17 @@ button.setting-row:hover {
 }
 .connected-source-list span,
 .connected-source-copy {
+  min-width: 0;
+  font-size: 13px;
   overflow-wrap: anywhere;
+}
+.connected-source-list .button {
+  flex-shrink: 0;
 }
 .connected-source-list small {
   display: block;
   color: var(--muted);
+  font-size: 11px;
 }
 
 .prepare-objective label {
@@ -1888,7 +2120,10 @@ button.shortcut-chip {
 
 .settings-dropdown {
   position: relative;
+  display: inline-block;
   width: 200px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .dropdown-control {
@@ -1944,6 +2179,10 @@ button.shortcut-chip {
   box-shadow: 0 8px 24px rgb(0 0 0 / 22%);
 }
 
+.select-menu {
+  z-index: 1000;
+}
+
 .dropdown-menu button {
   display: block;
   width: 100%;
@@ -1954,6 +2193,10 @@ button.shortcut-chip {
   font-size: 12px;
   text-align: left;
   background: transparent;
+}
+
+.dropdown-menu button:disabled {
+  cursor: not-allowed;
 }
 
 .dropdown-menu button:hover,
@@ -2100,13 +2343,6 @@ button.shortcut-chip {
   font-size: 11px;
   font-weight: 500;
   background: transparent;
-}
-
-.settings-dropdown.compact .dropdown-menu {
-  top: auto;
-  right: auto;
-  bottom: calc(100% + 12px);
-  width: 200px;
 }
 
 .footer-dot {
@@ -2897,6 +3133,17 @@ button.shortcut-chip {
   line-height: 1.5;
 }
 
+.managed-account {
+  font-size: 13px;
+}
+
+.managed-account > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .managed-pricing .button,
 .onboarding-card:has(.managed-pricing) > .onboarding-actions .button {
   min-height: 38px;
@@ -3452,13 +3699,17 @@ button.shortcut-chip {
   font-weight: 600;
 }
 
-.audio-input-setup select {
+.audio-input-setup .settings-dropdown {
   width: 100%;
 }
 
 .audio-input-setup p {
   margin: 0;
   font-size: 12px;
+}
+
+.audio-input-setup .ui-disclosure > p {
+  margin: 10px;
 }
 
 .audio-input-setup details {

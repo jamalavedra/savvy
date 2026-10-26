@@ -241,7 +241,7 @@ it("saves microphone selection before capture and keeps the previous choice on f
     <AudioCheck managed microphoneOnly configureInput onComplete={vi.fn()} />,
   );
   await act(async () => {});
-  const mic = screen.getByRole("combobox", { name: "Microphone" });
+  const mic = screen.getByRole("button", { name: "Microphone" });
   fireEvent.click(screen.getByRole("button", { name: "Check signal" }));
   act(() =>
     native.listener?.({
@@ -270,14 +270,15 @@ it("saves microphone selection before capture and keeps the previous choice on f
   );
   native.invoke.mockClear();
 
-  fireEvent.change(mic, { target: { value: "USB" } });
+  fireEvent.click(mic);
+  fireEvent.click(screen.getByRole("option", { name: "USB" }));
   await act(async () => {});
   expect(save).toHaveBeenCalledWith({
     ...settings,
     selectedMicrophone: "USB",
     selectedChannel: null,
   });
-  expect(mic).toHaveValue("");
+  expect(mic).toHaveTextContent("System default");
   expect(screen.getByRole("button", { name: "Explore Savvy" })).toBeDisabled();
   expect(screen.getByRole("button", { name: "Check signal" })).toBeDisabled();
   expect(native.invoke).not.toHaveBeenCalledWith(
@@ -287,18 +288,19 @@ it("saves microphone selection before capture and keeps the previous choice on f
   await act(async () =>
     complete({ ...settings, selectedMicrophone: "USB", selectedChannel: null }),
   );
-  expect(mic).toHaveValue("USB");
+  expect(mic).toHaveTextContent("USB");
   expect(screen.getByLabelText("Microphone signal status")).toHaveTextContent(
     "Not checked",
   );
   fireEvent.click(screen.getByText("Input options"));
-  expect(screen.getByRole("combobox", { name: "Input channel" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "Input channel" })).toBeVisible();
   save.mockRejectedValueOnce(new Error("Cannot save input"));
-  fireEvent.change(mic, { target: { value: "Built-in" } });
+  fireEvent.click(mic);
+  fireEvent.click(screen.getByRole("option", { name: "Built-in" }));
   expect(await screen.findByRole("alert")).toHaveTextContent(
     "Cannot save input",
   );
-  expect(mic).toHaveValue("USB");
+  expect(mic).toHaveTextContent("USB");
   fireEvent.click(screen.getByRole("button", { name: "Check signal" }));
   expect(mic).toBeDisabled();
   unmount();

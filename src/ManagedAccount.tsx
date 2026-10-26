@@ -267,9 +267,9 @@ export default function ManagedAccount({
   return (
     <section
       aria-label="Savvy managed account"
-      className={`settings-group ${noPlan ? "managed-empty-account" : ""}`}
+      className={`settings-group managed-account ${noPlan ? "managed-empty-account" : ""}`}
     >
-      <h2 ref={accountHeading} tabIndex={-1}>
+      <h2 ref={accountHeading} tabIndex={-1} className="group-title">
         {showUsage && account && !recoveryVisible
           ? "Plan and usage"
           : "Your account"}
@@ -637,7 +637,7 @@ export default function ManagedAccount({
         <Button onClick={() => void refresh()}>Refresh account</Button>
       )}
       {!noPlan && !recoveryVisible && !paymentPending && (
-        <details className="managed-processing">
+        <details className="ui-disclosure managed-processing">
           <summary>Pricing and data processing</summary>
           <p>
             Audio passes through Savvy to Deepgram Nova-3 with training opt-out.

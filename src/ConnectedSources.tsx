@@ -142,10 +142,11 @@ export default function ConnectedSources({
         <label>
           App{" "}
           <Select
-            value={provider}
+            label="App"
+            selectedValue={provider}
+            options={providers.map(([value, label]) => ({ value, label }))}
             disabled={disabled || working}
-            onChange={(event) => {
-              const next = event.target.value;
+            onSelect={(next) => {
               setProvider(next);
               setKind(
                 providers.find((item) => item[0] === next)?.[2][0] ?? "account",
@@ -155,32 +156,25 @@ export default function ConnectedSources({
               setCursor(null);
               setConnectUrl("");
             }}
-          >
-            {providers.map(([id, label]) => (
-              <option key={id} value={id}>
-                {label}
-              </option>
-            ))}
-          </Select>
+          />
         </label>
         <label>
           Record type{" "}
           <Select
-            value={kind}
+            label="Record type"
+            selectedValue={kind}
+            options={availableKinds.map((value) => ({
+              value,
+              label: value.charAt(0).toUpperCase() + value.slice(1),
+            }))}
             disabled={disabled || working}
-            onChange={(event) => {
-              setKind(event.target.value);
+            onSelect={(value) => {
+              setKind(value);
               setRecords([]);
               setSearched(false);
               setCursor(null);
             }}
-          >
-            {availableKinds.map((item) => (
-              <option key={item} value={item}>
-                {item}
-              </option>
-            ))}
-          </Select>
+          />
         </label>
         {connection?.connected ? (
           <Button
@@ -211,7 +205,7 @@ export default function ConnectedSources({
         )}
       </div>
       {connectUrl && !connection?.connected && (
-        <details>
+        <details className="ui-disclosure">
           <summary>Browser didn’t open?</summary>
           <label>
             Copy this connection link into your browser

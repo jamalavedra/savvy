@@ -36,12 +36,8 @@ export function Textarea({
   return <textarea {...props} className={`ui-textarea ${className}`.trim()} />;
 }
 
-export function Select({
-  className = "",
-  ...props
-}: ComponentPropsWithRef<"select">) {
-  return <select {...props} className={`ui-select ${className}`.trim()} />;
-}
+export { Select } from "./Select";
+export { Slider } from "./Slider";
 
 export function Alert({
   variant = "error",

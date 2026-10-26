@@ -295,29 +295,26 @@ export default function AudioCheck({
             <label>
               Microphone
               <Select
-                value={input ?? ""}
+                label="Microphone"
+                selectedValue={input ?? ""}
                 disabled={!inputReady || inputBusy || running}
-                onChange={(event) =>
-                  void saveInput(event.target.value || null, null)
-                }
-              >
-                <option value="">
-                  System default
-                  {inputs.find((device) => device.isDefault)?.name
-                    ? ` (${inputs.find((device) => device.isDefault)?.name})`
-                    : ""}
-                </option>
-                {input && !inputs.some((device) => device.name === input) && (
-                  <option value={input}>{input} (disconnected)</option>
-                )}
-                {inputs.map((device) => (
-                  <option key={device.name} value={device.name}>
-                    {device.name}
-                  </option>
-                ))}
-              </Select>
+                options={[
+                  {
+                    value: "",
+                    label: `System default${inputs.find((device) => device.isDefault)?.name ? ` (${inputs.find((device) => device.isDefault)?.name})` : ""}`,
+                  },
+                  ...(input && !inputs.some((device) => device.name === input)
+                    ? [{ value: input, label: `${input} (disconnected)` }]
+                    : []),
+                  ...inputs.map((device) => ({
+                    value: device.name,
+                    label: device.name,
+                  })),
+                ]}
+                onSelect={(value) => void saveInput(value || null, null)}
+              />
             </label>
-            <details>
+            <details className="ui-disclosure">
               <summary>Input options</summary>
               <p>
                 If your preferred microphone is disconnected, capture uses the
@@ -327,27 +324,23 @@ export default function AudioCheck({
                 <label>
                   Input channel
                   <Select
-                    value={channel ?? ""}
+                    label="Input channel"
+                    selectedValue={channel == null ? "" : String(channel)}
                     disabled={!inputReady || inputBusy || running}
-                    onChange={(event) =>
-                      void saveInput(
-                        input,
-                        event.target.value === ""
-                          ? null
-                          : Number(event.target.value),
-                      )
-                    }
-                  >
-                    <option value="">Average all channels</option>
-                    {Array.from(
-                      { length: selectedDevice?.channels ?? 0 },
-                      (_, index) => (
-                        <option key={index} value={index}>
-                          Channel {index + 1}
-                        </option>
+                    options={[
+                      { value: "", label: "Average all channels" },
+                      ...Array.from(
+                        { length: selectedDevice?.channels ?? 0 },
+                        (_, index) => ({
+                          value: String(index),
+                          label: `Channel ${index + 1}`,
+                        }),
                       ),
-                    )}
-                  </Select>
+                    ]}
+                    onSelect={(value) =>
+                      void saveInput(input, value === "" ? null : Number(value))
+                    }
+                  />
                 </label>
               )}
               <Button

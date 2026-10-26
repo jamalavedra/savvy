@@ -385,7 +385,7 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
             </Button>
           </p>
         )}
-        <label>
+        <label className="ui-choice">
           <Input
             type="checkbox"
             disabled={busy}

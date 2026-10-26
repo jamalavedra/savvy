@@ -3,7 +3,7 @@ import { Input } from "./ui";
 export default function BrowserSignInLink({ url }: { url: string }) {
   if (!url) return null;
   return (
-    <details>
+    <details className="ui-disclosure">
       <summary>Browser didn’t open?</summary>
       <label>
         Copy this sign-in link into your browser

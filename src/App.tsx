@@ -1,4 +1,5 @@
-import { Button, Input, Textarea, Alert } from "./ui";
+import { Button, Input, Textarea, Alert, Select, Slider } from "./ui";
+import { moveListboxFocus } from "./lib/listbox";
 import { MeetingDetails } from "./MeetingDetails";
 import { transcriptionModels } from "./lib/transcriptionModels";
 import ConfirmDialog from "./ConfirmDialog";
@@ -3318,10 +3319,9 @@ function MeetingAudioPlayer({ path }: { path: string | null }) {
         )}
       </Button>
       <span>{formatAudioTime(position)}</span>
-      <Input
+      <Slider
         aria-label="Recording position"
-        type="range"
-        min="0"
+        min={0}
         max={duration || 0}
         step="0.1"
         value={Math.min(position, duration || 0)}
@@ -3693,10 +3693,9 @@ function SettingsView({
             disabled={!settings.audioFeedback}
           >
             <label className="volume-control">
-              <Input
-                type="range"
-                min="0"
-                max="1"
+              <Slider
+                min={0}
+                max={1}
                 step="0.05"
                 value={settings.audioFeedbackVolume}
                 disabled={saving || !settings.audioFeedback}
@@ -4381,7 +4380,7 @@ function SettingSelect({
 }) {
   return (
     <PreferenceRow title={title} detail={detail} disabled={disabled}>
-      <Dropdown
+      <Select
         selectedValue={value}
         disabled={disabled}
         options={options}
@@ -4571,171 +4570,6 @@ function PreferenceValue({
   );
 }
 
-function moveListboxFocus(event: React.KeyboardEvent<HTMLElement>) {
-  const keys = ["ArrowDown", "ArrowUp", "Home", "End"];
-  if (!keys.includes(event.key)) return;
-  if (
-    event.target instanceof HTMLInputElement &&
-    ["Home", "End"].includes(event.key)
-  )
-    return;
-  const options = Array.from(
-    event.currentTarget.querySelectorAll<HTMLButtonElement>(
-      '[role="option"]:not(:disabled)',
-    ),
-  );
-  if (!options.length) return;
-  const current = options.indexOf(document.activeElement as HTMLButtonElement);
-  const next =
-    event.key === "Home"
-      ? 0
-      : event.key === "End"
-        ? options.length - 1
-        : event.key === "ArrowDown"
-          ? (current + 1) % options.length
-          : current < 0
-            ? options.length - 1
-            : (current - 1 + options.length) % options.length;
-  event.preventDefault();
-  options[next].focus();
-}
-
-function Dropdown({
-  options,
-  selectedValue,
-  onSelect,
-  label,
-  disabled = false,
-  compact = false,
-  searchable = false,
-}: {
-  options: Array<{ value: string; label: string }>;
-  selectedValue: string;
-  onSelect: (value: string) => void;
-  label: string;
-  disabled?: boolean;
-  compact?: boolean;
-  searchable?: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const ref = useRef<HTMLDivElement>(null);
-  const trigger = useRef<HTMLButtonElement>(null);
-  const listId = useId();
-  const selected = options.find((option) => option.value === selectedValue);
-  const visibleOptions = options.filter((option) =>
-    option.label.toLowerCase().includes(query.toLowerCase()),
-  );
-
-  useLayoutEffect(() => {
-    if (open && !searchable) {
-      const option =
-        ref.current?.querySelector<HTMLButtonElement>(
-          '[role="option"][aria-selected="true"]',
-        ) ?? ref.current?.querySelector<HTMLButtonElement>('[role="option"]');
-      option?.focus();
-    }
-  }, [open, searchable]);
-
-  useEffect(() => {
-    if (!open) return;
-    const close = (event: MouseEvent) => {
-      if (!ref.current?.contains(event.target as Node)) {
-        setOpen(false);
-        setQuery("");
-      }
-    };
-    const escape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        trigger.current?.focus();
-        setOpen(false);
-        setQuery("");
-      }
-    };
-    document.addEventListener("mousedown", close);
-    document.addEventListener("keydown", escape);
-    return () => {
-      document.removeEventListener("mousedown", close);
-      document.removeEventListener("keydown", escape);
-    };
-  }, [open]);
-
-  return (
-    <div
-      className={`settings-dropdown ${compact ? "compact" : ""}`}
-      ref={ref}
-      onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget)) {
-          setOpen(false);
-          setQuery("");
-        }
-      }}
-    >
-      <Button
-        variant="plain"
-        ref={trigger}
-        className="dropdown-control"
-        disabled={disabled}
-        aria-label={label}
-        aria-haspopup="listbox"
-        aria-controls={open ? listId : undefined}
-        aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
-        onKeyDown={(event) => {
-          if (["ArrowDown", "ArrowUp"].includes(event.key)) {
-            event.preventDefault();
-            setOpen(true);
-          }
-        }}
-      >
-        {compact && <i className="footer-dot" />}
-        <span>{selected?.label ?? "Select an option…"}</span>
-        <ChevronDown width={15} height={15} />
-      </Button>
-      {open && !disabled && (
-        <div className="dropdown-menu" onKeyDown={moveListboxFocus}>
-          {searchable && (
-            <Input
-              className="dropdown-search"
-              value={query}
-              placeholder="Search languages…"
-              aria-label="Search languages"
-              aria-controls={listId}
-              onChange={(event) => setQuery(event.target.value)}
-              autoFocus
-            />
-          )}
-          <div id={listId} role="listbox" aria-label={label}>
-            {visibleOptions.map((option) => (
-              <Button
-                variant="plain"
-                role="option"
-                tabIndex={-1}
-                aria-selected={option.value === selectedValue}
-                className={option.value === selectedValue ? "selected" : ""}
-                key={`${option.value}-${option.label}`}
-                onClick={() => {
-                  trigger.current?.focus();
-                  onSelect(option.value);
-                  setOpen(false);
-                  setQuery("");
-                }}
-              >
-                {option.label}
-              </Button>
-            ))}
-          </div>
-          {visibleOptions.length === 0 && (
-            <span className="dropdown-empty" role="status">
-              No matching options
-            </span>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 type UpdateStatus = "idle" | "checking" | "up-to-date" | "available" | "failed";
 
 const updateStatusLabels: Record<UpdateStatus, string> = {
@@ -4807,7 +4641,7 @@ function AppFooter({
           <i /> Savvy assistance
         </span>
       ) : settings ? (
-        <Dropdown
+        <Select
           compact
           label="Reasoning model"
           options={

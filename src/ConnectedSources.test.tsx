@@ -236,12 +236,39 @@ it("omits Gong from new connections while retaining an existing selection", asyn
       onClientChange={vi.fn()}
     />,
   );
+  fireEvent.click(screen.getByRole("button", { name: "App" }));
   expect(
     screen.queryByRole("option", { name: "Gong" }),
   ).not.toBeInTheDocument();
+  fireEvent.keyDown(document.activeElement!, { key: "Escape" });
   expect(screen.getByText("Saved Gong call")).toBeVisible();
   fireEvent.click(
     screen.getByRole("button", { name: "Remove selection Saved Gong call" }),
   );
   await waitFor(() => expect(remove).toHaveBeenCalledWith(client.id, source));
+});
+
+it("uses the shared chooser to switch apps and reset the available record type", async () => {
+  vi.spyOn(api, "sourceConnections").mockResolvedValue([]);
+  const client = (await api.getDashboard()).clients[0];
+  render(
+    <ConnectedSources
+      client={client}
+      disabled={false}
+      refreshes={[]}
+      onClientChange={vi.fn()}
+    />,
+  );
+  const app = screen.getByRole("button", { name: "App" });
+  fireEvent.click(app);
+  fireEvent.click(screen.getByRole("option", { name: "HubSpot" }));
+  expect(app).toHaveTextContent("HubSpot");
+  const kind = screen.getByRole("button", { name: "Record type" });
+  expect(kind).toHaveTextContent("Company");
+  fireEvent.click(kind);
+  fireEvent.click(screen.getByRole("option", { name: "Note" }));
+  expect(kind).toHaveTextContent("Note");
+  fireEvent.click(app);
+  fireEvent.click(screen.getByRole("option", { name: "Gmail" }));
+  expect(kind).toHaveTextContent("Thread");
 });

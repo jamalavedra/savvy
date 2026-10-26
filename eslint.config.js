@@ -37,7 +37,13 @@ export default tseslint.config(
   },
   {
     files: ["src/**/*.tsx"],
-    ignores: ["src/ui.tsx", "src/**/*.test.tsx", "src/test/**"],
+    ignores: [
+      "src/ui.tsx",
+      "src/Select.tsx",
+      "src/Slider.tsx",
+      "src/**/*.test.tsx",
+      "src/test/**",
+    ],
     rules: {
       "no-restricted-syntax": [
         "error",
@@ -46,6 +52,11 @@ export default tseslint.config(
             "JSXOpeningElement[name.name=/^(button|input|select|textarea)$/]",
           message:
             "Use the shared Button, Input, Select or Textarea from src/ui.tsx.",
+        },
+        {
+          selector:
+            "JSXOpeningElement[name.name='Input']:has(JSXAttribute[name.name='type'][value.value='range'])",
+          message: "Use the shared Slider for range controls.",
         },
       ],
     },
