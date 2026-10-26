@@ -1924,6 +1924,93 @@ describe("App", () => {
       await screen.findByRole("button", { name: "Up to date" }),
     ).toHaveAttribute("aria-disabled", "true");
   }, 15_000);
+  it("shows managed source connections independently of collapsed documents", async () => {
+    const settings = await api.getAppSettings();
+    vi.spyOn(api, "getAppSettings").mockResolvedValue({
+      ...settings,
+      serviceMode: "managed",
+    });
+    render(<App />);
+    const sources = await screen.findByRole("button", {
+      name: /Connect sources/,
+    });
+    const documents = screen.getByRole("button", { name: "Show documents" });
+    expect(sources).toHaveAttribute("aria-expanded", "false");
+    expect(documents).toHaveAttribute("aria-expanded", "false");
+    expect(
+      screen.queryByRole("combobox", { name: "App" }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(sources);
+    expect(sources).toHaveAttribute("aria-expanded", "true");
+    expect(documents).toHaveAttribute("aria-expanded", "false");
+    const app = await screen.findByRole("combobox", { name: "App" });
+    expect(
+      within(app)
+        .getAllByRole("option")
+        .map((option) => option.textContent),
+    ).toEqual([
+      "Salesforce",
+      "HubSpot",
+      "Gmail",
+      "Outlook",
+      "Notion",
+      "Google Drive",
+    ]);
+    expect(screen.getByRole("button", { name: "Connect" })).toBeVisible();
+  });
+
+  it("keeps the source entry visible without a client and requires an explicit client folder", async () => {
+    const settings = await api.getAppSettings();
+    vi.spyOn(api, "getAppSettings").mockResolvedValue({
+      ...settings,
+      serviceMode: "managed",
+    });
+    const dashboard = await api.getDashboard();
+    vi.spyOn(api, "getDashboard").mockResolvedValue({
+      ...dashboard,
+      clients: [],
+      activeBrief: null,
+    });
+    const client = {
+      ...dashboard.clients[0],
+      id: "new-client",
+      name: "Chosen client",
+    };
+    const choose = vi
+      .spyOn(api, "chooseClientFolder")
+      .mockResolvedValue(client);
+    const connect = vi.spyOn(api, "sourceConnect");
+    render(<App />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Connect sources/ }),
+    );
+    expect(screen.getByText(/Source records attach to a client/)).toBeVisible();
+    expect(
+      screen.queryByRole("combobox", { name: "App" }),
+    ).not.toBeInTheDocument();
+    expect(choose).not.toHaveBeenCalled();
+    expect(connect).not.toHaveBeenCalled();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Add client folder to connect sources",
+      }),
+    );
+    expect(choose).toHaveBeenCalledOnce();
+    expect(await screen.findByRole("combobox", { name: "App" })).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Meeting context" }),
+    ).toHaveTextContent("Chosen client");
+    expect(connect).not.toHaveBeenCalled();
+  });
+
+  it("keeps connected-app setup out of the personal-provider workspace", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Prepare for your meeting" });
+    expect(
+      screen.queryByRole("button", { name: /Connect sources/ }),
+    ).not.toBeInTheDocument();
+  });
+
   it("supports keyboard selection and keeps the client creation action outside the listbox", async () => {
     render(<App />);
     const trigger = await screen.findByRole("button", {
@@ -1999,6 +2086,65 @@ describe("App", () => {
     expect(Number.parseFloat(tooltip.style.left)).toBeGreaterThanOrEqual(12);
     fireEvent.keyDown(info, { key: "Escape" });
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+  });
+
+  it("clears audio check results and stops capture when the selected input changes", async () => {
+    const invoke = vi.fn().mockResolvedValue(undefined);
+    const unlisten = vi.fn();
+    vi.mocked(listen).mockClear();
+    vi.mocked(listen).mockResolvedValue(unlisten);
+    vi.spyOn(api, "getInputDevices").mockResolvedValue([
+      { name: "System default", isDefault: true, channels: 1 },
+      { name: "Desk microphone", isDefault: false, channels: 1 },
+    ]);
+    vi.spyOn(api, "updateAppSettings").mockImplementation(
+      async (settings) => settings,
+    );
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "General" }));
+    const check = await screen.findByRole("button", { name: "Check signal" });
+    await waitFor(() => expect(check).toBeEnabled());
+    window.__TAURI_INTERNALS__ = { invoke };
+    expect(invoke).not.toHaveBeenCalled();
+    fireEvent.click(check);
+    const started = invoke.mock.calls.find(
+      ([name]) => name === "audio_check_start",
+    )![1] as { id: string };
+    const report = vi
+      .mocked(listen)
+      .mock.calls.find(([name]) => name === "audio-check://status")![1];
+    act(() =>
+      report({
+        event: "audio-check://status",
+        id: 1,
+        payload: {
+          id: started.id,
+          status: "listening",
+          microphoneLevel: 0.8,
+          systemLevel: 0,
+          message: "Listening",
+        },
+      }),
+    );
+    expect(screen.getByLabelText("Microphone signal status")).toHaveTextContent(
+      "Input detected",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Microphone" }));
+    fireEvent.click(
+      await screen.findByRole("option", { name: "Desk microphone" }),
+    );
+    await waitFor(() =>
+      expect(
+        invoke.mock.calls.find(([name]) => name === "audio_check_stop")?.[1],
+      ).toEqual({ id: started.id }),
+    );
+    expect(screen.getByLabelText("Microphone signal status")).toHaveTextContent(
+      "Not checked",
+    );
+    expect(
+      invoke.mock.calls.filter(([name]) => name === "audio_check_start"),
+    ).toHaveLength(1);
+    expect(unlisten).toHaveBeenCalledOnce();
   });
 
   it("disables setting switches while their save is pending", async () => {

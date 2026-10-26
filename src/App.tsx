@@ -42,6 +42,7 @@ import {
   MicOff,
   Pause,
   Play,
+  Plug,
   RotateCcw,
   Settings,
   Sparkles,
@@ -227,6 +228,7 @@ function App() {
   const contextSelectionInFlight = useRef(false);
   const preparationRead = useRef(0);
   const [busy, setBusy] = useState(false);
+  const [sourcesOpen, setSourcesOpen] = useState(false);
   const [sourceRefreshes, setSourceRefreshes] = useState<SourceRefresh[]>([]);
   const [staleDecision, setStaleDecision] = useState<{
     source: SourceRefresh;
@@ -1247,6 +1249,8 @@ function App() {
                   setSourceRefreshes([]);
                 }}
                 onAddClient={addClient}
+                sourcesOpen={sourcesOpen}
+                onToggleSources={() => setSourcesOpen((open) => !open)}
                 onRemoveClient={(client) => {
                   setError(null);
                   setPendingRemoval({ kind: "client", client });
@@ -1418,6 +1422,8 @@ function PrepareView({
   preparation,
   onSelectClient,
   onAddClient,
+  sourcesOpen,
+  onToggleSources,
   onRemoveClient,
   onSelectionChange,
   sourceRefreshes,
@@ -1448,6 +1454,8 @@ function PrepareView({
   preparation: PreparationSnapshot | null;
   onSelectClient: (id: string | null) => void;
   onAddClient: () => void;
+  sourcesOpen: boolean;
+  onToggleSources: () => void;
   onRemoveClient: (client: ClientWorkspace) => void;
   onSelectionChange: (
     clientId: string,
@@ -1499,6 +1507,7 @@ function PrepareView({
       ),
   );
   const guidanceFolderName = guidanceFolder?.split(/[\\/]/).pop() ?? null;
+  const selectedSourceCount = activeClient?.connectedSources?.length ?? 0;
 
   return (
     <div className="page-content prepare-page">
@@ -1545,14 +1554,6 @@ function PrepareView({
                 disabled={busy || settingsBusy}
                 onSelectionChange={onSelectionChange}
               />
-              {provider === "managed" && (
-                <ConnectedSources
-                  client={activeClient}
-                  disabled={busy || settingsBusy}
-                  refreshes={sourceRefreshes}
-                  onClientChange={onClientChange}
-                />
-              )}
               <div className="prepare-card-actions">
                 <Button
                   variant="secondary"
@@ -1574,6 +1575,63 @@ function PrepareView({
             </div>
           )}
         </div>
+        {provider === "managed" && (
+          <div className="prepare-card connected-sources-card">
+            <Button
+              variant="plain"
+              className="prepare-card-header"
+              aria-expanded={sourcesOpen}
+              aria-controls="connected-sources-panel"
+              onClick={onToggleSources}
+            >
+              <span className="tile-icon">
+                <Plug />
+              </span>
+              <span className="prepare-card-title">
+                <strong>Connect sources</strong>
+                <small>
+                  Salesforce, HubSpot, Gmail, Outlook, Notion and Google Drive
+                </small>
+              </span>
+              {selectedSourceCount > 0 && (
+                <span className="prepare-tag">
+                  {selectedSourceCount} selected
+                </span>
+              )}
+              <ChevronDown className={`chevron ${sourcesOpen ? "open" : ""}`} />
+            </Button>
+            {sourcesOpen && (
+              <div
+                id="connected-sources-panel"
+                className="prepare-card-body connected-sources-panel"
+              >
+                {activeClient ? (
+                  <ConnectedSources
+                    key={activeClient.id}
+                    client={activeClient}
+                    disabled={busy || settingsBusy}
+                    refreshes={sourceRefreshes}
+                    onClientChange={onClientChange}
+                  />
+                ) : (
+                  <>
+                    <p>
+                      Source records attach to a client. Select a client using
+                      Meeting context above, or add a client folder to connect
+                      sources.
+                    </p>
+                    <Button
+                      disabled={busy || settingsBusy}
+                      onClick={onAddClient}
+                    >
+                      Add client folder to connect sources
+                    </Button>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        )}
         <div className="prepare-card">
           <Button
             variant="plain"
@@ -3535,6 +3593,16 @@ function SettingsView({
           </PreferenceRow>
         </SettingsGroup>
         <AudioCheck
+          key={JSON.stringify([
+            settings.serviceMode,
+            settings.selectedMicrophone,
+            settings.selectedChannel,
+            settings.selectedSystemOutputDevice,
+            settings.microphoneOnly,
+            settings.transcriptionProvider,
+            settings.transcriptionModel,
+            settings.transcriptionLanguage,
+          ])}
           managed={settings.serviceMode === "managed"}
           microphoneOnly={settings.microphoneOnly}
         />

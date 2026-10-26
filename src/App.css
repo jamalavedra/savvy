@@ -3263,71 +3263,256 @@ button.shortcut-chip {
   margin: 0;
 }
 
-.audio-test-transcript {
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  overflow-wrap: anywhere;
+.audio-check-card {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px;
 }
-.audio-test-transcript h3 {
-  margin: 0 0 8px;
+
+.audio-check-card > * + * {
+  border-top: 0;
+}
+
+.audio-check-section {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+}
+
+.audio-check-section + .audio-check-section,
+.audio-check-recovery {
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.audio-check-section-heading,
+.audio-signal-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.audio-check-section-heading h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.audio-check-meta {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.025em;
+  text-transform: uppercase;
+}
+
+.audio-check .audio-check-description,
+.audio-check-instruction {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.audio-check-instruction {
+  color: var(--text);
+}
+
+.audio-signal-list {
+  display: grid;
+  gap: 10px;
+  padding: 2px 0;
+}
+
+.audio-signal-row {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.audio-signal-heading label {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.audio-signal-status {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: right;
+}
+
+.audio-signal-status[data-state="detected"] {
+  color: var(--success);
+}
+
+.audio-signal-status[data-state="missing"] {
+  color: var(--warning);
+}
+
+.audio-signal-meter {
+  display: block;
+  width: 100%;
+  height: 8px;
+  border: 0;
+  border-radius: 999px;
+  appearance: none;
+  background: var(--border-soft);
+}
+
+.audio-signal-meter::-webkit-meter-bar {
+  height: 8px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--border-soft);
+}
+
+.audio-signal-meter::-webkit-meter-optimum-value {
+  border-radius: 999px;
+  background: var(--success);
+}
+
+.audio-signal-meter::-moz-meter-bar {
+  border-radius: 999px;
+  background: var(--success);
+}
+
+.audio-check-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.audio-check-actions .button {
+  min-height: 30px;
+  padding: 5px 10px;
   font-size: 12px;
 }
+
+.audio-check-result.ui-alert {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+  background: transparent;
+}
+
+.audio-check-result[data-state="failed"] {
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, var(--background));
+}
+
+.audio-check-result[data-state="passed"] {
+  color: var(--success);
+}
+
+.audio-check-recovery {
+  display: grid;
+  gap: 8px;
+}
+
+.audio-test-transcript {
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--background-ui);
+  overflow-wrap: anywhere;
+}
+
+.audio-test-transcript h3 {
+  margin: 0 0 5px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
 .audio-test-transcript p {
   margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
   white-space: pre-wrap;
+}
+
+.audio-input-setup {
+  display: grid;
+  gap: 8px;
 }
 
 .audio-input-setup label {
   display: grid;
-  gap: 6px;
-}
-.audio-input-setup select {
-  width: 100%;
-  min-width: 0;
-  padding: 8px;
-  color: var(--text);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
 }
 
-.audio-setup-step .audio-input-setup {
-  display: grid;
-  gap: 8px;
-}
-.audio-setup-step .audio-input-setup p {
-  font-size: 12px;
-  margin: 0;
-}
-.audio-setup-step .onboarding-actions {
-  margin-top: 12px;
-}
-.audio-setup-step meter {
-  display: block;
+.audio-input-setup select {
   width: 100%;
-  height: 18px;
+}
+
+.audio-input-setup p {
+  margin: 0;
+  font-size: 12px;
+}
+
+.audio-input-setup details {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.audio-input-setup details > * + * {
+  margin-top: 8px;
+}
+
+.audio-check-skip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+.audio-check-skip small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.audio-check .audio-check-demo {
+  font-size: 11px;
 }
 
 .onboarding-audio {
   gap: 12px;
   padding: 16px 24px;
 }
-.audio-setup-step {
-  gap: 6px;
+
+.audio-setup-step > h2 {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.3;
 }
-.audio-setup-step h2 {
-  margin: 0 0 8px;
+
+.onboarding-card .audio-check-card {
+  padding: 0;
+  border: 0;
 }
-.audio-setup-step p {
-  margin: 4px 0;
+
+.connected-sources-card .prepare-card-title small {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
-.audio-setup-step details > * + * {
-  margin-top: 8px;
-}
-.audio-setup-step > .button.primary,
-.audio-setup-step .onboarding-actions .button.primary {
-  background: var(--accent-soft);
+
+.connected-sources-panel .connected-sources {
+  margin: 0;
+  padding: 0;
+  border-top: 0;
 }
 
 .history-playback-error {

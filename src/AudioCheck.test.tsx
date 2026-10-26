@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import AudioCheck from "./AudioCheck";
 import * as api from "./lib/api";
@@ -527,4 +527,74 @@ it("removes a subscription that completes after navigation exactly once", async 
   unmount();
   await act(async () => complete(remove));
   expect(remove).toHaveBeenCalledOnce();
+});
+
+it("groups labeled local meters separately from provider consent and shows instructions only while checking", async () => {
+  render(<AudioCheck managed microphoneOnly={false} />);
+  await act(async () => {});
+  const card = screen.getByRole("region", { name: "Audio checks" });
+  expect(
+    within(card).getByRole("heading", { name: "Local signal" }),
+  ).toBeVisible();
+  expect(
+    within(card).getByRole("heading", { name: "Provider transcription" }),
+  ).toBeVisible();
+  expect(
+    screen.getByRole("meter", { name: "Microphone signal" }),
+  ).toHaveAttribute("value", "0");
+  expect(
+    screen.getByRole("meter", { name: "System audio signal" }),
+  ).toHaveAttribute("value", "0");
+  expect(screen.getByText("Up to 30 seconds")).toBeVisible();
+  expect(
+    screen.getByText(/This sends audio to your selected provider/),
+  ).toHaveTextContent("uses your managed meeting allowance");
+  expect(
+    screen.queryByText("Say: I am ready for my meeting."),
+  ).not.toBeInTheDocument();
+  expect(native.invoke).not.toHaveBeenCalled();
+  fireEvent.click(
+    screen.getByRole("button", { name: "Start transcription test" }),
+  );
+  expect(screen.getByText("Say: I am ready for my meeting.")).toBeVisible();
+});
+
+it("keeps signal meter values finite and within their advertised range", async () => {
+  render(<AudioCheck managed microphoneOnly={false} />);
+  await act(async () => {});
+  fireEvent.click(screen.getByRole("button", { name: "Check signal" }));
+  act(() =>
+    native.listener?.({
+      payload: {
+        id: CHECK_ONE,
+        status: "listening",
+        microphoneLevel: Number.NaN,
+        systemLevel: 2,
+        message: "",
+      },
+    }),
+  );
+  expect(
+    screen.getByRole("meter", { name: "Microphone signal" }),
+  ).toHaveAttribute("value", "0");
+  expect(
+    screen.getByRole("meter", { name: "System audio signal" }),
+  ).toHaveAttribute("value", "1");
+  act(() =>
+    native.listener?.({
+      payload: {
+        id: CHECK_ONE,
+        status: "listening",
+        microphoneLevel: -0.4,
+        systemLevel: 0.25,
+        message: "",
+      },
+    }),
+  );
+  expect(
+    screen.getByRole("meter", { name: "Microphone signal" }),
+  ).toHaveAttribute("value", "0");
+  expect(
+    screen.getByRole("meter", { name: "System audio signal" }),
+  ).toHaveAttribute("value", "0.25");
 });
