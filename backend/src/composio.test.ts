@@ -464,6 +464,36 @@ test("Notion search uses the page title property", async (t) => {
   assert.equal(unrelated.records.length, 0);
 });
 
+test("Notion rejects an empty body before adding the page title and URL", async (t) => {
+  const h = fixture(t);
+  for (const blocks of [
+    [],
+    [{ type: "paragraph", paragraph: { rich_text: [{ plain_text: "   " }] } }],
+  ]) {
+    h.setResponse(({ endpoint }: { endpoint: string }) =>
+      endpoint.includes("/blocks/")
+        ? { results: blocks, next_cursor: null }
+        : {
+            properties: { Name: { title: [{ plain_text: "Acme renewal" }] } },
+            url: "https://notion.so/acme",
+          },
+    );
+    await assert.rejects(
+      h.service.fetch(1n, {
+        provider: "notion",
+        kind: "page",
+        accountId: "account-one",
+        recordId: "page-1",
+      }),
+      (error: unknown) =>
+        error instanceof ApiError &&
+        error.status === 422 &&
+        error.code === "invalid_request" &&
+        /no supported text/.test(error.message),
+    );
+  }
+});
+
 test("Gong is unavailable for discovery, connection and reads, but can be disconnected", async (t) => {
   const h = fixture(t);
   const unavailable = (error: unknown) =>

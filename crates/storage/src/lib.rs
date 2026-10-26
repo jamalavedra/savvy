@@ -97,12 +97,7 @@ impl Storage {
     }
 
     pub fn save_client(&self, client: &ClientWorkspace) -> Result<(), StorageError> {
-        self.connection.execute(
-            "INSERT INTO clients(id, body) VALUES (?1, ?2)
-             ON CONFLICT(id) DO UPDATE SET body = excluded.body",
-            params![client.id.to_string(), serde_json::to_string(client)?],
-        )?;
-        Ok(())
+        save_client_row(&self.connection, client)
     }
 
     pub fn list_clients(&self) -> Result<Vec<ClientWorkspace>, StorageError> {
@@ -360,37 +355,20 @@ impl Storage {
         scope_id: EntityId,
         chunks: &[IndexedSourceChunk],
     ) -> Result<(), StorageError> {
-        let kind = format!("{kind:?}");
-        let scope_id = scope_id.to_string();
         let transaction = self.connection.transaction()?;
-        transaction.execute(
-            "DELETE FROM source_chunks_fts WHERE chunk_id IN
-             (SELECT id FROM source_chunks WHERE scope_kind = ?1 AND scope_id = ?2)",
-            params![kind, scope_id],
-        )?;
-        transaction.execute(
-            "DELETE FROM source_chunks WHERE scope_kind = ?1 AND scope_id = ?2",
-            params![kind, scope_id],
-        )?;
-        for chunk in chunks {
-            let id = chunk.source.chunk_id.to_string();
-            transaction.execute(
-                "INSERT INTO source_chunks(id, scope_kind, scope_id, document_id, content_hash, body)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![
-                    id,
-                    kind,
-                    scope_id,
-                    chunk.source.document_id.to_string(),
-                    chunk.content_hash,
-                    serde_json::to_string(&chunk.source)?,
-                ],
-            )?;
-            transaction.execute(
-                "INSERT INTO source_chunks_fts(chunk_id, text) VALUES (?1, ?2)",
-                params![id, chunk.source.excerpt],
-            )?;
-        }
+        replace_source_scope_rows(&transaction, kind, scope_id, chunks)?;
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub fn save_client_source_scope(
+        &mut self,
+        client: &ClientWorkspace,
+        chunks: &[IndexedSourceChunk],
+    ) -> Result<(), StorageError> {
+        let transaction = self.connection.transaction()?;
+        replace_source_scope_rows(&transaction, ContextSourceKind::Client, client.id, chunks)?;
+        save_client_row(&transaction, client)?;
         transaction.commit()?;
         Ok(())
     }
@@ -515,6 +493,54 @@ impl Storage {
         let rows = statement.query_map([id.to_string()], |row| row.get::<_, String>(0))?;
         rows.map(|row| Ok(serde_json::from_str(&row?)?)).collect()
     }
+}
+
+fn save_client_row(connection: &Connection, client: &ClientWorkspace) -> Result<(), StorageError> {
+    connection.execute(
+        "INSERT INTO clients(id, body) VALUES (?1, ?2)
+             ON CONFLICT(id) DO UPDATE SET body = excluded.body",
+        params![client.id.to_string(), serde_json::to_string(client)?],
+    )?;
+    Ok(())
+}
+
+fn replace_source_scope_rows(
+    connection: &Connection,
+    kind: ContextSourceKind,
+    scope_id: EntityId,
+    chunks: &[IndexedSourceChunk],
+) -> Result<(), StorageError> {
+    let kind = format!("{kind:?}");
+    let scope_id = scope_id.to_string();
+    connection.execute(
+        "DELETE FROM source_chunks_fts WHERE chunk_id IN
+             (SELECT id FROM source_chunks WHERE scope_kind = ?1 AND scope_id = ?2)",
+        params![kind, scope_id],
+    )?;
+    connection.execute(
+        "DELETE FROM source_chunks WHERE scope_kind = ?1 AND scope_id = ?2",
+        params![kind, scope_id],
+    )?;
+    for chunk in chunks {
+        let id = chunk.source.chunk_id.to_string();
+        connection.execute(
+            "INSERT INTO source_chunks(id, scope_kind, scope_id, document_id, content_hash, body)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                id,
+                kind,
+                scope_id,
+                chunk.source.document_id.to_string(),
+                chunk.content_hash,
+                serde_json::to_string(&chunk.source)?,
+            ],
+        )?;
+        connection.execute(
+            "INSERT INTO source_chunks_fts(chunk_id, text) VALUES (?1, ?2)",
+            params![id, chunk.source.excerpt],
+        )?;
+    }
+    Ok(())
 }
 
 fn fts_query(value: &str) -> String {
@@ -787,6 +813,106 @@ mod tests {
             )
             .expect("count recommendations");
         assert_eq!(recommendation_count, 0);
+    }
+
+    #[test]
+    fn client_source_scope_rolls_back_chunks_and_selection_when_client_save_fails() {
+        use savvy_domain::{ConnectedSource, SourceLocator};
+
+        let mut storage = Storage::in_memory().expect("storage");
+        let mut original = ClientWorkspace::new("Acme", PathBuf::from("/tmp/acme"));
+        original.connected_sources.push(ConnectedSource {
+            provider: "notion".into(),
+            kind: "page".into(),
+            account_id: "account-one".into(),
+            record_id: "old-record".into(),
+            title: "Original terms".into(),
+            url: "https://notion.so/original".into(),
+            modified_at: None,
+            relative_path: PathBuf::from("original.md"),
+            content_hash: Some("original".into()),
+            refreshed_at: None,
+        });
+        let chunk = |text: &str| IndexedSourceChunk {
+            scope_id: original.id,
+            source: SourceReference {
+                kind: ContextSourceKind::Client,
+                document_id: Uuid::new_v4(),
+                chunk_id: Uuid::new_v4(),
+                relative_path: PathBuf::from("terms.md"),
+                locator: SourceLocator::document("Terms"),
+                excerpt: text.into(),
+            },
+            content_hash: text.into(),
+        };
+        let old_chunk = chunk("originalterms");
+        let new_chunk = chunk("replacementterms");
+        storage.save_client(&original).expect("original client");
+        storage
+            .replace_source_scope(
+                ContextSourceKind::Client,
+                original.id,
+                std::slice::from_ref(&old_chunk),
+            )
+            .expect("original evidence");
+        let mut updated = original.clone();
+        updated.connected_sources[0].record_id = "new-record".into();
+        updated.document_count = 2;
+        storage
+            .connection
+            .execute_batch(
+                "CREATE TRIGGER reject_client_update BEFORE UPDATE ON clients
+                 BEGIN SELECT RAISE(ABORT, 'injected client save failure'); END;",
+            )
+            .expect("failure trigger");
+
+        let error = storage
+            .save_client_source_scope(&updated, std::slice::from_ref(&new_chunk))
+            .expect_err("client write must fail after replacing source rows");
+        assert!(error.to_string().contains("injected client save failure"));
+        assert_eq!(
+            storage.list_clients().expect("clients"),
+            vec![original.clone()]
+        );
+        assert_eq!(
+            storage
+                .source_references_for_scope(ContextSourceKind::Client, original.id, 10)
+                .expect("old source rows"),
+            vec![old_chunk.source.clone()]
+        );
+        let scopes = [(ContextSourceKind::Client, original.id)];
+        assert_eq!(
+            storage
+                .search_source_chunks(&scopes, "originalterms", 10, &HashSet::new())
+                .expect("old search index"),
+            vec![old_chunk.source]
+        );
+        assert!(storage
+            .search_source_chunks(&scopes, "replacementterms", 10, &HashSet::new())
+            .expect("new search index rolled back")
+            .is_empty());
+
+        storage
+            .connection
+            .execute_batch("DROP TRIGGER reject_client_update")
+            .expect("remove failure trigger");
+        storage
+            .save_client_source_scope(&updated, std::slice::from_ref(&new_chunk))
+            .expect("retry commits metadata and evidence");
+        assert_eq!(
+            storage.list_clients().expect("updated client"),
+            vec![updated]
+        );
+        assert_eq!(
+            storage
+                .search_source_chunks(&scopes, "replacementterms", 10, &HashSet::new())
+                .expect("updated search index"),
+            vec![new_chunk.source]
+        );
+        assert!(storage
+            .search_source_chunks(&scopes, "originalterms", 10, &HashSet::new())
+            .expect("old search index replaced")
+            .is_empty());
     }
 
     #[test]

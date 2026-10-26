@@ -50,7 +50,7 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::{HashMap, HashSet},
     fs::{self, OpenOptions},
-    io::Write,
+    io::{Read, Write},
     path::{Path, PathBuf},
     sync::Mutex,
 };
@@ -1254,17 +1254,18 @@ fn commit_client_scan(
         .into_iter()
         .find(|client| client.id == client_id)
         .ok_or_else(|| "client was removed while its documents were being scanned".to_owned())?;
+    client.index_status = readiness.index_status;
     if readiness.index_status == IndexStatus::Ready {
-        storage
-            .replace_source_scope(ContextSourceKind::Client, client.id, chunks)
-            .map_err(|error| error.to_string())?;
         client.document_count = readiness.document_count;
         client.last_indexed_at = readiness.checked_at;
+        storage
+            .save_client_source_scope(&client, chunks)
+            .map_err(|error| error.to_string())?;
+    } else {
+        storage
+            .save_client(&client)
+            .map_err(|error| error.to_string())?;
     }
-    client.index_status = readiness.index_status;
-    storage
-        .save_client(&client)
-        .map_err(|error| error.to_string())?;
     Ok(client)
 }
 
@@ -1838,7 +1839,14 @@ struct SourceRefresh {
     relative_path: PathBuf,
     status: &'static str,
     refreshed_at: Option<DateTime<Utc>>,
+    saved_copy_available: bool,
     error: Option<String>,
+}
+
+fn source_copy_available(root: &Path, relative: &Path) -> bool {
+    relative.components().count() == 1
+        && relative.extension().is_some_and(|value| value == "md")
+        && savvy_dossier::open_verified(&root.join(relative)).is_ok()
 }
 
 fn source_filename(source: &SourceRecord) -> Result<PathBuf, String> {
@@ -1904,9 +1912,14 @@ fn write_source_copy(
     check()?;
     let temporary = root.join(format!(".savvy-source-{}.tmp", Uuid::new_v4()));
     let result = (|| -> Result<String, String> {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options
             .open(&temporary)
             .map_err(|error| error.to_string())?;
         file.write_all(content.as_bytes())
@@ -2006,49 +2019,87 @@ fn attach_connected_source_inner(
     let client = find_client(state, client_id)?;
     let relative = source_filename(&source)?;
     let record = fetched(&source)?;
-    let storage = state.storage.lock().map_err(|_| "storage lock poisoned")?;
-    let mut current = storage
+    let mut storage = state.storage.lock().map_err(|_| "storage lock poisoned")?;
+    let current = storage
         .list_clients()
         .map_err(|error| error.to_string())?
         .into_iter()
         .find(|item| item.id == client.id)
         .ok_or("client was removed")?;
-    if current.connected_sources.iter().any(|item| {
-        item.provider == source.provider
-            && item.kind == source.kind
-            && item.account_id == source.account_id
-            && item.record_id == source.record_id
+    save_connected_source(&mut storage, current, relative, record)
+}
+
+fn save_connected_source(
+    storage: &mut Storage,
+    mut client: ClientWorkspace,
+    relative: PathBuf,
+    record: FetchedSource,
+) -> Result<ClientWorkspace, String> {
+    let target = client.folder_path.join(&relative);
+    let mut created_hash = None;
+    if !client.connected_sources.iter().any(|item| {
+        item.provider == record.provider
+            && item.kind == record.kind
+            && item.account_id == record.account_id
+            && item.record_id == record.record_id
     }) {
-        return Ok(current);
+        let existed = fs::symlink_metadata(&target).is_ok();
+        let previous = existed.then(|| sha256(&record.content));
+        let hash = write_source_copy(
+            &client.folder_path,
+            &relative,
+            &record.content,
+            previous.as_deref(),
+        )?;
+        if !existed {
+            created_hash = Some(hash.clone());
+        }
+        client.connected_sources.push(ConnectedSource {
+            provider: record.provider,
+            kind: record.kind,
+            account_id: record.account_id,
+            record_id: record.record_id,
+            title: record.title,
+            url: record.url,
+            modified_at: record.modified_at,
+            relative_path: relative,
+            content_hash: Some(hash),
+            refreshed_at: Some(Utc::now()),
+        });
     }
-    let previous = current
-        .folder_path
-        .join(&relative)
-        .exists()
-        .then(|| sha256(&record.content));
-    let hash = write_source_copy(
-        &current.folder_path,
-        &relative,
-        &record.content,
-        previous.as_deref(),
-    )?;
-    current.connected_sources.push(ConnectedSource {
-        provider: source.provider,
-        kind: source.kind,
-        account_id: source.account_id,
-        record_id: source.record_id,
-        title: record.title,
-        url: record.url,
-        modified_at: record.modified_at,
-        relative_path: relative,
-        content_hash: Some(hash),
-        refreshed_at: Some(Utc::now()),
-    });
-    storage
-        .save_client(&current)
-        .map_err(|error| error.to_string())?;
-    drop(storage);
-    reindex_client(state, current.id, &current.folder_path)
+    let mut result = (|| {
+        let (readiness, chunks) = scan_source_scope(
+            Some(&client.folder_path),
+            ContextSourceKind::Client,
+            client.id,
+        );
+        if readiness.index_status != IndexStatus::Ready {
+            return Err("client folder could not be indexed after source import".to_owned());
+        }
+        client.document_count = readiness.document_count;
+        client.last_indexed_at = readiness.checked_at;
+        client.index_status = readiness.index_status;
+        storage
+            .save_client_source_scope(&client, &chunks)
+            .map_err(|error| error.to_string())?;
+        Ok(client)
+    })();
+    if let (Err(error), Some(expected)) = (&mut result, created_hash) {
+        // Roll back only this attempt's unchanged copy; user edits remain user-owned.
+        let unchanged = savvy_dossier::open_verified(&target)
+            .and_then(|file| {
+                let mut bytes = Vec::new();
+                file.take(256 * 1024 + 1).read_to_end(&mut bytes)?;
+                Ok(format!("{:x}", Sha256::digest(&bytes)) == expected)
+            })
+            .unwrap_or(false);
+        if unchanged {
+            if let Err(cleanup) = fs::remove_file(&target) {
+                *error = format!("{error}; imported copy could not be removed: {cleanup}");
+            }
+        }
+    }
+    result
 }
 
 #[tauri::command]
@@ -2134,6 +2185,7 @@ fn refresh_connected_sources_inner(
             relative_path: item.relative_path.clone(),
             status,
             refreshed_at: item.refreshed_at,
+            saved_copy_available: source_copy_available(&client.folder_path, &item.relative_path),
             error: outcome.err(),
         });
     }
@@ -7277,6 +7329,113 @@ mod tests {
     }
 
     #[test]
+    fn failed_source_import_preserves_selection_and_retry_reindexes() {
+        for preexisting_copy in [false, true] {
+            let root = std::env::temp_dir().join(format!("savvy-import-retry-{}", Uuid::new_v4()));
+            let folder = root.join("client");
+            fs::create_dir_all(&folder).unwrap();
+            let mut storage = Storage::open(&root.join("desktop.sqlite")).unwrap();
+            let client = ClientWorkspace::new("Acme", folder.clone());
+            storage.save_client(&client).unwrap();
+            for index in 0..100 {
+                fs::write(
+                    folder.join(format!("existing-{index}.md")),
+                    "Existing evidence",
+                )
+                .unwrap();
+            }
+            let source = SourceRecord {
+                provider: "notion".into(),
+                kind: "page".into(),
+                account_id: "account-1".into(),
+                record_id: "page-1".into(),
+            };
+            let relative = source_filename(&source).unwrap();
+            let record = || FetchedSource {
+                provider: source.provider.clone(),
+                kind: source.kind.clone(),
+                account_id: source.account_id.clone(),
+                record_id: source.record_id.clone(),
+                title: "Acme pilot".into(),
+                url: "https://example.com/acme".into(),
+                modified_at: None,
+                content: "# Acme\n\nTwo-week pilot".into(),
+            };
+            if preexisting_copy {
+                fs::write(folder.join(&relative), &record().content).unwrap();
+            }
+            let original = serde_json::to_value(&client).unwrap();
+            assert!(save_connected_source(
+                &mut storage,
+                client.clone(),
+                relative.clone(),
+                record()
+            )
+            .unwrap_err()
+            .contains("indexed"));
+            assert_eq!(
+                serde_json::to_value(&storage.list_clients().unwrap()[0]).unwrap(),
+                original
+            );
+            assert_eq!(folder.join(&relative).exists(), preexisting_copy);
+            if preexisting_copy {
+                assert_eq!(
+                    fs::read_to_string(folder.join(&relative)).unwrap(),
+                    record().content
+                );
+            }
+            fs::remove_file(folder.join("existing-0.md")).unwrap();
+            let attached =
+                save_connected_source(&mut storage, client, relative.clone(), record()).unwrap();
+            assert_eq!(attached.connected_sources.len(), 1);
+            assert_eq!(attached.index_status, IndexStatus::Ready);
+            assert!(storage
+                .source_references_for_scope(ContextSourceKind::Client, attached.id, 1000)
+                .unwrap()
+                .iter()
+                .any(|item| item.relative_path == relative));
+            storage
+                .replace_source_scope(ContextSourceKind::Client, attached.id, &[])
+                .unwrap();
+            let retried =
+                save_connected_source(&mut storage, attached, relative.clone(), record()).unwrap();
+            assert_eq!(retried.connected_sources.len(), 1);
+            assert!(storage
+                .source_references_for_scope(ContextSourceKind::Client, retried.id, 1000)
+                .unwrap()
+                .iter()
+                .any(|item| item.relative_path == relative));
+            drop(storage);
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn saved_source_copy_requires_a_readable_regular_file() {
+        let root =
+            std::env::temp_dir().join(format!("savvy-source-availability-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        let relative = Path::new("source.md");
+        assert!(!source_copy_available(&root, relative));
+        fs::create_dir(root.join(relative)).unwrap();
+        assert!(!source_copy_available(&root, relative));
+        fs::remove_dir(root.join(relative)).unwrap();
+        fs::write(root.join(relative), "Saved evidence").unwrap();
+        assert!(source_copy_available(&root, relative));
+        assert!(!source_copy_available(&root, Path::new("../source.md")));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::{symlink, PermissionsExt};
+            symlink(root.join(relative), root.join("linked.md")).unwrap();
+            assert!(!source_copy_available(&root, Path::new("linked.md")));
+            fs::set_permissions(root.join(relative), fs::Permissions::from_mode(0o000)).unwrap();
+            assert!(!source_copy_available(&root, relative));
+            fs::set_permissions(root.join(relative), fs::Permissions::from_mode(0o600)).unwrap();
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn connected_copy_is_cited_and_user_edits_survive_refresh() {
         use super::*;
         let root = std::env::temp_dir().join(format!("savvy-connected-source-{}", Uuid::new_v4()));
@@ -7304,6 +7463,18 @@ mod tests {
             None,
         )
         .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(root.join(&relative))
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+        }
         assert_eq!(
             write_source_copy(
                 &root,

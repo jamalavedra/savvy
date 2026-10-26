@@ -689,9 +689,13 @@ describe("App", () => {
     );
   });
 
-  it.each([false, true])(
-    "applies the rep's stale-source choice (%s)",
-    async (useStale) => {
+  it.each([
+    { savedCopyAvailable: true, useStale: false },
+    { savedCopyAvailable: true, useStale: true },
+    { savedCopyAvailable: false, useStale: false },
+  ])(
+    "uses stale-source choices only for an available saved copy ($savedCopyAvailable, $useStale)",
+    async ({ savedCopyAvailable, useStale }) => {
       const snapshot = await api.getDashboard();
       const client = {
         ...snapshot.clients[0],
@@ -734,6 +738,7 @@ describe("App", () => {
           relativePath: "savvy-source-salesforce-1.md",
           status: "failed",
           refreshedAt: "2026-10-01T00:00:00Z",
+          savedCopyAvailable,
           error: "Composio unavailable",
         },
       ]);
@@ -746,16 +751,18 @@ describe("App", () => {
       fireEvent.click(
         await screen.findByRole("button", { name: "Start meeting" }),
       );
-      const choice = await screen.findByRole("dialog", {
-        name: "Source refresh failed",
-      });
-      expect(choice).toHaveTextContent("Composio unavailable");
-      expect(start).not.toHaveBeenCalled();
-      fireEvent.click(
-        within(choice).getByRole("button", {
-          name: useStale ? "Use saved copy" : "Exclude for this call",
-        }),
-      );
+      if (savedCopyAvailable) {
+        const choice = await screen.findByRole("dialog", {
+          name: "Source refresh failed",
+        });
+        expect(choice).toHaveTextContent("Composio unavailable");
+        expect(start).not.toHaveBeenCalled();
+        fireEvent.click(
+          within(choice).getByRole("button", {
+            name: useStale ? "Use saved copy" : "Exclude for this call",
+          }),
+        );
+      }
       await waitFor(() =>
         expect(start).toHaveBeenCalledWith(
           client.id,
@@ -765,6 +772,14 @@ describe("App", () => {
           useStale ? ["savvy-source-salesforce-1.md"] : [],
         ),
       );
+      if (!savedCopyAvailable) {
+        expect(
+          screen.queryByRole("dialog", { name: "Source refresh failed" }),
+        ).not.toBeInTheDocument();
+        expect(
+          screen.queryByRole("button", { name: "Use saved copy" }),
+        ).not.toBeInTheDocument();
+      }
     },
   );
 

@@ -953,7 +953,7 @@ export class ComposioSources {
         } while (cursor);
         return lines;
       };
-      content = (await readBlocks(recordId, 0)).join("\n\n");
+      content = sourceText((await readBlocks(recordId, 0)).join("\n\n"));
     } else {
       data = await this.proxy(
         account,
