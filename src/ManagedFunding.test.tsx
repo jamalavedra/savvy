@@ -177,3 +177,25 @@ it("links to a desktop update when the seat requires a later release", async () 
     "https://github.com/jamalavedra/savvy/releases/latest",
   );
 });
+
+it("keeps legacy account responses personal without offering unsupported team controls", async () => {
+  api.setManagedDemoScenario("active");
+  const legacy = (await api.managedAccount())!;
+  delete legacy.organization;
+  delete legacy.organizationAllowance;
+  delete legacy.funding;
+  vi.spyOn(api, "managedAccount").mockResolvedValue(legacy);
+  render(<ManagedAccount />);
+  expect(
+    await screen.findByText(/180 meeting minutes and 6 briefs remain\./),
+  ).toBeInTheDocument();
+  expect(
+    screen.queryByRole("button", { name: "Assistance funding" }),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("button", { name: "Manage organization" }),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("region", { name: "Organization seat" }),
+  ).not.toBeInTheDocument();
+});

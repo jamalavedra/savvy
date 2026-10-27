@@ -129,6 +129,7 @@ export default function ManagedAccount({
     account?.pendingPurchases?.some((purchase) => purchase.product === product);
   const balance = account ? managedBalance(account) : null;
   const organizationFunding = account?.funding?.kind === "organization";
+  const teamSupported = account?.organization !== undefined;
   const fundingUnavailable =
     account?.funding?.kind === "unavailable" ||
     (organizationFunding &&
@@ -363,151 +364,157 @@ export default function ManagedAccount({
                 {balance?.briefsAvailable ?? 0} briefs remain
                 {organizationFunding
                   ? " on your organization seat"
-                  : " personally"}
+                  : teamSupported
+                    ? " personally"
+                    : ""}
                 .
               </>
             )}
           </p>
-          <section
-            aria-label="Assistance funding"
-            className="managed-empty-card"
-          >
-            <h3 className="group-title">Pay for assistance with</h3>
-            <Select
-              label="Assistance funding"
-              selectedValue={
-                account.funding?.kind === "unavailable"
-                  ? "unavailable"
-                  : organizationFunding
-                    ? "organization"
-                    : "personal"
-              }
-              disabled={busy || fundingBusy || account.fundingLocked}
-              options={[
-                ...(account.funding?.kind === "unavailable"
-                  ? [
-                      {
-                        value: "unavailable",
-                        label: "Choose a payer",
-                        disabled: true,
-                      },
-                    ]
-                  : []),
-                { value: "personal", label: "Personal allowance" },
-                ...(account.organization || organizationFunding
-                  ? [
-                      {
-                        value: "organization",
-                        label:
-                          account.organization?.name ??
-                          "Unavailable organization seat",
-                        disabled:
-                          !account.organization?.assignmentId ||
-                          !account.organizationAllowance,
-                      },
-                    ]
-                  : []),
-              ]}
-              onSelect={(value) => {
-                if (value === "personal")
-                  setConfirmFunding({ kind: "personal" });
-                else if (account.organization)
-                  setConfirmFunding({
-                    kind: "organization",
-                    organizationId: account.organization.id,
-                  });
-              }}
-            />
-            <p>
-              New briefs and meetings use this payer. Personal credit is never
-              used automatically if a seat becomes unavailable.
-            </p>
-            {(fundingBusy || account.fundingLocked) && (
+          {(teamSupported || organizationFunding || fundingUnavailable) && (
+            <section
+              aria-label="Assistance funding"
+              className="managed-empty-card"
+            >
+              <h3 className="group-title">Pay for assistance with</h3>
+              <Select
+                label="Assistance funding"
+                selectedValue={
+                  account.funding?.kind === "unavailable"
+                    ? "unavailable"
+                    : organizationFunding
+                      ? "organization"
+                      : "personal"
+                }
+                disabled={busy || fundingBusy || account.fundingLocked}
+                options={[
+                  ...(account.funding?.kind === "unavailable"
+                    ? [
+                        {
+                          value: "unavailable",
+                          label: "Choose a payer",
+                          disabled: true,
+                        },
+                      ]
+                    : []),
+                  { value: "personal", label: "Personal allowance" },
+                  ...(account.organization || organizationFunding
+                    ? [
+                        {
+                          value: "organization",
+                          label:
+                            account.organization?.name ??
+                            "Unavailable organization seat",
+                          disabled:
+                            !account.organization?.assignmentId ||
+                            !account.organizationAllowance,
+                        },
+                      ]
+                    : []),
+                ]}
+                onSelect={(value) => {
+                  if (value === "personal")
+                    setConfirmFunding({ kind: "personal" });
+                  else if (account.organization)
+                    setConfirmFunding({
+                      kind: "organization",
+                      organizationId: account.organization.id,
+                    });
+                }}
+              />
               <p>
-                End the meeting and finish or cancel pending briefs before
-                changing funding.
+                New briefs and meetings use this payer. Personal credit is never
+                used automatically if a seat becomes unavailable.
               </p>
-            )}
-            {fundingUnavailable && (
-              <Alert variant="warning" role="alert">
-                {account.fundingError ??
-                  "Your selected organization seat is unavailable. Ask the owner for a seat, or deliberately choose personal funding."}
-              </Alert>
-            )}
-          </section>
-          <section
-            aria-label="Organization seat"
-            className="managed-empty-card"
-          >
-            <h3 className="group-title">
-              {account.organization?.name ?? "Organization seats"}
-            </h3>
-            {account.organization ? (
-              <>
+              {(fundingBusy || account.fundingLocked) && (
                 <p>
-                  {account.organization.assignmentId
-                    ? `Seat ${account.organization.seatNumber}`
-                    : "You are a member without a paid seat. Ask the owner to assign one."}
+                  End the meeting and finish or cancel pending briefs before
+                  changing funding.
                 </p>
-                {account.organizationAllowance && (
+              )}
+              {fundingUnavailable && (
+                <Alert variant="warning" role="alert">
+                  {account.fundingError ??
+                    "Your selected organization seat is unavailable. Ask the owner for a seat, or deliberately choose personal funding."}
+                </Alert>
+              )}
+            </section>
+          )}
+          {teamSupported && (
+            <section
+              aria-label="Organization seat"
+              className="managed-empty-card"
+            >
+              <h3 className="group-title">
+                {account.organization?.name ?? "Organization seats"}
+              </h3>
+              {account.organization ? (
+                <>
                   <p>
-                    {Math.floor(
-                      Math.max(
-                        0,
-                        account.organizationAllowance.totalMs -
-                          account.organizationAllowance.usedMs -
-                          account.organizationAllowance.reservedMs,
-                      ) / 60000,
-                    )}{" "}
-                    seat minutes and{" "}
-                    {Math.max(
-                      0,
-                      account.organizationAllowance.totalBriefs -
-                        account.organizationAllowance.usedBriefs -
-                        account.organizationAllowance.reservedBriefs,
-                    )}{" "}
-                    briefs available.
-                    {account.organization.seatPeriodEndMs
-                      ? ` Expires ${new Date(account.organization.seatPeriodEndMs).toLocaleDateString()}.`
-                      : ""}
+                    {account.organization.assignmentId
+                      ? `Seat ${account.organization.seatNumber}`
+                      : "You are a member without a paid seat. Ask the owner to assign one."}
                   </p>
-                )}
+                  {account.organizationAllowance && (
+                    <p>
+                      {Math.floor(
+                        Math.max(
+                          0,
+                          account.organizationAllowance.totalMs -
+                            account.organizationAllowance.usedMs -
+                            account.organizationAllowance.reservedMs,
+                        ) / 60000,
+                      )}{" "}
+                      seat minutes and{" "}
+                      {Math.max(
+                        0,
+                        account.organizationAllowance.totalBriefs -
+                          account.organizationAllowance.usedBriefs -
+                          account.organizationAllowance.reservedBriefs,
+                      )}{" "}
+                      briefs available.
+                      {account.organization.seatPeriodEndMs
+                        ? ` Expires ${new Date(account.organization.seatPeriodEndMs).toLocaleDateString()}.`
+                        : ""}
+                    </p>
+                  )}
+                  <p>
+                    The owner sees membership, seat assignment and aggregate
+                    usage. Your files, connections and meeting content stay
+                    private.
+                  </p>
+                  <p>
+                    Seats require Savvy{" "}
+                    {account.organization.minimumDesktopVersion} or later on Mac
+                    and Windows.
+                  </p>
+                  {needsSeatUpdate(
+                    account.organization.minimumDesktopVersion,
+                  ) && (
+                    <Alert variant="warning" role="status">
+                      Update Savvy to use your team seat.{" "}
+                      <a
+                        href="https://github.com/jamalavedra/savvy/releases/latest"
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Get the latest desktop release
+                      </a>
+                      .
+                    </Alert>
+                  )}
+                </>
+              ) : (
                 <p>
-                  The owner sees membership, seat assignment and aggregate
-                  usage. Your files, connections and meeting content stay
-                  private.
+                  Buy seats for colleagues or manage an invitation in your
+                  browser.
                 </p>
-                <p>
-                  Seats require Savvy{" "}
-                  {account.organization.minimumDesktopVersion} or later on Mac
-                  and Windows.
-                </p>
-                {needsSeatUpdate(
-                  account.organization.minimumDesktopVersion,
-                ) && (
-                  <Alert variant="warning" role="status">
-                    Update Savvy to use your team seat.{" "}
-                    <a
-                      href="https://github.com/jamalavedra/savvy/releases/latest"
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Get the latest desktop release
-                    </a>
-                    .
-                  </Alert>
-                )}
-              </>
-            ) : (
-              <p>
-                Buy seats for colleagues or manage an invitation in your
-                browser.
-              </p>
-            )}
-            <Button disabled={busy} onClick={() => void run(managedOpenTeam)}>
-              Manage organization
-            </Button>
-          </section>
+              )}
+              <Button disabled={busy} onClick={() => void run(managedOpenTeam)}>
+                Manage organization
+              </Button>
+            </section>
+          )}
           {!noPlan &&
             !recoveryVisible &&
             !paymentPending &&

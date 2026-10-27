@@ -1074,6 +1074,9 @@ export async function managedSignInFinish(
       throw new Error("Sign-in cancelled or expired.");
     demoAuthorization.completed = true;
     demoManagedAccount = {
+      organization: null,
+      organizationAllowance: null,
+      funding: { kind: "personal" },
       catalog: managedCatalog,
       pendingPurchases: [],
       nowMs: Date.now(),
@@ -1199,6 +1202,9 @@ export function setManagedDemoScenario(
     scenario === "signedOut"
       ? null
       : {
+          organization: null,
+          organizationAllowance: null,
+          funding: { kind: "personal" },
           nowMs: Date.now(),
           catalog: managedCatalog,
           pendingPurchases:
