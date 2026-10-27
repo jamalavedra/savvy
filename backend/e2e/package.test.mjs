@@ -10,6 +10,7 @@ import {
   writeFile,
   chmod,
   access,
+  realpath,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -154,14 +155,20 @@ else writeFileSync(join(directory,'backup-completed'),'yes');
 
 test(
   "compiled release migrates, serves both APIs, drains and backs up without TypeScript source",
-  { timeout: 30000 },
+  { timeout: 120000 },
   async () => {
     const directory = await mkdtemp(join(tmpdir(), "savvy-release-"));
     let child;
     try {
       const backend = join(directory, "backend");
       await mkdir(backend);
-      for (const file of ["build", "dist", "package.json"])
+      for (const file of [
+        "build",
+        "dist",
+        "package.json",
+        "pnpm-lock.yaml",
+        "pnpm-workspace.yaml",
+      ])
         await cp(join(root, "backend", file), join(backend, file), {
           recursive: true,
         });
@@ -170,11 +177,17 @@ test(
         join(root, "config/managed-catalog.json"),
         join(directory, "config/managed-catalog.json"),
       );
-      // Reuse this host's installed native dependencies; no source is copied.
-      await symlink(
-        join(root, "backend/node_modules"),
-        join(backend, "node_modules"),
+      await run(
+        "pnpm",
+        ["install", "--prod", "--offline", "--frozen-lockfile"],
+        {
+          cwd: backend,
+          env: { ...process.env, CI: "true" },
+          timeout: 60000,
+        },
       );
+      await assert.rejects(access(join(backend, "node_modules/tsx")));
+      await assert.rejects(access(join(backend, "src")));
       const alias = join(directory, "staging");
       await symlink(backend, alias);
       const portProbe = createServer();
@@ -259,6 +272,114 @@ test(
           options,
         ),
       );
+      const dbPath = env.SAVVY_DB_PATH;
+      const capabilities = join(backend, "build/service-capabilities.json");
+      const capabilityCommand = [join(backend, "build/capability.js")];
+      const activate = [
+        ...capabilityCommand,
+        "activate-team-purchases",
+        "--db",
+        dbPath,
+        "--checkpoint-commit",
+        "a".repeat(40),
+        "--checkpoint-manifest",
+        capabilities,
+      ];
+      const initial = JSON.parse(
+        (
+          await run(
+            process.execPath,
+            [...capabilityCommand, "show", "--db", dbPath],
+            options,
+          )
+        ).stdout,
+      );
+      assert.equal(initial.teamPurchaseEnabled, false);
+      if (initial.availableFundingSchema < 2)
+        await assert.rejects(run(process.execPath, activate, options));
+      // This isolated package simulates the complete release, without changing source metadata.
+      await writeFile(capabilities, '{"funding_schema":2}');
+      const activated = JSON.parse(
+        (await run(process.execPath, activate, options)).stdout,
+      );
+      assert.equal(activated.requiredFundingSchema, 2);
+      assert.equal(activated.teamPurchaseEnabled, true);
+      const controller = join(directory, "controller"),
+        compatible = join(directory, "compatible"),
+        legacy = join(directory, "legacy"),
+        checkpoint = join(directory, "checkpoint");
+      for (const candidate of [controller, compatible]) {
+        await mkdir(candidate);
+        await symlink(backend, join(candidate, "backend"));
+      }
+      for (const candidate of [legacy, checkpoint])
+        await mkdir(join(candidate, "backend/build"), { recursive: true });
+      await writeFile(
+        join(checkpoint, "backend/build/service-capabilities.json"),
+        '{"funding_schema":1}',
+      );
+      const untrustedMarker = join(directory, "candidate-guard-ran");
+      await writeFile(
+        join(checkpoint, "backend/build/rollback-preflight.js"),
+        `require('node:fs').writeFileSync(${JSON.stringify(untrustedMarker)},'bypassed');`,
+      );
+      const current = join(directory, "current");
+      await symlink(controller, current);
+      const switchRelease = (candidate) =>
+        run(
+          process.execPath,
+          [
+            join(root, "deploy/savvy-release.mjs"),
+            "switch",
+            current,
+            candidate,
+            dbPath,
+          ],
+          options,
+        );
+      for (const candidate of [legacy, checkpoint]) {
+        await assert.rejects(switchRelease(candidate));
+        assert.equal(await realpath(current), await realpath(controller));
+      }
+      await assert.rejects(
+        access(untrustedMarker),
+        "candidate code must never run instead of the current guard",
+      );
+      await switchRelease(compatible);
+      assert.equal(await realpath(current), await realpath(compatible));
+      await run(
+        process.execPath,
+        [...capabilityCommand, "disable-team-purchases", "--db", dbPath],
+        options,
+      );
+      await assert.rejects(switchRelease(checkpoint));
+      assert.equal(await realpath(current), await realpath(compatible));
+      const disabled = JSON.parse(
+        (
+          await run(
+            process.execPath,
+            [...capabilityCommand, "show", "--db", dbPath],
+            options,
+          )
+        ).stdout,
+      );
+      assert.equal(disabled.requiredFundingSchema, 2);
+      assert.equal(disabled.teamPurchaseEnabled, false);
+      const missingDb = join(directory, "typo.sqlite");
+      await assert.rejects(
+        run(
+          process.execPath,
+          [
+            join(backend, "build/rollback-preflight.js"),
+            "--db",
+            missingDb,
+            "--candidate",
+            capabilities,
+          ],
+          options,
+        ),
+      );
+      await assert.rejects(access(missingDb));
     } finally {
       if (child && child.exitCode === null && child.signalCode === null) {
         child.kill("SIGKILL");

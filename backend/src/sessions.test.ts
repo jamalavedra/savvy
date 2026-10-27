@@ -90,7 +90,19 @@ test("two simultaneous sources cost 75 seconds across pause/resume and lifecycle
   const resumed = lifecycle(h.state, 1n, ID, "resume", 2n, 3n);
   assert.equal(resumed.settledMs, 65_000n);
   const controller = new AbortController();
-  h.state.cancellations.set(1n, new Map([["advice", controller]]));
+  h.state.cancellations.set(
+    1n,
+    new Map([
+      [
+        "advice",
+        {
+          controller,
+          fundingAssignmentId: null,
+          sessionId: requireSession(h.db, 1n, ID).id,
+        },
+      ],
+    ]),
+  );
   assert.deepEqual(lifecycle(h.state, 1n, ID, "pause", 1n, 2n), resumed);
   assert.equal(
     controller.signal.aborted,

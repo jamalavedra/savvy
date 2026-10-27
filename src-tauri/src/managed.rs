@@ -105,6 +105,219 @@ fn require_trusted_url(url: &str) -> Result<(), String> {
     Ok(())
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "lowercase", deny_unknown_fields)]
+pub enum FundingChoice {
+    Personal {},
+    Organization {
+        #[serde(rename = "organizationId")]
+        organization_id: String,
+    },
+}
+impl FundingChoice {
+    pub fn validate(&self) -> Result<(), String> {
+        if let Self::Organization { organization_id } = self {
+            if !organization_id
+                .parse::<i64>()
+                .is_ok_and(|id| id > 0 && id.to_string() == *organization_id)
+            {
+                return Err(typed_error(
+                    "invalid_request",
+                    "Invalid organization identity.",
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+#[derive(Clone, PartialEq, Eq)]
+struct FundingBinding {
+    choice: FundingChoice,
+    identity: Option<(String, String)>,
+    generation: u64,
+}
+static FUNDING_PREFERENCES: LazyLock<Mutex<serde_json::Value>> =
+    LazyLock::new(|| Mutex::new(serde_json::json!({})));
+static SESSION_FUNDING: LazyLock<Mutex<HashMap<String, FundingBinding>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+pub fn configure_funding_preferences(value: serde_json::Value) {
+    if let Ok(mut preferences) = FUNDING_PREFERENCES.lock() {
+        *preferences = value;
+    }
+}
+fn preference_key(identity: &(String, String)) -> Result<String, String> {
+    serde_json::to_string(identity).map_err(|_| "Invalid verified identity.".into())
+}
+fn selected_funding() -> Result<FundingChoice, String> {
+    let identity = ACCOUNT_IDENTITY
+        .lock()
+        .map_err(|_| "identity lock")?
+        .clone();
+    let preferences = FUNDING_PREFERENCES.lock().map_err(|_| "funding lock")?;
+    funding_for_identity(&preferences, identity.as_ref())
+}
+fn funding_for_identity(
+    preferences: &serde_json::Value,
+    identity: Option<&(String, String)>,
+) -> Result<FundingChoice, String> {
+    let values = preferences.as_object().ok_or_else(|| {
+        typed_error(
+            "funding_unavailable",
+            "The saved funding preference is invalid. Choose a payer again.",
+        )
+    })?;
+    let Some(identity) = identity else {
+        return if values.is_empty() {
+            Ok(FundingChoice::Personal {})
+        } else {
+            Err(sign_in_required_error())
+        };
+    };
+    let choice = match values.get(&preference_key(identity)?) {
+        None if values.contains_key("__invalid_preferences") => {
+            return Err(typed_error(
+                "funding_unavailable",
+                "Choose a payer again for this identity.",
+            ));
+        }
+        None => FundingChoice::Personal {},
+        Some(value) => serde_json::from_value(value.clone()).map_err(|_| {
+            typed_error(
+                "funding_unavailable",
+                "The saved funding preference is invalid. Choose a payer again.",
+            )
+        })?,
+    };
+    choice.validate()?;
+    Ok(choice)
+}
+fn funding_binding() -> Result<FundingBinding, String> {
+    Ok(FundingBinding {
+        choice: selected_funding()?,
+        identity: ACCOUNT_IDENTITY
+            .lock()
+            .map_err(|_| "identity lock")?
+            .clone(),
+        generation: AUTH_GENERATION.load(Ordering::SeqCst),
+    })
+}
+pub(crate) fn funding_selection(expected: Option<&FundingChoice>) -> Result<FundingChoice, String> {
+    ensure_signed_in()?;
+    if ACCOUNT_IDENTITY
+        .lock()
+        .map_err(|_| "identity lock")?
+        .is_none()
+    {
+        account_summary()?;
+    }
+    let choice = selected_funding()?;
+    if expected.is_some_and(|value| *value != choice) {
+        return Err(typed_error(
+            "funding_mismatch",
+            "Funding changed while preparing. Review and start again.",
+        ));
+    }
+    Ok(choice)
+}
+pub fn funding_snapshot(expected: Option<&FundingChoice>) -> Result<FundingChoice, String> {
+    let choice = funding_selection(expected)?;
+    if let FundingChoice::Organization { organization_id } = &choice {
+        let summary = account_summary()?;
+        if summary.get("organization").is_none() {
+            return Err(typed_error(
+                "funding_unavailable",
+                "Update the Savvy service before using an organization seat.",
+            ));
+        }
+        if summary["organization"]["id"].as_str() != Some(organization_id.as_str())
+            || !summary["organization"]["assignmentId"].is_string()
+            || !summary["organizationAllowance"].is_object()
+        {
+            return Err(typed_error("no_seat", "Your organization seat is unavailable. Choose personal funding explicitly to use personal credit."));
+        }
+    }
+    Ok(choice)
+}
+pub fn set_funding(
+    choice: FundingChoice,
+    persist: impl FnOnce(&str, serde_json::Value) -> Result<(), String>,
+) -> Result<(), String> {
+    choice.validate()?;
+    account_summary()?;
+    let identity = ACCOUNT_IDENTITY
+        .lock()
+        .map_err(|_| "identity lock")?
+        .clone()
+        .ok_or_else(sign_in_required_error)?;
+    // Validate a new seat before taking the commit lock; the server rechecks it on every spend.
+    if let FundingChoice::Organization { organization_id } = &choice {
+        let summary = service_get("/v1/account")?;
+        if summary["organization"]["id"].as_str() != Some(organization_id)
+            || !summary["organization"]["assignmentId"].is_string()
+            || !summary["organizationAllowance"].is_object()
+        {
+            return Err(typed_error(
+                "no_seat",
+                "You do not have an available organization seat.",
+            ));
+        }
+    }
+    let _guard = REFRESH_LOCK.lock().map_err(|_| "credential lock")?;
+    if ACCOUNT_IDENTITY
+        .lock()
+        .map_err(|_| "identity lock")?
+        .as_ref()
+        != Some(&identity)
+    {
+        return Err(sign_in_required_error());
+    }
+    if SERVICE_OPERATIONS.load(Ordering::SeqCst) > 0
+        || !SESSION_FUNDING
+            .lock()
+            .map_err(|_| "funding lock")?
+            .is_empty()
+        || !BRIEF_RETRY
+            .lock()
+            .map_err(|_| "brief retry lock")?
+            .is_empty()
+        || !COMPLETED_BRIEFS
+            .lock()
+            .map_err(|_| "brief recovery lock")?
+            .is_empty()
+    {
+        return Err(typed_error(
+            "funding_mismatch",
+            "End the meeting and finish or cancel pending briefs before changing funding.",
+        ));
+    }
+    let key = preference_key(&identity)?;
+    let value = serde_json::to_value(&choice).map_err(|_| "Invalid funding choice.")?;
+    persist(&key, value.clone())?;
+    let mut preferences = FUNDING_PREFERENCES.lock().map_err(|_| "funding lock")?;
+    if !preferences.is_object() {
+        *preferences = serde_json::json!({"__invalid_preferences":true});
+    }
+    preferences
+        .as_object_mut()
+        .ok_or("funding preferences")?
+        .insert(key, value);
+    Ok(())
+}
+fn brief_digest(
+    request: &savvy_providers::BriefWireRequest,
+    binding: &FundingBinding,
+) -> Result<String, String> {
+    use sha2::{Digest, Sha256};
+    let encoded = serde_json::to_vec(&(request, &binding.identity, &binding.choice))
+        .map_err(|_| "invalid brief request")?;
+    Ok(format!("{:x}", Sha256::digest(encoded)))
+}
+pub(crate) fn brief_recovery_binding() -> Result<serde_json::Value, String> {
+    let binding = funding_binding()?;
+    let identity = binding.identity.ok_or_else(sign_in_required_error)?;
+    Ok(serde_json::json!({"identity":identity,"funding":binding.choice}))
+}
+
 struct CachedToken {
     access_token: String,
     expires_at: Instant,
@@ -117,7 +330,7 @@ pub(crate) struct ServiceOperation {
     audio_check: bool,
 }
 impl ServiceOperation {
-    fn begin() -> Result<Self, String> {
+    pub(crate) fn begin() -> Result<Self, String> {
         Self::register(false)
     }
     #[cfg(any(target_os = "macos", target_os = "windows", test))]
@@ -148,6 +361,9 @@ impl Drop for ServiceOperation {
     }
 }
 fn clear_account_state() {
+    if let Ok(mut value) = SESSION_FUNDING.lock() {
+        value.clear();
+    }
     if let Ok(mut value) = COMPLETED_BRIEFS.lock() {
         value.clear();
     }
@@ -1304,10 +1520,11 @@ static BRIEF_RETRY: LazyLock<Mutex<HashMap<String, String>>> =
 static COMPLETED_BRIEFS: LazyLock<Mutex<HashMap<String, savvy_providers::GeneratedBrief>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 pub fn acknowledge_brief(request: &savvy_providers::BriefWireRequest) {
-    use sha2::{Digest, Sha256};
-    if let Ok(encoded) = serde_json::to_vec(request) {
-        if let Ok(mut completed) = COMPLETED_BRIEFS.lock() {
-            completed.remove(&format!("{:x}", Sha256::digest(encoded)));
+    if let Ok(binding) = funding_binding() {
+        if let Ok(digest) = brief_digest(request, &binding) {
+            if let Ok(mut completed) = COMPLETED_BRIEFS.lock() {
+                completed.remove(&digest);
+            }
         }
     }
 }
@@ -1333,9 +1550,10 @@ pub fn generate_brief_for_job(
     let _operation = ServiceOperation::begin()?;
     ensure_signed_in()?;
     let generation = AUTH_GENERATION.load(Ordering::SeqCst);
-    use sha2::{Digest, Sha256};
-    let encoded = serde_json::to_vec(request).map_err(|_| "invalid brief request")?;
-    let digest = format!("{:x}", Sha256::digest(&encoded));
+    let expected = job.map(|job| job.funding()).transpose()?.flatten();
+    let funding = funding_selection(expected.as_ref())?;
+    let binding = funding_binding()?;
+    let digest = brief_digest(request, &binding)?;
     {
         let completed = COMPLETED_BRIEFS.lock().map_err(|_| "brief recovery lock")?;
         if let Some(brief) = completed.get(&digest) {
@@ -1345,6 +1563,8 @@ pub fn generate_brief_for_job(
             return Err("Finish saving previous briefs before generating another.".into());
         }
     }
+    // A paid result remains the person's recoverable artifact after seat removal.
+    funding_snapshot(Some(&funding))?;
     let (key, was_pending) = {
         let mut retry = BRIEF_RETRY.lock().map_err(|_| "brief retry lock")?;
         if !retry.contains_key(&digest) && retry.len() >= 16 {
@@ -1360,6 +1580,7 @@ pub fn generate_brief_for_job(
     let body = serde_json::json!({
         "idempotencyKey": key,
         "request": request,
+        "funding": funding,
     });
     if serde_json::to_vec(&body)
         .map_err(|_| "invalid brief request")?
@@ -1409,6 +1630,9 @@ pub fn generate_brief_for_job(
                 "context_too_large:",
                 "quota_exhausted:",
                 "result_unavailable:",
+                "no_seat:",
+                "funding_mismatch:",
+                "funding_unavailable:",
             ]
             .iter()
             .any(|code| error.starts_with(code))
@@ -1438,7 +1662,7 @@ pub fn account_summary() -> Result<serde_json::Value, String> {
     let _operation = ServiceOperation::begin()?;
     ensure_signed_in()?;
     let generation = AUTH_GENERATION.load(Ordering::SeqCst);
-    let summary = service_get("/v1/account")?;
+    let mut summary = service_get("/v1/account")?;
     let _guard = REFRESH_LOCK.lock().map_err(|_| "credential lock")?;
     if generation != AUTH_GENERATION.load(Ordering::SeqCst) {
         return Err(sign_in_required_error());
@@ -1453,6 +1677,31 @@ pub fn account_summary() -> Result<serde_json::Value, String> {
         *ACCOUNT_IDENTITY.lock().map_err(|_| "identity lock")? =
             Some((issuer.into(), subject.into()));
     }
+    match selected_funding() {
+        Ok(choice) => {
+            summary["funding"] =
+                serde_json::to_value(choice).map_err(|_| "Invalid funding choice.")?
+        }
+        Err(error) => {
+            summary["funding"] = serde_json::json!({"kind":"unavailable"});
+            summary["fundingError"] = error.into();
+        }
+    }
+    summary["fundingLocked"] = serde_json::json!(
+        SERVICE_OPERATIONS.load(Ordering::SeqCst) > 1
+            || !SESSION_FUNDING
+                .lock()
+                .map_err(|_| "funding lock")?
+                .is_empty()
+            || !BRIEF_RETRY
+                .lock()
+                .map_err(|_| "brief retry lock")?
+                .is_empty()
+            || !COMPLETED_BRIEFS
+                .lock()
+                .map_err(|_| "brief recovery lock")?
+                .is_empty()
+    );
     Ok(summary)
 }
 
@@ -1467,19 +1716,71 @@ pub struct SessionView {
     pub settled_ms: i64,
     pub meeting_ms_available: i64,
     pub warning: Option<String>,
+    #[serde(default)]
+    pub funding: Option<FundingChoice>,
 }
 
 /// Creates or reattaches the hosted session for a local meeting. Idempotent,
 /// so a reconnecting client resumes the same billable session rather than
 /// opening a second one.
 pub fn create_session(session_id: &str) -> Result<SessionView, String> {
+    create_session_with_funding(session_id, None)
+}
+fn create_session_with_funding(
+    session_id: &str,
+    expected: Option<&FundingChoice>,
+) -> Result<SessionView, String> {
+    let _operation = ServiceOperation::begin()?;
     ensure_signed_in()?;
+    let existing = SESSION_FUNDING
+        .lock()
+        .map_err(|_| "funding lock")?
+        .get(session_id)
+        .cloned();
+    let binding = if let Some(binding) = existing {
+        if binding.generation != AUTH_GENERATION.load(Ordering::SeqCst)
+            || expected.is_some_and(|choice| *choice != binding.choice)
+        {
+            return Err(typed_error(
+                "funding_mismatch",
+                "This meeting is bound to a different payer.",
+            ));
+        }
+        binding
+    } else {
+        funding_snapshot(expected)?;
+        funding_binding()?
+    };
     let response = service_post(
         "/v1/sessions",
-        &serde_json::json!({ "sessionId": session_id }),
+        &serde_json::json!({"sessionId":session_id,"funding":binding.choice}),
     )?;
-    serde_json::from_value(response)
-        .map_err(|error| format!("the Savvy service returned an invalid session: {error}"))
+    let view: SessionView = serde_json::from_value(response)
+        .map_err(|error| format!("the Savvy service returned an invalid session: {error}"))?;
+    if view
+        .funding
+        .as_ref()
+        .is_some_and(|choice| *choice != binding.choice)
+        || (matches!(binding.choice, FundingChoice::Organization { .. }) && view.funding.is_none())
+    {
+        let _ = service_post(
+            &format!("/v1/sessions/{session_id}/stop"),
+            &serde_json::json!({"leaseVersion":view.lease_version,"commandId":next_command()}),
+        );
+        return Err(typed_error(
+            "funding_mismatch",
+            "The service did not confirm the selected payer. No audio was started.",
+        ));
+    }
+    let _guard = REFRESH_LOCK.lock().map_err(|_| "credential lock")?;
+    if binding.generation != AUTH_GENERATION.load(Ordering::SeqCst) {
+        return Err(sign_in_required_error());
+    }
+    SESSION_FUNDING
+        .lock()
+        .map_err(|_| "funding lock")?
+        .insert(session_id.to_owned(), binding);
+    Ok(view)
 }
 
 fn session_action(session_id: &str, action: &str) -> Result<SessionView, String> {
@@ -1515,7 +1816,11 @@ pub fn stop_session(session_id: &str) -> Result<SessionView, String> {
     if let Ok(mut views) = SESSION_VIEWS.lock() {
         views.retain(|view| view.session_id != session_id);
     }
-    session_action(session_id, "stop")
+    let result = session_action(session_id, "stop");
+    if let Ok(mut bindings) = SESSION_FUNDING.lock() {
+        bindings.remove(session_id);
+    }
+    result
 }
 
 /// The access token for the relay WebSocket. Kept separate from the HTTP
@@ -1529,9 +1834,15 @@ static PREPARED: Mutex<Vec<(String, SessionView, String, String)>> = Mutex::new(
 static ACTIVE_REQUESTS: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
 pub fn prepare_session(id: &str) -> Result<(), String> {
+    prepare_session_with_funding(id, None)
+}
+pub fn prepare_session_with_funding(
+    id: &str,
+    expected: Option<&FundingChoice>,
+) -> Result<(), String> {
     let _operation = ServiceOperation::begin()?;
     let generation = AUTH_GENERATION.load(Ordering::SeqCst);
-    let session = create_session(id)?;
+    let session = create_session_with_funding(id, expected)?;
     let (url, token) = match relay_credentials() {
         Ok(value) => value,
         Err(error) => {
@@ -1556,6 +1867,18 @@ pub fn discard_prepared(id: &str) {
 }
 pub fn take_prepared(id: &str) -> Result<(SessionView, String, String), String> {
     let _guard = REFRESH_LOCK.lock().map_err(|_| "credential lock")?;
+    let binding = SESSION_FUNDING
+        .lock()
+        .map_err(|_| "funding lock")?
+        .get(id)
+        .cloned()
+        .ok_or("managed payer is not ready")?;
+    if binding != funding_binding()? {
+        return Err(typed_error(
+            "funding_mismatch",
+            "Funding changed after meeting context approval.",
+        ));
+    }
     let mut prepared = PREPARED.lock().map_err(|_| "session lock")?;
     let index = prepared
         .iter()
@@ -2643,6 +2966,126 @@ mod issuer_tests {
             BRIEF_RETRY.lock().unwrap().is_empty(),
             "a rejected brief must not block sign-out"
         );
+
+        let summary = serde_json::json!({
+            "identity":{"issuer":context.config.issuer_url,"subject":"account-b"},
+            "organization":{"id":"7","assignmentId":"11"},
+            "organizationAllowance":{"totalMs":36000000,"usedMs":0}
+        });
+        let seat = FundingChoice::Organization {
+            organization_id: "7".into(),
+        };
+        responses
+            .lock()
+            .unwrap()
+            .extend([(200, summary.clone()), (200, summary.clone())]);
+        let identity = ACCOUNT_IDENTITY.lock().unwrap().clone().unwrap();
+        set_funding(seat.clone(), |key, value| {
+            assert_eq!(key, preference_key(&identity).unwrap());
+            assert_eq!(value, serde_json::to_value(&seat).unwrap());
+            Ok(())
+        })
+        .unwrap();
+        let session = serde_json::json!({"sessionId":"funded-session","state":"created","leaseVersion":1,"settledMs":0,"meetingMsAvailable":36000000,"warning":null,"funding":seat});
+        responses
+            .lock()
+            .unwrap()
+            .extend([(200, summary.clone()), (200, session.clone())]);
+        prepare_session_with_funding("funded-session", Some(&seat)).unwrap();
+        responses.lock().unwrap().push_back((200, summary.clone()));
+        assert!(set_funding(FundingChoice::Personal {}, |_, _| panic!(
+            "must not persist while prepared"
+        ))
+        .unwrap_err()
+        .contains("funding_mismatch"));
+        // Even an out-of-band preference change cannot consume a different payer's preparation.
+        configure_funding_preferences(serde_json::json!({}));
+        assert!(take_prepared("funded-session")
+            .unwrap_err()
+            .contains("funding_mismatch"));
+        configure_funding_preferences(serde_json::json!({preference_key(&identity).unwrap():seat}));
+        assert_eq!(
+            take_prepared("funded-session").unwrap().0.funding,
+            Some(seat.clone())
+        );
+        responses
+            .lock()
+            .unwrap()
+            .extend([(200, session.clone()), (200, session.clone())]);
+        stop_session("funded-session").unwrap();
+        assert!(SESSION_FUNDING.lock().unwrap().is_empty());
+        let funded_request = brief_request("organization-brief");
+        responses
+            .lock()
+            .unwrap()
+            .extend([(200, summary.clone()), (200, brief_response.clone())]);
+        generate_brief(&funded_request).unwrap();
+        let before = requests.lock().unwrap().len();
+        generate_brief(&funded_request).unwrap();
+        assert_eq!(
+            requests.lock().unwrap().len(),
+            before,
+            "recovering a paid artifact does not recheck or spend a seat"
+        );
+        responses.lock().unwrap().push_back((200, summary.clone()));
+        assert!(set_funding(FundingChoice::Personal {}, |_, _| panic!(
+            "must preserve pending paid artifact"
+        ))
+        .is_err());
+        acknowledge_brief(&funded_request);
+        for (value, code) in [
+            (
+                serde_json::json!({"organization":null,"organizationAllowance":null}),
+                "no_seat",
+            ),
+            (
+                serde_json::json!({"briefsAvailable":5}),
+                "funding_unavailable",
+            ),
+        ] {
+            responses.lock().unwrap().push_back((200, value));
+            let before = requests.lock().unwrap().len();
+            assert!(generate_brief(&brief_request("removed-seat"))
+                .unwrap_err()
+                .contains(code));
+            assert!(!requests.lock().unwrap()[before..]
+                .iter()
+                .any(|r| r.starts_with("POST /v1/briefs")));
+            assert_eq!(selected_funding().unwrap(), seat);
+        }
+        let mut wrong_payer = session.clone();
+        wrong_payer["funding"] = serde_json::json!({"kind":"personal"});
+        responses.lock().unwrap().extend([
+            (200, summary.clone()),
+            (200, wrong_payer),
+            (200, session.clone()),
+        ]);
+        assert!(create_session("wrong-payer")
+            .unwrap_err()
+            .contains("funding_mismatch"));
+        assert!(!SESSION_FUNDING.lock().unwrap().contains_key("wrong-payer"));
+        responses.lock().unwrap().push_back((200, summary.clone()));
+        assert_eq!(
+            set_funding(FundingChoice::Personal {}, |_, _| Err("disk full".into())).unwrap_err(),
+            "disk full"
+        );
+        assert_eq!(selected_funding().unwrap(), seat);
+        responses.lock().unwrap().push_back((200, summary));
+        set_funding(FundingChoice::Personal {}, |_, _| Ok(())).unwrap();
+        for wire in requests
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|r| r.starts_with("POST /v1/briefs") || r.starts_with("POST /v1/sessions "))
+        {
+            let body: serde_json::Value =
+                serde_json::from_str(wire.split_once("\r\n\r\n").unwrap().1).unwrap();
+            if body["request"]["clientName"] == "organization-brief"
+                || body["sessionId"] == "funded-session"
+            {
+                assert_eq!(body["funding"], serde_json::to_value(&seat).unwrap());
+            }
+        }
         *ACCESS_TOKEN.lock().unwrap() = None;
         let previous_refresh = stored_refresh_token().unwrap();
         responses.lock().unwrap().push_back((200, serde_json::json!({
@@ -2702,6 +3145,97 @@ mod issuer_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn funding_preferences_are_strict_and_bound_to_verified_identity() {
+        let a = ("https://issuer-a.example".into(), "person".into());
+        let b = ("https://issuer-b.example".into(), "person".into());
+        let c = ("https://issuer-a.example".into(), "other".into());
+        let seat = FundingChoice::Organization {
+            organization_id: "42".into(),
+        };
+        let mut preferences = serde_json::json!({});
+        preferences[preference_key(&a).unwrap()] = serde_json::to_value(&seat).unwrap();
+        assert_eq!(funding_for_identity(&preferences, Some(&a)).unwrap(), seat);
+        for identity in [&b, &c] {
+            assert_eq!(
+                funding_for_identity(&preferences, Some(identity)).unwrap(),
+                FundingChoice::Personal {}
+            );
+        }
+        let repaired =
+            serde_json::json!({"__invalid_preferences":true,preference_key(&a).unwrap():seat});
+        assert_eq!(funding_for_identity(&repaired, Some(&a)).unwrap(), seat);
+        assert!(
+            funding_for_identity(&repaired, Some(&b)).is_err(),
+            "repairing one identity must not reset another person's corrupt payer to personal"
+        );
+        assert!(funding_for_identity(&preferences, None).is_err());
+        assert_eq!(
+            funding_for_identity(&serde_json::json!({}), None).unwrap(),
+            FundingChoice::Personal {}
+        );
+        for invalid in [
+            serde_json::json!(null),
+            serde_json::json!([]),
+            serde_json::json!("personal"),
+        ] {
+            assert!(funding_for_identity(&invalid, Some(&a)).is_err());
+            preferences[preference_key(&a).unwrap()] = invalid;
+            assert!(funding_for_identity(&preferences, Some(&a)).is_err());
+        }
+        for id in ["0", "-1", "01", "+1", " 1", "1.0", "9223372036854775808"] {
+            assert!(
+                FundingChoice::Organization {
+                    organization_id: id.into()
+                }
+                .validate()
+                .is_err(),
+                "{id}"
+            );
+        }
+        for invalid in [
+            serde_json::json!({"kind":"organization","organizationId":42}),
+            serde_json::json!({"kind":"personal","organizationId":"42"}),
+            serde_json::json!({"kind":"unknown"}),
+        ] {
+            assert!(serde_json::from_value::<FundingChoice>(invalid).is_err());
+        }
+        let request = savvy_providers::BriefWireRequest {
+            client_name: "Test".into(),
+            instructions: "Test".into(),
+            guidance: vec![],
+            client_evidence: vec![],
+        };
+        let binding = FundingBinding {
+            choice: seat,
+            identity: Some(a),
+            generation: 1,
+        };
+        let original = brief_digest(&request, &binding).unwrap();
+        assert_ne!(
+            original,
+            brief_digest(
+                &request,
+                &FundingBinding {
+                    choice: FundingChoice::Personal {},
+                    ..binding.clone()
+                }
+            )
+            .unwrap()
+        );
+        assert_ne!(
+            original,
+            brief_digest(
+                &request,
+                &FundingBinding {
+                    identity: Some(b),
+                    ..binding
+                }
+            )
+            .unwrap()
+        );
+    }
 
     #[test]
     fn token_response_rejects_invalid_expiry_before_acceptance() {

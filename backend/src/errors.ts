@@ -1,5 +1,10 @@
 const statuses = {
   sign_in_required: 401,
+  funding_unavailable: 409,
+  funding_mismatch: 409,
+  no_seat: 403,
+  checkout_mismatch: 409,
+  team_purchase_disabled: 403,
   payment_pending: 402,
   quota_exhausted: 402,
   session_conflict: 409,

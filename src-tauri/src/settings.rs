@@ -27,6 +27,7 @@ impl ServiceMode {
 #[serde(rename_all = "camelCase", default)]
 pub struct AppSettings {
     pub service_mode: ServiceMode,
+    pub managed_funding_preferences: serde_json::Value,
     pub start_listening_shortcut: String,
     pub selected_microphone: Option<String>,
     pub selected_channel: Option<u16>,
@@ -59,6 +60,7 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             service_mode: ServiceMode::Byok,
+            managed_funding_preferences: serde_json::json!({}),
             start_listening_shortcut: if cfg!(target_os = "windows") {
                 "Control+Shift+M"
             } else {

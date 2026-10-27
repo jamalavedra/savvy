@@ -135,6 +135,17 @@ export default function PrivacyPolicy() {
         <a href="https://stripe.com/legal/privacy-center">Stripe’s privacy information</a>.
       </p>
 
+      <p>
+        If you join an organization, Savvy stores its name, your membership and role, invitation
+        address and delivery state, seat assignments, and seat allowance and usage records. The
+        owner can see members' email addresses, roles, assignments and aggregate meeting time and
+        brief counts. Invitations pass through the email delivery provider. Joining does not give
+        the owner access to your local files, transcripts, meeting history or connected-app
+        credentials. Each person keeps their own Savvy identity and connections. Organization
+        billing uses a separate Stripe customer and subscription. You explicitly choose personal or
+        organization funding; losing a seat does not spend personal credit automatically.
+      </p>
+
       <h2>Managed meeting processing</h2>
       <p>
         If you connect Salesforce, HubSpot, Gmail, Outlook, Notion or Google Drive, Composio stores

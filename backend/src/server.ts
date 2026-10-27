@@ -6,7 +6,7 @@ import { isIP } from "node:net";
 import { createAuth } from "./auth.js";
 import { configuration, systemClock } from "./config.js";
 import { openServiceDatabase } from "./db.js";
-import { createAuthorizer } from "./authorize.js";
+import { createAuthorizer, createBrowserAuthorizer } from "./authorize.js";
 import { ServiceState } from "./state.js";
 import { managedRequest } from "./api.js";
 import { pruneResults } from "./advice.js";
@@ -20,7 +20,7 @@ const proxyIpHeader =
   process.env.SAVVY_AUTH_PROXY_IP_HEADER ?? "x-savvy-proxy-ip";
 if (!["x-savvy-proxy-ip", "cf-connecting-ip"].includes(proxyIpHeader))
   throw new Error("Invalid trusted proxy header");
-const { auth, db } = createAuth();
+const { auth, db, mail, mailFrom } = createAuth();
 const serviceDb = openServiceDatabase(config.serviceDatabase);
 const clock = systemClock();
 export const state = new ServiceState(
@@ -37,6 +37,24 @@ export const state = new ServiceState(
     () => auth.api.getJwks(),
     clock,
   ),
+  {
+    authorizeBrowser: createBrowserAuthorizer(
+      serviceDb,
+      { issuer: config.issuer, unmetered: config.billing === null },
+      (headers) => auth.api.getSession({ headers }),
+      clock,
+    ),
+    sendInvitation: async (email, link) => {
+      if (!process.env.SMTP_HOST || !mailFrom)
+        throw new Error("Invitation delivery is not configured");
+      await mail.sendMail({
+        from: mailFrom,
+        to: email,
+        subject: "Join your team on Savvy",
+        text: `You have been invited to join a Savvy team. Open this link and sign in with this email address:\n\n${link}\n\nThis invitation expires in 7 days. Your recordings, documents and connected sources stay private to your own account.`,
+      });
+    },
+  },
 );
 recoverRestart(state);
 serviceDb
@@ -151,7 +169,15 @@ const server = createServer(async (req, res) => {
     const asset = /^\/assets\/[a-zA-Z0-9_.-]+\.(js|css)$/.exec(path);
     if (
       !asset &&
-      !["/", "/sign-in", "/sign-up", "/consent", "/complete"].includes(path)
+      ![
+        "/",
+        "/sign-in",
+        "/sign-up",
+        "/consent",
+        "/complete",
+        "/team",
+        "/team/join",
+      ].includes(path)
     ) {
       res.writeHead(404).end();
       return;
@@ -211,7 +237,7 @@ for (const signal of ["SIGINT", "SIGTERM"])
     clearTimeout(maintenanceTimer);
     clearInterval(sessionTimer);
     for (const requests of state.cancellations.values())
-      for (const controller of requests.values()) controller.abort();
+      for (const entry of requests.values()) entry.controller.abort();
     // Relays settle confirmed delivery first; then release sessions that never
     // connected and any remaining reservations through the existing recovery path.
     const audioClosed = closeAudio().then(() => recoverRestart(state));

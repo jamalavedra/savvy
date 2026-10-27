@@ -235,10 +235,54 @@ monitor before enabling the timer. Inspect failures with `journalctl -u savvy-ba
 backend did not restart, recover it with `systemctl start savvy-backend.service`
 and verify readiness and reservation recovery before reopening access.
 
-Roll back by starting the previous release against a fresh copy of current state,
-so paid usage since the upgrade is kept. Never restore an older snapshot without
-reconciling payments and usage since that snapshot. Reopen purchases only after
-recovering uncertain checkout identities.
+Roll back using the current release controller and current financial state.
+The installed `/usr/local/libexec/savvy-release.mjs` runs the CURRENT backend's
+packaged `rollback-preflight.js` before atomically switching `/opt/savvy/current`.
+It checks the database floor, acquisition flag and team payment records against
+the candidate's built `service-capabilities.json`. Missing metadata means 0.
+A bootstrap from a legacy release uses the new checkpoint's guard; later changes
+use the current guard, including when the candidate itself has no guard.
+
+With the backend stopped and the backup timer paused, run:
+
+```sh
+sudo /opt/node-v22.23.4-linux-x64/bin/node /usr/local/libexec/savvy-release.mjs check /opt/savvy/current /opt/savvy/releases/<candidate-sha> /var/lib/savvy/service.sqlite
+sudo /opt/node-v22.23.4-linux-x64/bin/node /usr/local/libexec/savvy-release.mjs switch /opt/savvy/current /opt/savvy/releases/<candidate-sha> /var/lib/savvy/service.sqlite
+```
+
+Only restart after a successful switch and readiness check. An incompatible
+candidate leaves the link unchanged. The deploy script uses this path for both
+upgrade and automatic rollback before migration. A failed post-migration deploy
+still requires stopped-state investigation and a guarded compatible candidate.
+Never restore an older financial database or erase pending payment intents to
+make an old release pass. Reconcile uncertain checkouts before reopening purchases.
+
+### Team rollout and activation
+
+Ship the capability-1 schema/personal-compatibility checkpoint with acquisition
+disabled. It is not a paid-seat rollback target. Complete the organization browser,
+native Mac/Windows and Stripe TEST staging acceptance before declaring the complete
+release capability 2. Package `service-capabilities.json`, `capability.js` and
+`rollback-preflight.js`; no TypeScript tooling is needed in production.
+
+In controlled maintenance, preserve a complete capability-2 release as the
+checkpoint, stop the service, and run the current backend package's
+`pnpm capability activate-team-purchases --db /var/lib/savvy/service.sqlite
+--checkpoint-commit <complete-sha> --checkpoint-manifest
+<complete-release>/backend/build/service-capabilities.json`. This atomically
+records required capability 2 and the immutable checkpoint before enabling new
+team payment operations. Resume one backend and verify personal and seat spending.
+Use `disable-team-purchases --db ...` to stop new acquisition without erasing the
+floor, existing invitations, paid grants or reconciliation. Rollback to capability
+0 or 1 is permanently refused after activation, even before the first seat grant.
+
+`/team` and `/team/join` use the existing public origin and SMTP transport. No new
+environment variables or webhook event types are required. The organization portal
+configuration allows cancellation and payment maintenance, but disallows quantity
+edits. Verify that configuration in real Stripe TEST staging before activation.
+Do not announce team checkout or enable acquisition until staging TEST-018 through
+TEST-021 and production TEST-016 are recorded against the final candidate. No
+production purchase is authorized by these acceptance instructions.
 
 ### Production monitoring
 

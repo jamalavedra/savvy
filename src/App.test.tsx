@@ -714,6 +714,7 @@ describe("App", () => {
           },
         ],
       };
+      api.setManagedDemoScenario("active");
       const settings = await api.getAppSettings();
       const preparation = await api.getPreparationSnapshot(client.id);
       vi.spyOn(api, "getDashboard").mockResolvedValue({
@@ -770,6 +771,7 @@ describe("App", () => {
           expect.any(String),
           useStale ? [] : ["savvy-source-salesforce-1.md"],
           useStale ? ["savvy-source-salesforce-1.md"] : [],
+          { kind: "personal" },
         ),
       );
       if (!savedCopyAvailable) {

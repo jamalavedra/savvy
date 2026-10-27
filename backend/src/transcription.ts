@@ -1,3 +1,4 @@
+import { assertFunding, fundingForRow } from "./funding.js";
 import type { Server, IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
@@ -193,6 +194,12 @@ export function attachAudio(server: Server, state: ServiceState) {
       )
         throw new ApiError("invalid_request", "invalid audio query");
       const session = requireSession(state.db, account.accountId, id);
+      assertFunding(
+        state.db,
+        account.accountId,
+        fundingForRow(state.db, account.accountId, session),
+        state.clock(),
+      );
       if (session.state !== "active")
         throw new ApiError(
           "session_conflict",

@@ -760,6 +760,63 @@ async fn managed_account() -> Result<Option<serde_json::Value>, String> {
 }
 
 #[tauri::command]
+async fn managed_set_funding(
+    funding: managed::FundingChoice,
+    app: AppHandle,
+) -> Result<(), String> {
+    run_app_command(app, move |_, state| {
+        if state
+            .live_meeting
+            .lock()
+            .map_err(|_| "meeting lock")?
+            .is_some()
+            || !BRIEF_SCOPES
+                .lock()
+                .map_err(|_| "brief scope lock")?
+                .is_empty()
+        {
+            return Err(managed::typed_error(
+                "funding_mismatch",
+                "End the meeting and finish or cancel the pending brief before changing funding.",
+            ));
+        }
+        managed::set_funding(funding, |key, value| {
+            let mut settings = state.settings.lock().map_err(|_| "settings lock")?;
+            let mut updated = settings.clone();
+            if !updated.managed_funding_preferences.is_object() {
+                updated.managed_funding_preferences =
+                    serde_json::json!({"__invalid_preferences":true});
+            }
+            updated
+                .managed_funding_preferences
+                .as_object_mut()
+                .ok_or("funding preferences")?
+                .insert(key.to_owned(), value);
+            settings::save(&state.settings_path, &updated)?;
+            *settings = updated;
+            Ok(())
+        })
+    })
+    .await
+}
+#[tauri::command]
+async fn managed_open_team(app: AppHandle) -> Result<(), String> {
+    let url = tauri::async_runtime::spawn_blocking(|| {
+        managed::account_summary()?;
+        reqwest::Url::parse(&managed::config()?.service_url)
+            .map_err(|_| "Invalid team URL".to_owned())?
+            .join("/team")
+            .map(|url| url.to_string())
+            .map_err(|_| "Invalid team URL".to_owned())
+    })
+    .await
+    .map_err(|error| error.to_string())??;
+    app.opener()
+        .open_url(url, None::<&str>)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 async fn probe_system_audio_permission() -> Result<(), String> {
     #[cfg(target_os = "macos")]
     return tauri::async_runtime::spawn_blocking(SystemAudioCapture::check_permission)
@@ -802,7 +859,7 @@ async fn update_app_settings(settings: AppSettings, app: AppHandle) -> Result<Ap
 }
 
 fn update_settings(
-    settings: AppSettings,
+    mut settings: AppSettings,
     app: &AppHandle,
     state: &AppState,
 ) -> Result<AppSettings, String> {
@@ -812,6 +869,8 @@ fn update_settings(
         .lock()
         .map_err(|_| "settings lock poisoned")?
         .clone();
+    // Funding is changed only through its guarded command, not stale settings forms.
+    settings.managed_funding_preferences = previous.managed_funding_preferences.clone();
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     if (settings.service_mode != previous.service_mode
         || settings.microphone_only != previous.microphone_only)
@@ -2315,8 +2374,25 @@ async fn generate_brief_draft(
     client_id: Option<String>,
     instructions: String,
     request_id: Option<String>,
+    funding: Option<managed::FundingChoice>,
     state: State<'_, AppState>,
 ) -> Result<NegotiationBrief, String> {
+    let managed_work = if managed_mode(&state) {
+        Some(managed::ServiceOperation::begin()?)
+    } else {
+        None
+    };
+    let expected_funding = if managed_work.is_some() {
+        Some(
+            tauri::async_runtime::spawn_blocking(move || {
+                managed::funding_selection(funding.as_ref())
+            })
+            .await
+            .map_err(|error| error.to_string())??,
+        )
+    } else {
+        None
+    };
     let client_id = client_id
         .map(|id| Uuid::parse_str(&id).map_err(|error| error.to_string()))
         .transpose()?;
@@ -2326,6 +2402,9 @@ async fn generate_brief_draft(
             .transpose()?
             .unwrap_or_else(Uuid::new_v4),
     ));
+    if let Some(funding) = expected_funding {
+        job.bind_funding(funding)?;
+    }
     {
         let mut scopes = BRIEF_SCOPES.lock().map_err(|_| "brief scope lock")?;
         if scopes.contains_key(&client_id) {
@@ -2449,10 +2528,18 @@ fn generate_brief_from_sources(
     let directory = brief_scope_directory(&standalone_directory, client.as_ref().map(|c| c.id));
     create_private_directory(&directory).map_err(|e| e.to_string())?;
     let pending_path = directory.join(".pending-brief.json");
+    let pending_owner = if settings.service_mode.is_managed() {
+        managed::brief_recovery_binding()?
+    } else {
+        serde_json::Value::Null
+    };
     if pending_path.exists() {
-        let mut saved: NegotiationBrief =
+        let value: serde_json::Value =
             serde_json::from_slice(&fs::read(&pending_path).map_err(|e| e.to_string())?)
                 .map_err(|e| e.to_string())?;
+        validate_pending_brief_funding(&value, &pending_owner)?;
+        let mut saved: NegotiationBrief =
+            serde_json::from_value(value).map_err(|e| e.to_string())?;
         if saved.custom_instructions != instructions.trim() {
             return Err(
                 "Retry the previous brief to finish saving it before generating another.".into(),
@@ -2538,9 +2625,11 @@ fn generate_brief_from_sources(
         client.as_ref().map(|client| client.id),
     );
     create_private_directory(&directory).map_err(|error| error.to_string())?;
+    let mut pending = serde_json::to_value(&brief).map_err(|e| e.to_string())?;
+    pending["_savvyFunding"] = pending_owner;
     write_new_file_atomically(
         &pending_path,
-        &serde_json::to_string(&brief).map_err(|e| e.to_string())?,
+        &serde_json::to_string(&pending).map_err(|e| e.to_string())?,
     )?;
     match settings.service_mode {
         ServiceMode::Managed => managed::acknowledge_brief(&wire_request),
@@ -2548,6 +2637,21 @@ fn generate_brief_from_sources(
     }
     save_generated_document(&mut brief, &directory)?;
     Ok(brief)
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
+fn validate_pending_brief_funding(
+    value: &serde_json::Value,
+    expected: &serde_json::Value,
+) -> Result<(), String> {
+    if value
+        .get("_savvyFunding")
+        .unwrap_or(&serde_json::Value::Null)
+        != expected
+    {
+        return Err("Saved brief funding differs from the current identity or payer. The pending file is preserved; finish saving it with its original account and payer. Older managed drafts without funding metadata must be recovered from their local pending file.".into());
+    }
+    Ok(())
 }
 
 fn checked_brief_markdown(brief: &NegotiationBrief) -> Result<String, String> {
@@ -3082,13 +3186,14 @@ async fn start_meeting(
     expected_brief_hash: Option<String>,
     exclude_source_paths: Vec<String>,
     stale_source_paths: Vec<String>,
+    funding: Option<managed::FundingChoice>,
     app: AppHandle,
 ) -> Result<MeetingSession, String> {
     let managed = managed_mode_from(&app);
     let session_id = Uuid::new_v4();
     if managed {
         tauri::async_runtime::spawn_blocking(move || {
-            managed::prepare_session(&session_id.to_string())
+            managed::prepare_session_with_funding(&session_id.to_string(), funding.as_ref())
         })
         .await
         .map_err(|error| error.to_string())??;
@@ -6820,6 +6925,7 @@ pub fn run() {
             // Only the macOS provider selection below mutates settings.
             #[cfg_attr(not(target_os = "macos"), allow(unused_mut))]
             let mut settings = settings::load(&settings_path);
+            managed::configure_funding_preferences(settings.managed_funding_preferences.clone());
             apply_native_theme(app.handle(), &settings.theme);
             let provider_health = match settings.service_mode {
                 ServiceMode::Managed => Vec::new(),
@@ -6934,6 +7040,8 @@ pub fn run() {
             managed_sign_in_cancel,
             managed_sign_out,
             managed_account,
+            managed_set_funding,
+            managed_open_team,
             managed_billing,
             set_transcription_api_key,
             delete_transcription_api_key,
@@ -6996,6 +7104,23 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn pending_brief_recovery_keeps_the_original_identity_and_payer() {
+        let owner = serde_json::json!({"identity":["https://issuer.example","person-a"],"funding":{"kind":"organization","organizationId":"7"}});
+        let pending = serde_json::json!({"_savvyFunding":owner,"title":"Already paid"});
+        assert!(super::validate_pending_brief_funding(&pending, &owner).is_ok());
+        for other in [
+            serde_json::Value::Null,
+            serde_json::json!({"identity":["https://issuer.example","person-b"],"funding":{"kind":"organization","organizationId":"7"}}),
+            serde_json::json!({"identity":["https://issuer.example","person-a"],"funding":{"kind":"personal"}}),
+            serde_json::json!({"identity":["https://other.example","person-a"],"funding":{"kind":"organization","organizationId":"7"}}),
+        ] {
+            assert!(super::validate_pending_brief_funding(&pending, &other).is_err());
+        }
+        let legacy = serde_json::json!({"title":"Local legacy brief"});
+        assert!(super::validate_pending_brief_funding(&legacy, &serde_json::Value::Null).is_ok());
+        assert!(super::validate_pending_brief_funding(&legacy, &owner).is_err());
+    }
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     #[test]
     #[ignore = "driven by the backend connected-source E2E fixture"]

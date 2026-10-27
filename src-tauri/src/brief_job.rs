@@ -18,6 +18,7 @@ struct State {
     committing: bool,
     stage: Stage,
     managed_key: Option<String>,
+    funding: Option<crate::managed::FundingChoice>,
 }
 
 pub(crate) struct BriefJob {
@@ -33,6 +34,23 @@ impl BriefJob {
             signal: watch::channel(false).0,
             state: Mutex::new(State::default()),
         }
+    }
+
+    pub fn bind_funding(&self, funding: crate::managed::FundingChoice) -> Result<(), String> {
+        let mut state = self.state.lock().map_err(|_| "brief job lock")?;
+        if state.funding.is_some() {
+            return Err("Brief payer is already frozen.".into());
+        }
+        state.funding = Some(funding);
+        Ok(())
+    }
+    pub fn funding(&self) -> Result<Option<crate::managed::FundingChoice>, String> {
+        Ok(self
+            .state
+            .lock()
+            .map_err(|_| "brief job lock")?
+            .funding
+            .clone())
     }
 
     pub fn signal(&self) -> watch::Receiver<bool> {

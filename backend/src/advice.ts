@@ -29,11 +29,23 @@ import {
   validateAdvice,
 } from "./context.js";
 
+import {
+  fundingChoice,
+  fundingForRow,
+  assertFundingChoice,
+  assertFunding,
+  type FundingRow,
+} from "./funding.js";
+import { resolveFundingContext } from "./org.js";
+
 export const BRIEF_RESULT_TTL_MS = 300_000n;
-export const briefBody = z.object({
-  idempotencyKey: z.string(),
-  request: briefRequest,
-});
+export const briefBody = z
+  .object({
+    idempotencyKey: z.string(),
+    request: briefRequest,
+    funding: fundingChoice.optional(),
+  })
+  .strict();
 export const adviceBody = z
   .object({
     idempotencyKey: z.string(),
@@ -49,7 +61,12 @@ function acquire(state: ServiceState, account: bigint) {
     );
   state.aiInFlight.add(account);
 }
-function register(state: ServiceState, account: bigint, key: string) {
+function register(
+  state: ServiceState,
+  account: bigint,
+  key: string,
+  sessionId: bigint | null = null,
+) {
   if (requestState(state.db, account, key) !== "pending")
     throw new ApiError(
       "result_unavailable",
@@ -61,7 +78,16 @@ function register(state: ServiceState, account: bigint, key: string) {
     requests = new Map();
     state.cancellations.set(account, requests);
   }
-  requests.set(key, controller);
+  const funding = state.db
+    .prepare<[bigint, string], FundingRow>(
+      "SELECT funding_scope,funding_assignment_id FROM provider_requests WHERE account_id=? AND request_key=?",
+    )
+    .get(account, key)!;
+  requests.set(key, {
+    controller,
+    fundingAssignmentId: funding.funding_assignment_id,
+    sessionId,
+  });
   return controller;
 }
 function cleanup(
@@ -137,7 +163,7 @@ export function cancelRequest(
       releaseBrief(state.db, account, key, now);
     })
     .immediate();
-  state.cancellations.get(account)?.get(key)?.abort();
+  state.cancellations.get(account)?.get(key)?.controller.abort();
   return { canceled: true };
 }
 export async function postBrief(
@@ -155,6 +181,17 @@ export async function postBrief(
   const previous = requestState(state.db, account, key),
     now = state.clock();
   if (previous !== undefined) {
+    const frozen = state.db
+      .prepare<[bigint, string], FundingRow>(
+        "SELECT funding_scope,funding_assignment_id FROM provider_requests WHERE account_id=? AND request_key=?",
+      )
+      .get(account, key);
+    if (frozen) {
+      const funding = fundingForRow(state.db, account, frozen);
+      assertFundingChoice(funding, body.funding);
+      if (previous === "pending")
+        assertFunding(state.db, account, funding, now);
+    }
     if (previous === "succeeded") {
       const cached = state.briefResults.get(account)?.get(key);
       if (cached && now - cached.at <= BRIEF_RESULT_TTL_MS) return cached.value;
@@ -200,7 +237,13 @@ export async function postBrief(
     state.db
       .transaction(() => {
         state.requireAssistance();
-        reserveBrief(state.db, account, key, now);
+        reserveBrief(
+          state.db,
+          account,
+          key,
+          now,
+          resolveFundingContext(state.db, account, body.funding, state.clock()),
+        );
         reserveAttempt(state.db, account, "brief", now, 60_000n, 6n);
         // Failed and canceled briefs are refunded, so attempts are the only
         // bound on paid generations per account.
@@ -273,6 +316,12 @@ export function completeRequest(
   if (!state.db.inTransaction)
     throw new Error("Advice completion requires a transaction");
   const session = requireSession(state.db, account, id);
+  assertFunding(
+    state.db,
+    account,
+    fundingForRow(state.db, account, session),
+    now,
+  );
   const disabled = state.db
     .prepare<[bigint], { disabled: bigint }>(
       "SELECT disabled FROM accounts WHERE id=?",
@@ -400,6 +449,12 @@ export async function recommend(
             "session_conflict",
             "resume healthy transcription before requesting advice",
           );
+        assertFunding(
+          state.db,
+          account,
+          fundingForRow(state.db, account, session),
+          now,
+        );
         if (requestState(state.db, account, key) !== undefined)
           throw new ApiError(
             "result_unavailable",
@@ -429,12 +484,24 @@ export async function recommend(
           );
         state.db
           .prepare(
-            "INSERT INTO provider_requests(account_id,request_key,operation,state,deadline_ms,created_at_ms) VALUES(?,?,'advice','pending',?,?)",
+            "INSERT INTO provider_requests(account_id,request_key,operation,state,deadline_ms,created_at_ms,funding_scope,funding_assignment_id) VALUES(?,?,'advice','pending',?,?,?,?)",
           )
-          .run(account, key, now + 30_000n, now);
+          .run(
+            account,
+            key,
+            now + 30_000n,
+            now,
+            session.funding_scope,
+            session.funding_assignment_id,
+          );
       })
       .immediate();
-    const controller = register(state, account, key);
+    const controller = register(
+      state,
+      account,
+      key,
+      requireSession(state.db, account, id).id,
+    );
     registered = true;
     signal = AbortSignal.any([signal, controller.signal]);
     try {

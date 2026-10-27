@@ -3,6 +3,15 @@ import type { Db } from "./db.js";
 import { CATALOG } from "./catalog.js";
 import { ApiError } from "./errors.js";
 
+import {
+  PERSONAL,
+  assertFunding,
+  fundingForRow,
+  scopeFilter,
+  type FundingContext,
+  type FundingRow,
+} from "./funding.js";
+
 export const POLICY_VERSION = "managed_v1";
 export const MS_PER_HOUR = 3_600_000n;
 export const MONTHLY_PERIOD_MS = 30n * 24n * MS_PER_HOUR;
@@ -165,8 +174,10 @@ export function reserveBrief(
   account: bigint,
   key: string,
   now: bigint,
+  funding: FundingContext = PERSONAL,
 ) {
   transactionRequired(db);
+  assertFunding(db, account, funding, now);
   if (requestState(db, account, key) !== undefined)
     throw new ApiError(
       "result_unavailable",
@@ -174,23 +185,32 @@ export function reserveBrief(
     );
   const result = db
     .prepare(
-      "INSERT OR IGNORE INTO provider_requests(account_id,request_key,operation,state,created_at_ms) VALUES(?,?,'brief','pending',?)",
+      "INSERT OR IGNORE INTO provider_requests(account_id,request_key,operation,state,created_at_ms,funding_scope,funding_assignment_id) VALUES(?,?,'brief','pending',?,?,?)",
     )
-    .run(account, key, now);
+    .run(
+      account,
+      key,
+      now,
+      funding.kind,
+      funding.kind === "organization" ? funding.assignmentId : null,
+    );
   if (result.changes === 0)
     throw new ApiError(
       "session_conflict",
       "this brief request was already dispatched",
     );
+  const scope = scopeFilter(funding);
   const grant = db
-    .prepare<[bigint, bigint, bigint], { id: bigint }>(
-      `SELECT id FROM allowance_grants WHERE account_id=? AND briefs_total-briefs_used-briefs_reserved>=1 AND ${SPENDABLE_ORDER} LIMIT 1`,
+    .prepare<bigint[], { id: bigint }>(
+      `SELECT id FROM allowance_grants WHERE account_id=? AND ${scope.sql} AND briefs_total-briefs_used-briefs_reserved>=1 AND ${SPENDABLE_ORDER} LIMIT 1`,
     )
-    .get(account, now, now);
+    .get(account, ...scope.params, now, now);
   if (!grant)
     throw new ApiError(
       "quota_exhausted",
-      "no brief allowance remains; buy an hours pack or wait for renewal",
+      funding.kind === "organization"
+        ? "no brief allowance remains on your organization seat"
+        : "no brief allowance remains; buy an hours pack or wait for renewal",
     );
   db.prepare(
     "UPDATE allowance_grants SET briefs_reserved=briefs_reserved+1 WHERE id=?",
@@ -215,6 +235,13 @@ export function settleBriefSuccess(
   now: bigint,
 ) {
   transactionRequired(db);
+  const request = db
+    .prepare<[bigint, string], FundingRow>(
+      "SELECT funding_scope,funding_assignment_id FROM provider_requests WHERE account_id=? AND request_key=?",
+    )
+    .get(account, key);
+  if (request)
+    assertFunding(db, account, fundingForRow(db, account, request), now);
   const grant = reservedBriefGrant(db, account, key);
   if (grant == null)
     throw new ApiError(
@@ -223,7 +250,11 @@ export function settleBriefSuccess(
     );
   const eligible = db
     .prepare<[bigint], { eligible: bigint }>(
-      "SELECT NOT g.revoked AND NOT a.disabled AS eligible FROM allowance_grants g JOIN accounts a ON a.id=g.account_id WHERE g.id=?",
+      `SELECT NOT g.revoked AND NOT a.disabled AND (g.kind<>'seat' OR EXISTS(
+        SELECT 1 FROM seat_periods p JOIN seat_assignments sa ON sa.seat_id=p.seat_id
+        WHERE p.id=g.seat_period_id AND sa.id=g.seat_assignment_id AND sa.account_id=g.account_id
+          AND sa.ended_at_ms IS NULL AND p.financial_status='paid')) AS eligible
+       FROM allowance_grants g JOIN accounts a ON a.id=g.account_id WHERE g.id=?`,
     )
     .get(grant)?.eligible;
   if (!eligible)
@@ -309,7 +340,13 @@ export function min(a: bigint, b: bigint) {
   return a < b ? a : b;
 }
 
-export function balance(db: Db, account: bigint, now: bigint) {
+export function balance(
+  db: Db,
+  account: bigint,
+  now: bigint,
+  funding: FundingContext = PERSONAL,
+) {
+  assertFunding(db, account, funding, now);
   const totals = {
     meetingMsAvailable: 0n,
     meetingMsReserved: 0n,
@@ -325,11 +362,12 @@ export function balance(db: Db, account: bigint, now: bigint) {
     monthlyMsUsed: 0n,
     periodEndMs: null as bigint | null,
   };
+  const scope = scopeFilter(funding);
   const rows = db
-    .prepare<[bigint, bigint, bigint], Grant>(
-      `SELECT * FROM allowance_grants WHERE account_id=? AND ${SPENDABLE_ORDER}`,
+    .prepare<bigint[], Grant>(
+      `SELECT * FROM allowance_grants WHERE account_id=? AND ${scope.sql} AND ${SPENDABLE_ORDER}`,
     )
-    .all(account, now, now);
+    .all(account, ...scope.params, now, now);
   for (const g of rows) {
     const ms = max(
       0n,

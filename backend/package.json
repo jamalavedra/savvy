@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit",
     "build": "pnpm build:server && pnpm build:ui",
     "test": "tsx --test src/*.test.ts",
-    "test:browser": "pnpm build && tsx --test src/browser.check.ts",
+    "test:browser": "pnpm build && tsx --test src/browser.check.ts src/team.check.ts",
     "test:desktop": "tsx --test src/desktop.check.ts",
     "test:connected-e2e": "node --env-file=scripts/connected-e2e.flags --import tsx --test --test-name-pattern=\"connected CRM and document\" src/ai.test.ts",
     "test:connected-live": "tsx src/composio.live.ts",
@@ -19,7 +19,9 @@
     "test:native-auth": "pnpm build && cargo test -p savvy --lib local_stripe_sandbox_desktop_transport --locked --no-run && node --env-file=scripts/native-auth.flags --import tsx --test src/browser.check.ts",
     "test:load": "pnpm build:server && node --test e2e/load.test.mjs",
     "test:package": "pnpm build && node --test e2e/package.test.mjs",
-    "test:web-return": "pnpm --dir ../www build && tsx --test src/return.check.ts"
+    "test:web-return": "pnpm --dir ../www build && tsx --test src/return.check.ts",
+    "capability": "node build/capability.js",
+    "rollback-preflight": "node build/rollback-preflight.js"
   },
   "dependencies": {
     "@better-auth/oauth-provider": "1.7.4",
@@ -43,6 +45,7 @@
     "@types/smtp-server": "3.5.13",
     "@types/ws": "8.18.1",
     "@vitejs/plugin-react": "^4.7.0",
+    "lucide-react": "0.542.0",
     "playwright": "1.58.2",
     "smtp-server": "3.19.10",
     "tsx": "4.23.13",

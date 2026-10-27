@@ -1,3 +1,5 @@
+import { Team } from "./team";
+import { teamReturn } from "./browser-navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { createAuthClient } from "better-auth/react";
@@ -37,6 +39,26 @@ function initialCompletion() {
   }
 }
 export function App() {
+  if (["/team", "/team/join"].includes(location.pathname))
+    return (
+      <Team
+        onSignOut={async () => {
+          const result = await client.signOut();
+          if (result.error)
+            throw new Error(result.error.message ?? "Could not sign out");
+          location.assign("/team");
+        }}
+      />
+    );
+  return <SignIn />;
+}
+function SignIn() {
+  const [returnTo] = useState(() =>
+    teamReturn(
+      new URL(location.href),
+      sessionStorage.getItem("savvy.returnTo"),
+    ),
+  );
   const [initial] = useState(initialCompletion);
   const [creating, setCreating] = useState(location.pathname === "/sign-up");
   const registrationFlow =
@@ -59,7 +81,7 @@ export function App() {
   const [now, setNow] = useState(Date.now);
   const [callback, setCallback] = useState("");
   const [checkingReturn, setCheckingReturn] = useState(
-    Boolean(initial.callback),
+    Boolean(initial.callback) || Boolean(returnTo),
   );
   const complete = useCallback(
     (raw: string) => setCallback(callbackURL(raw)),
@@ -91,6 +113,26 @@ export function App() {
       cancelled = true;
     };
   }, [initial.callback, complete]);
+  useEffect(() => {
+    if (!returnTo) return;
+    sessionStorage.setItem("savvy.returnTo", returnTo);
+    let cancelled = false;
+    void client
+      .getSession()
+      .then(({ data }) => {
+        if (!cancelled && data?.session) location.replace(returnTo);
+      })
+      .catch(() => {
+        if (!cancelled)
+          setError("Could not confirm your session. Sign in to continue.");
+      })
+      .finally(() => {
+        if (!cancelled) setCheckingReturn(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [returnTo]);
   const [google, setGoogle] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -110,7 +152,7 @@ export function App() {
     }
   }, []);
   useEffect(() => {
-    if (!registrationFlow) return;
+    if (!registrationFlow || returnTo) return;
     void client
       .getSession()
       .then(async ({ data }) => {
@@ -123,7 +165,7 @@ export function App() {
       .catch(() =>
         setError("Could not finish account creation. Try again in Savvy."),
       );
-  }, [registrationFlow, complete]);
+  }, [registrationFlow, complete, returnTo]);
   async function run(
     action: () => Promise<void>,
     kind: "sending" | "verifying" | "google",
@@ -162,6 +204,11 @@ export function App() {
           ? "That code is incorrect. Try again."
           : (result.error.message ?? "This code is incorrect or expired."),
       );
+    if (returnTo) {
+      sessionStorage.removeItem("savvy.returnTo");
+      location.assign(returnTo);
+      return;
+    }
     const data = result.data as { url?: string };
     if (data.url && !registrationFlow) complete(data.url);
     else {
@@ -243,9 +290,11 @@ export function App() {
                       void run(async () => {
                         const result = await client.signIn.social({
                           provider: "google",
-                          callbackURL: registrationFlow
-                            ? location.pathname + location.search
-                            : "/complete",
+                          callbackURL:
+                            returnTo ??
+                            (registrationFlow
+                              ? location.pathname + location.search
+                              : "/complete"),
                         });
                         if (result.error) throw new Error(result.error.message);
                         if (result.data?.url) location.assign(result.data.url);
