@@ -2,7 +2,11 @@ import { refreshOrganizationLocked } from "./org-stripe-events.js";
 import { randomUUID } from "node:crypto";
 import type { ServiceState } from "./state.js";
 import { ApiError } from "./errors.js";
-import { teamPurchasesEnabled, capability } from "./capability.js";
+import {
+  teamPurchasesEnabled,
+  capability,
+  validTeamPortalConfiguration,
+} from "./capability.js";
 import { requireOwner } from "./org.js";
 import { validatePrice } from "./catalog.js";
 import {
@@ -425,12 +429,7 @@ export async function organizationPortal(
       state,
       `billing_portal/configurations/${stripeId(configuration)}`,
     );
-    const features = stripeObject(value.features);
-    if (
-      value.active !== true ||
-      field(features, "subscription_update", "enabled") !== false ||
-      field(features, "subscription_cancel", "enabled") !== true
-    )
+    if (!validTeamPortalConfiguration(value, configuration))
       throw new ApiError(
         "provider_unavailable",
         "team billing portal configuration is unsafe",

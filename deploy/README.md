@@ -266,7 +266,13 @@ release capability 2. Package `service-capabilities.json`, `capability.js` and
 `rollback-preflight.js`; no TypeScript tooling is needed in production.
 
 In controlled maintenance, preserve a complete capability-2 release as the
-checkpoint, stop the service, and run the current backend package's
+checkpoint and stop the service. With the existing Stripe key loaded privately,
+run `pnpm capability configure-team-portal --db /var/lib/savvy/service.sqlite
+--configuration <bpc_id>` from the current backend package. This retrieves and
+validates the dedicated configuration using the pinned Stripe API version before
+saving it. It must be active, allow cancellation and disable subscription updates.
+Activation refuses a missing configuration, and every portal opening checks the
+current settings again. Then run the current backend package's
 `pnpm capability activate-team-purchases --db /var/lib/savvy/service.sqlite
 --checkpoint-commit <complete-sha> --checkpoint-manifest
 <complete-release>/backend/build/service-capabilities.json`. This atomically

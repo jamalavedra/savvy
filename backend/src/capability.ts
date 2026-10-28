@@ -41,6 +41,34 @@ export function assertFundingCapability(db: Db, available = FUNDING_SCHEMA) {
 export function teamPurchasesEnabled(db: Db) {
   return capability(db, "team_purchase_enabled") === "1";
 }
+export function validTeamPortalConfiguration(value: unknown, id: string) {
+  if (!value || typeof value !== "object") return false;
+  const portal = value as Record<string, unknown>;
+  const features = portal.features as
+    Record<string, { enabled?: unknown } | undefined> | undefined;
+  return (
+    portal.id === id &&
+    portal.active === true &&
+    features?.subscription_update?.enabled === false &&
+    features?.subscription_cancel?.enabled === true
+  );
+}
+export async function configureTeamPortal(
+  db: Db,
+  id: string,
+  retrieve: (id: string) => Promise<unknown>,
+  now: bigint,
+) {
+  if (!/^bpc_[A-Za-z0-9]+$/.test(id))
+    throw new Error("Invalid team portal configuration ID");
+  if (!validTeamPortalConfiguration(await retrieve(id), id))
+    throw new Error(
+      "Team portal must allow cancellation and disable subscription updates",
+    );
+  db.transaction(() =>
+    setCapability(db, "organization_portal_configuration_id", id, now),
+  ).immediate();
+}
 export function setCapability(db: Db, key: string, value: string, now: bigint) {
   if (!db.inTransaction)
     throw new Error("Capability changes require a transaction");
@@ -65,6 +93,14 @@ export function activateTeamPurchases(
     );
   db.transaction(() => {
     assertFundingCapability(db, available);
+    if (
+      !/^bpc_[A-Za-z0-9]+$/.test(
+        capability(db, "organization_portal_configuration_id") ?? "",
+      )
+    )
+      throw new Error(
+        "Configure and validate the team billing portal before activation",
+      );
     const previous = capability(db, "funding_checkpoint_commit");
     if (previous !== undefined && previous !== checkpoint)
       throw new Error("The recorded paid-seat checkpoint is immutable");
@@ -92,17 +128,22 @@ if (
   try {
     const [command, ...args] = process.argv.slice(2);
     const allowed =
-      command === "activate-team-purchases"
-        ? ["--db", "--checkpoint-commit", "--checkpoint-manifest"]
-        : ["--db"];
+      command === "configure-team-portal"
+        ? ["--db", "--configuration"]
+        : command === "activate-team-purchases"
+          ? ["--db", "--checkpoint-commit", "--checkpoint-manifest"]
+          : ["--db"];
     if (
-      !["show", "activate-team-purchases", "disable-team-purchases"].includes(
-        command,
-      ) ||
+      ![
+        "show",
+        "configure-team-portal",
+        "activate-team-purchases",
+        "disable-team-purchases",
+      ].includes(command) ||
       args.length !== allowed.length * 2
     )
       throw new Error(
-        "Usage: capability <show|disable-team-purchases|activate-team-purchases> --db <service.sqlite> [--checkpoint-commit <sha> --checkpoint-manifest <path>]. Stop the service first.",
+        "Usage: capability <show|disable-team-purchases|configure-team-portal|activate-team-purchases> --db <service.sqlite> [--configuration <bpc_id> | --checkpoint-commit <sha> --checkpoint-manifest <path>]. Stop the service first.",
       );
     const flags = new Map<string, string>();
     for (let i = 0; i < args.length; i += 2) {
@@ -116,6 +157,33 @@ if (
     db = openPrivateDatabase(flags.get("--db")!);
     db.defaultSafeIntegers(true);
     const now = BigInt(Date.now());
+    if (command === "configure-team-portal") {
+      const key = process.env.SAVVY_STRIPE_SECRET_KEY;
+      if (!key) throw new Error("SAVVY_STRIPE_SECRET_KEY is required");
+      await configureTeamPortal(
+        db,
+        flags.get("--configuration")!,
+        async (id) => {
+          const response = await fetch(
+            `https://api.stripe.com/v1/billing_portal/configurations/${id}`,
+            {
+              headers: {
+                Authorization: `Bearer ${key}`,
+                "Stripe-Version": "2025-06-30.basil",
+              },
+              redirect: "error",
+              signal: AbortSignal.timeout(10_000),
+            },
+          );
+          if (!response.ok) {
+            await response.body?.cancel();
+            throw new Error("Unable to retrieve team portal configuration");
+          }
+          return response.json();
+        },
+        now,
+      );
+    }
     if (command === "activate-team-purchases")
       activateTeamPurchases(
         db,

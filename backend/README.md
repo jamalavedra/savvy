@@ -270,10 +270,17 @@ without this metadata remain preserved and require explicit local recovery;
 they are not regenerated or charged automatically.
 
 Acquisition defaults off. The packaged `capability` command supports `show`,
-`disable-team-purchases`, and `activate-team-purchases`; each requires
+`configure-team-portal`, `disable-team-purchases`, and `activate-team-purchases`; each requires
 `--db <existing service.sqlite>`. Activation also requires
 `--checkpoint-commit <40-character sha>` and
 `--checkpoint-manifest <built service-capabilities.json>`. Stop the service first.
+Before activation, run `configure-team-portal --db <existing service.sqlite>
+--configuration <bpc_id>` with the existing `SAVVY_STRIPE_SECRET_KEY` loaded
+privately. It retrieves the configuration from Stripe using the pinned API version
+and saves its ID only when active, cancellation is enabled, and subscription
+updates are disabled. Invalid or unavailable configurations leave the stored ID
+unchanged. Activation refuses a missing configuration; portal opening revalidates
+the current Stripe settings.
 The source manifest remains capability 1 until complete-release acceptance.
 Activation requires capability 2, records an immutable compatible checkpoint and
 permanent database floor before payment creation, and cannot be reversed by

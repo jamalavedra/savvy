@@ -21,6 +21,7 @@ import {
   disableTeamPurchases,
   requiredFundingSchema,
   teamPurchasesEnabled,
+  setCapability,
 } from "./capability.js";
 
 const now = 1_700_000_000_000n;
@@ -255,6 +256,14 @@ test("capability guard fails closed and disabling acquisition preserves the immu
     assert.equal(teamPurchasesEnabled(db), false);
     assert.throws(() => activateTeamPurchases(db, "a".repeat(40), 2, now));
     assert.equal(requiredFundingSchema(db), 0);
+    db.transaction(() =>
+      setCapability(
+        db,
+        "organization_portal_configuration_id",
+        "bpc_team",
+        now,
+      ),
+    ).immediate();
     activateTeamPurchases(db, "a".repeat(40), 2, now, 2);
     assert.equal(teamPurchasesEnabled(db), true);
     assert.throws(() => assertFundingCapability(db, 1));

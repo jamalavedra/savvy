@@ -11,7 +11,86 @@ import {
   disableTeamPurchases,
   assertFundingCapability,
   setCapability,
+  configureTeamPortal,
+  capability,
 } from "./capability.js";
+
+test("team activation requires a validated cancellation-only portal and failed configuration preserves it", async (t) => {
+  const db = openServiceDatabase(":memory:");
+  t.after(() => db.close());
+  const valid = {
+    id: "bpc_team",
+    active: true,
+    features: {
+      subscription_update: { enabled: false },
+      subscription_cancel: { enabled: true },
+    },
+  };
+  assert.throws(
+    () => activateTeamPurchases(db, "a".repeat(40), 2, 1n, 2),
+    /portal before activation/,
+  );
+  assert.equal(capability(db, "required_funding_schema"), undefined);
+  assert.equal(capability(db, "team_purchase_enabled"), undefined);
+  for (const value of [
+    null,
+    {},
+    { ...valid, id: "bpc_other" },
+    { ...valid, active: false },
+    {
+      ...valid,
+      features: {
+        subscription_update: { enabled: true },
+        subscription_cancel: { enabled: true },
+      },
+    },
+    {
+      ...valid,
+      features: {
+        subscription_update: { enabled: false },
+        subscription_cancel: { enabled: false },
+      },
+    },
+  ]) {
+    await assert.rejects(
+      configureTeamPortal(db, "bpc_team", async () => value, 1n),
+      /portal must/,
+    );
+    assert.equal(
+      capability(db, "organization_portal_configuration_id"),
+      undefined,
+    );
+  }
+  await assert.rejects(
+    configureTeamPortal(
+      db,
+      "../invalid",
+      async () => {
+        throw new Error("must not fetch");
+      },
+      1n,
+    ),
+    /Invalid team portal/,
+  );
+  await configureTeamPortal(db, "bpc_team", async () => valid, 1n);
+  await assert.rejects(
+    configureTeamPortal(
+      db,
+      "bpc_other",
+      async () => {
+        throw new Error("offline");
+      },
+      2n,
+    ),
+    /offline/,
+  );
+  assert.equal(
+    capability(db, "organization_portal_configuration_id"),
+    "bpc_team",
+  );
+  activateTeamPurchases(db, "a".repeat(40), 2, 2n, 2);
+  assert.equal(capability(db, "team_purchase_enabled"), "1");
+});
 
 test("activation permanently refuses legacy and checkpoint rollback even before the first seat grant", (t) => {
   const directory = mkdtempSync(join(tmpdir(), "savvy-rollback-"));
@@ -30,6 +109,9 @@ test("activation permanently refuses legacy and checkpoint rollback even before 
     complete = candidate(2);
   assert.equal(rollbackPreflight(db, legacy).requiredFundingSchema, 0);
   assert.equal(rollbackPreflight(db, checkpoint).availableFundingSchema, 1);
+  db.transaction(() =>
+    setCapability(db, "organization_portal_configuration_id", "bpc_team", 1n),
+  ).immediate();
   activateTeamPurchases(db, "a".repeat(40), 2, 1n, 2);
   for (const path of [legacy, candidate(0), checkpoint])
     assert.throws(() => rollbackPreflight(db, path), /switch refused/);

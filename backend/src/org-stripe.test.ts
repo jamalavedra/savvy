@@ -141,6 +141,7 @@ async function fixture(t: TestContext) {
       };
     } else if (path === "/v1/billing_portal/configurations/bpc_team")
       body = {
+        id: "bpc_team",
         active: true,
         features: {
           subscription_update: { enabled: false },
