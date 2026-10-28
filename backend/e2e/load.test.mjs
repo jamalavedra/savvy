@@ -124,11 +124,7 @@ test(
       });
       child = spawn(
         process.execPath,
-        [
-          "--cpu-prof",
-          `--cpu-prof-dir=${join(root, "target")}`,
-          join(root, "backend/e2e/load-process.mjs"),
-        ],
+        [join(root, "backend/e2e/load-process.mjs")],
         { env, stdio: ["ignore", "pipe", "pipe"] },
       );
       let output = "";

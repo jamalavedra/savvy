@@ -3,6 +3,22 @@ import { monitorEventLoopDelay } from "node:perf_hooks";
 import { writeFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import { state } from "../build/server.js";
+import { Session } from "node:inspector";
+const profile = new Session();
+profile.connect();
+profile.post("Profiler.enable");
+profile.post("Profiler.start");
+// Capture before a failed load's cleanup deliberately kills the child process.
+setTimeout(() => {
+  profile.post("Profiler.stop", (error, result) => {
+    if (error) throw error;
+    writeFileSync(
+      new URL("../../target/windows-audio-load.cpuprofile", import.meta.url),
+      JSON.stringify(result.profile),
+    );
+    profile.disconnect();
+  });
+}, 10_000).unref();
 const delay = monitorEventLoopDelay({ resolution: 10 });
 delay.enable();
 const sessions = new Map();
