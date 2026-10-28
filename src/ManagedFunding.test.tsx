@@ -65,9 +65,9 @@ it("does not silently use personal credit after a seat is lost", async () => {
   expect(after.meetingMsAvailable).toBe(before.meetingMsAvailable);
   expect(after.briefsAvailable).toBe(before.briefsAvailable);
   render(<ManagedAccount compact />);
-  expect(await screen.findByRole("status")).toHaveTextContent(
-    "Personal credit will not be used automatically",
-  );
+  expect(
+    await screen.findByText(/Personal credit will not be used automatically/),
+  ).toHaveAttribute("role", "status");
   expect(
     screen.queryByRole("button", { name: "Buy hours pack" }),
   ).not.toBeInTheDocument();
