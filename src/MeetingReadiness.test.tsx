@@ -11,7 +11,63 @@ vi.mock("tauri-plugin-macos-permissions-api", () => ({
 afterEach(() => {
   delete window.__TAURI_INTERNALS__;
   vi.restoreAllMocks();
+  api.resetBrowserDemoState();
 });
+
+it.each([
+  { payer: "organization", personalMs: 0, seatMs: 120000, minutes: 2 },
+  { payer: "organization", personalMs: 60000, seatMs: 0, minutes: 0 },
+  { payer: "unavailable", personalMs: 60000, seatMs: 120000, minutes: 0 },
+  { payer: "personal", personalMs: 60000, seatMs: 0, minutes: 1 },
+] as const)(
+  "checks the selected $payer payer with personal=$personalMs and seat=$seatMs",
+  async ({ payer, personalMs, seatMs, minutes }) => {
+    api.setManagedDemoScenario("organization");
+    const settings = await api.getAppSettings();
+    const status = await api.getAppStatus();
+    const account = (await api.managedAccount())!;
+    window.__TAURI_INTERNALS__ = { invoke: vi.fn() };
+    vi.spyOn(api, "getAppStatus").mockResolvedValue({
+      ...status,
+      platform: "macos",
+    });
+    vi.spyOn(api, "managedAccount").mockResolvedValue({
+      ...account,
+      meetingMsAvailable: personalMs,
+      funding:
+        payer === "organization"
+          ? { kind: payer, organizationId: account.organization!.id }
+          : { kind: payer },
+      organizationAllowance: {
+        ...account.organizationAllowance!,
+        totalMs: seatMs,
+        usedMs: 0,
+        reservedMs: 0,
+      },
+    });
+    const start = vi.fn();
+    render(
+      <MeetingReadiness
+        settings={{ ...settings, serviceMode: "managed", microphoneOnly: true }}
+        clientName="Selected payer readiness"
+        busy={false}
+        onBack={vi.fn()}
+        onStart={start}
+        onConfigure={vi.fn()}
+      />,
+    );
+    await screen.findByText(minutes ? "Allowance available" : "No allowance");
+    expect(
+      screen.getByText(new RegExp(`^${minutes} minutes available\\.`)),
+    ).toBeVisible();
+    expect(
+      screen
+        .getByRole("button", { name: "Start meeting" })
+        .hasAttribute("disabled"),
+    ).toBe(minutes === 0);
+    expect(start).not.toHaveBeenCalled();
+  },
+);
 
 it("checks native eligibility without capture or synthetic transcription success", async () => {
   const settings = await api.getAppSettings();
