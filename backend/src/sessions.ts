@@ -576,14 +576,9 @@ export function onAudio(
         ? setReservation(db, session, RESERVATION_MS, now)
         : session.reserved_ms;
       if (reserved === 0n) exhausted = true;
-      // Refresh within the checkpoint cadence instead of fsyncing every frame.
-      if (
-        session.lease_expires_ms !== null &&
-        session.lease_expires_ms <= now + LEASE_MS - CHECKPOINT_MS
-      )
-        db.prepare(
-          "UPDATE managed_sessions SET lease_expires_ms=?,updated_at_ms=? WHERE id=?",
-        ).run(now + LEASE_MS, now, session.id);
+      db.prepare(
+        "UPDATE managed_sessions SET lease_expires_ms=?,updated_at_ms=? WHERE id=?",
+      ).run(now + LEASE_MS, now, session.id);
       if (exhausted) {
         finishInterval(db, account, id, "exhausted", now);
         db.prepare(
