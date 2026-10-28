@@ -208,7 +208,7 @@ test(
         for (let frame = 0; frame < 6000; frame++) {
           await sleep(Math.max(0, start + frame * 50 - performance.now()));
           for (const ws of sockets) {
-            assert.equal(ws.readyState, WebSocket.OPEN);
+            assert.equal(ws.readyState, WebSocket.OPEN, output);
             ws.send(Buffer.alloc(1600));
             sentFrames++;
             maximumQueue = Math.max(maximumQueue, ws.bufferedAmount);
