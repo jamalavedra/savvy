@@ -80,6 +80,24 @@ function fixture(t: TestContext, allowance = 36_000_000n) {
   };
 }
 
+test("contiguous audio avoids lease writes between checkpoints and still settles every delivered millisecond", (t) => {
+  const h = fixture(t);
+  h.create();
+  h.feed(1000n);
+  const changes = () =>
+    h.db.prepare<[], { n: bigint }>("SELECT total_changes() AS n").get()!.n;
+  const before = changes();
+  h.feed(4000n);
+  assert.equal(changes(), before);
+  assert.equal(h.view().settledMs, 0n);
+  h.feed(500n);
+  assert.equal(h.view().settledMs, 5000n);
+  assert.equal(h.view().leaseExpiresMs, h.state.clock() + 29_500n);
+  const paused = lifecycle(h.state, 1n, ID, "pause", 1n, 1n);
+  assert.equal(paused.settledMs, 5500n);
+  assert.equal(balance(h.db, 1n, h.state.clock()).meetingMsReserved, 0n);
+});
+
 test("two simultaneous sources cost 75 seconds across pause/resume and lifecycle replay cannot change state", (t) => {
   const h = fixture(t);
   h.create();
