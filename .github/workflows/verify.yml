@@ -22,11 +22,34 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --dir backend install --frozen-lockfile
       - run: New-Item -ItemType Directory -Force target
+      - name: Check Windows shutdown separately from sustained load
+        shell: bash
+        env:
+          SAVVY_LOAD_RESULTS: ${{ github.workspace }}/target/windows-shutdown-diagnostic.json
+        run: |
+          python - <<'PYTEST'
+          from pathlib import Path
+          source = Path("backend/e2e/load.test.mjs").read_text()
+          replacements = {
+              'five-minute mixed audio, OTP and delayed billing load on one backend': 'short Windows shutdown and restart diagnostic',
+              'frame < 6000': 'frame < 100',
+              'i < 60; i++': 'i < 1; i++',
+              'start + 300000': 'start + 5000',
+          }
+          for before, after in replacements.items():
+              assert source.count(before) == 1, before
+              source = source.replace(before, after)
+          Path("backend/e2e/shutdown-diagnostic.test.mjs").write_text(source)
+          PYTEST
+          pnpm --dir backend build:server
+          node --test backend/e2e/shutdown-diagnostic.test.mjs
       - run: pnpm --dir backend test:load
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
-          name: windows-audio-load-results
-          path: backend/e2e/load-results.json
+          name: windows-audio-diagnostics
+          path: |
+            backend/e2e/load-results.json
+            target/windows-shutdown-diagnostic.json
           if-no-files-found: ignore
           retention-days: 2
