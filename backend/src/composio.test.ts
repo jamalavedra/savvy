@@ -433,6 +433,28 @@ test("Gmail search accepts empty results and cleans highlighted snippets", async
   assert.equal(result.records[0].title, "Fictional Acme & renewal");
 });
 
+test("HubSpot note previews request and display readable note text", async (t) => {
+  const h = fixture(t);
+  h.setResponse(({ body }: { body: { properties?: string[] } }) => ({
+    results: [
+      {
+        id: "note-1",
+        properties: body.properties?.includes("hs_note_body")
+          ? { hs_note_body: "<p>Fictional Acme <b>renewal</b> note</p>" }
+          : {},
+      },
+    ],
+  }));
+  const result = await h.service.search(1n, {
+    provider: "hubspot",
+    kind: "note",
+    accountId: "account-one",
+    query: "Acme",
+  });
+  assert.equal(result.records[0].title, "Fictional Acme renewal note");
+  assert.equal(result.records[0].recordId, "note-1");
+});
+
 test("Notion search uses the page title property", async (t) => {
   const h = fixture(t);
   h.setResponse({

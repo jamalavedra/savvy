@@ -525,7 +525,12 @@ export class ComposioSources {
         `/crm/v3/objects/${object}/search`,
         "POST",
         undefined,
-        { query, limit: 20, ...(cursor ? { after: cursor } : {}) },
+        {
+          query,
+          limit: 20,
+          ...(kind === "note" ? { properties: ["hs_note_body"] } : {}),
+          ...(cursor ? { after: cursor } : {}),
+        },
       );
     } else if (name === "gong") {
       data = await this.proxy(
@@ -626,6 +631,10 @@ export class ComposioSources {
               )
               .join("")
           : "";
+      const noteTitle =
+        typeof props.hs_note_body === "string"
+          ? cleanHtml(props.hs_note_body).replace(/\s+/g, " ").trim()
+          : "";
       const title = str(
         notionTitle ||
           (item.Name ??
@@ -636,7 +645,7 @@ export class ComposioSources {
             item.subject ??
             props.name ??
             props.dealname ??
-            props.hs_note_body ??
+            (noteTitle || undefined) ??
             (typeof item.snippet === "string"
               ? cleanHtml(item.snippet)
               : item.snippet)),
