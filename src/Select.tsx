@@ -240,6 +240,8 @@ export function Select({
                   aria-selected={option.value === selectedValue}
                   className={option.value === selectedValue ? "selected" : ""}
                   key={`${option.value}-${option.label}`}
+                  // Keep WebKit's mouse-down blur from closing before click.
+                  onMouseDown={(event) => event.preventDefault()}
                   onClick={() => {
                     trigger.current?.focus();
                     close();

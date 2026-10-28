@@ -1900,7 +1900,11 @@ function MeetingContextSelector({
         <ChevronsUpDown />
       </Button>
       {open && !disabled && (
-        <div className="meeting-context-menu">
+        <div
+          className="meeting-context-menu"
+          // WebKit can blur the focused option before a button receives click.
+          onMouseDown={(event) => event.preventDefault()}
+        >
           <div
             id={listId}
             role="listbox"
