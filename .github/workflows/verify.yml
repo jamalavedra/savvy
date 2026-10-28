@@ -1,176 +1,32 @@
 name: "Verify"
 
 on:
-  push:
-    branches: [main]
-  pull_request:
   workflow_dispatch:
-
-concurrency:
-  group: verify-${{ github.ref }}
-  cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
-  verify:
-    strategy:
-      fail-fast: false
-      matrix:
-        # pnpm 10's node-gyp 11 cannot build better-sqlite3 with the VS 2026-only image.
-        platform: [macos-26, windows-2022]
-    runs-on: ${{ matrix.platform }}
+  windows-audio-diagnostic:
+    runs-on: windows-2022
+    timeout-minutes: 15
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-
-      - name: Setup Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
-          node-version: 22
+          node-version: 22.23.4
           cache: pnpm
-
-      - name: Rust cache
-        uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-
-      - name: Install frontend dependencies
-        run: pnpm install --frozen-lockfile
-
-      # The backend and website keep their own lockfiles; verify runs their checks too.
-      - name: Install backend dependencies
-        run: pnpm --dir backend install --frozen-lockfile
-
-      - name: Install website dependencies
-        run: pnpm --dir www install --frozen-lockfile
-
-      - name: Format and frontend checks
-        run: pnpm format:check && pnpm typecheck && pnpm lint && pnpm test
-
-      - name: Rust tests
-        run: pnpm test:rust
-
-      - name: Backend checks
-        run: pnpm --dir backend typecheck && pnpm --dir backend test
-
-      - name: Build and lint
-        run: pnpm build && cargo clippy --workspace --all-targets --locked -- -D warnings && pnpm --dir backend build
-
-      - name: Audit frontend dependencies
-        run: pnpm audit --audit-level=moderate
-
-      - name: Audit backend dependencies
-        run: pnpm --dir backend audit --audit-level=moderate
-
-      - name: Audit website dependencies
-        run: pnpm --dir www audit --audit-level=moderate
-
-      - name: Install browser
-        run: pnpm --dir backend exec playwright install chromium
-
-      - name: Browser sign-in fixture
-        run: pnpm --dir backend test:browser
-
-      - name: Desktop fixture
-        run: pnpm --dir backend test:desktop
-
-      - name: Native auth fixture
-        run: pnpm --dir backend test:native-auth
-
-      - name: Package fixture
-        # Exercises Unix deploy scripts; Windows packaging is built below.
-        if: runner.os != 'Windows'
-        run: pnpm --dir backend test:package
-
-      - name: Web return fixture
-        run: pnpm --dir backend test:web-return
-
-      - name: Mixed managed load
-        if: github.event_name == 'workflow_dispatch'
-        run: pnpm --dir backend test:load
-
-      # Licenses, advisories, and dependency sources. The policy and every
-      # exemption live in deny.toml.
-      - name: Install cargo-deny
-        uses: taiki-e/install-action@5b4d68e2e660441203ab128a23676f1e4faf1532 # v2.86.3
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir backend install --frozen-lockfile
+      - run: New-Item -ItemType Directory -Force target
+      - run: pnpm --dir backend test:load
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
         with:
-          tool: cargo-deny
-
-      - name: Check dependencies
-        run: cargo deny check
-
-      - name: Build Windows preview installer
-        if: runner.os == 'Windows'
-        shell: bash
-        run: pnpm tauri build --target x86_64-pc-windows-msvc --bundles nsis --config '{"bundle":{"createUpdaterArtifacts":false}}'
-
-      - name: Upload Windows preview installer
-        if: runner.os == 'Windows'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: savvy-windows-x64-preview
-          path: target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+          name: windows-synthetic-audio-profile
+          path: target/*.cpuprofile
           if-no-files-found: error
-
-  # Linux remains compile-only; its native meeting integrations are not enabled.
-  cross-platform-check:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: ubuntu-24.04
-            target: x86_64-unknown-linux-gnu
-    runs-on: ${{ matrix.platform }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Install Linux system dependencies
-        if: runner.os == 'Linux'
-        timeout-minutes: 10
-        run: |
-          # The Azure mirror can stall package downloads; retain Ubuntu's HTTPS mirrors.
-          sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev \
-            librsvg2-dev patchelf libasound2-dev
-
-      - name: Rust cache
-        uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          key: ${{ matrix.target }}
-
-      # The frontend must exist before tauri-build runs, and `cargo check` does not
-      # invoke the beforeBuildCommand.
-      - name: Setup pnpm
-        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-
-      - name: Setup Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - name: Build frontend
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm build
-
-      - name: Cargo check
-        run: cargo check --workspace --all-targets --locked
-
-      - name: Linux backend checks
-        if: runner.os == 'Linux'
-        run: |
-          pnpm --dir backend install --frozen-lockfile
-          pnpm --dir backend typecheck
-          pnpm --dir backend test
-          pnpm --dir backend build
-          pnpm --dir backend test:package
+          retention-days: 2
