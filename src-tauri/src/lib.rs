@@ -726,8 +726,11 @@ async fn managed_sign_in_finish(
 }
 
 #[tauri::command]
-fn managed_sign_in_cancel() -> Result<(), String> {
-    managed::cancel_sign_in()
+async fn managed_sign_in_cancel() -> Result<(), String> {
+    // Keep the UI responsive while cancellation waits for a Keychain commit.
+    tauri::async_runtime::spawn_blocking(managed::cancel_sign_in)
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 /// Signing out removes the account credential only; billing, keys, documents,

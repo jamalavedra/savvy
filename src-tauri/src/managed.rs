@@ -2600,6 +2600,26 @@ mod issuer_tests {
         *ACCOUNT_IDENTITY.lock().unwrap() = None;
         *ACCESS_TOKEN.lock().unwrap() = None;
 
+        // Cancellation must yield the UI thread while a credential commit waits.
+        let (locked_tx, locked_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let commit = std::thread::spawn(move || {
+            let _guard = REFRESH_LOCK.lock().unwrap();
+            locked_tx.send(()).unwrap();
+            let _ = release_rx.recv_timeout(Duration::from_secs(2));
+        });
+        locked_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        let mut cancellation = Box::pin(crate::managed_sign_in_cancel());
+        let mut task = std::task::Context::from_waker(std::task::Waker::noop());
+        let first_poll = std::future::Future::poll(cancellation.as_mut(), &mut task);
+        let _ = release_tx.send(());
+        commit.join().unwrap();
+        assert!(
+            first_poll.is_pending(),
+            "cancellation blocked its dispatcher"
+        );
+        tauri::async_runtime::block_on(cancellation).unwrap();
+
         // Cancellation during token exchange wins before the commit lock.
         browser.generation = SIGN_IN_GENERATION.load(Ordering::SeqCst);
         *BROWSER_FLOW.lock().unwrap() = Some(browser.clone());
