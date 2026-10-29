@@ -1,11 +1,12 @@
 ---
 title: Local-first meeting assistants vs bots that join the call
-description: How a local-first, bring-your-own-model assistant like Savvy differs from a meeting bot: who is in the call, where audio goes, who pays, and what you give up.
+description: How Savvy differs from a meeting bot: who is in the call, where audio goes with personal or managed providers, who pays, and what you give up.
 date: 2026-09-06
+updated: 2026-10-29
 tags: comparison, local-first, privacy
 ---
 
-A meeting bot is a hosted service that joins your call as a participant, records everyone, and sends the recording to the vendor's cloud. A local-first meeting assistant runs on your own machine, listens through your own audio, and keeps your documents where they already are. Savvy is the second kind. This post lays out the difference plainly, including the parts where the bot model is the better fit.
+A meeting bot is a hosted service that joins your call as a participant, records everyone, and sends the recording to the vendor's cloud. A local-first meeting assistant runs on your own machine, listens through your own audio, and keeps your documents where they already are. Savvy is the second kind, but its transcription and model requests still use hosted providers. Choose personal providers or optional paid managed assistance. This post explains where each path sends your data and when a shared meeting record is the better fit.
 
 ## What a meeting bot does
 
@@ -31,9 +32,9 @@ The output is guidance for one person, live. It is not a team record.
 
 "Local-first" does not mean offline.
 
-Savvy keeps your source documents, derived indexes, brief, audio files and transcripts on your Mac. But live transcription is not local. Savvy streams meeting audio to Deepgram or AssemblyAI under your account as it captures it. There is no offline transcription mode in the current build. Savvy sets Deepgram's `mip_opt_out=true` so your audio is not used to train their models; you should check AssemblyAI's terms for the equivalent.
+Savvy keeps your source documents, derived indexes, brief, audio files and transcripts on your Mac. But live transcription is not local. With personal providers, Savvy streams meeting audio to Deepgram or AssemblyAI under your account as it captures it. There is no offline transcription mode in the current build. Savvy sets Deepgram's `mip_opt_out=true` so your audio is not used to train their models; you should check AssemblyAI's terms for the equivalent.
 
-For each recommendation, Savvy sends selected document excerpts, the whole brief, and recent transcript turns to your CLI's model provider. It does not send whole source files.
+With personal providers, each recommendation sends selected document excerpts, the whole brief and recent transcript turns to your CLI's model provider. With managed assistance, audio passes through Savvy to Deepgram, and selected brief evidence and meeting context pass through Savvy to Fireworks GLM-5.3. Read the [privacy policy](/privacy/) for the processing and retention details of both paths.
 
 Savvy deletes local audio and transcripts after 30 days, with cleanup at startup. Provider keys sit in the macOS Keychain. The homepage's [privacy section](/#privacy) shows the data flow.
 
@@ -43,7 +44,7 @@ So the honest comparison is not "cloud vs no cloud". It is "one vendor holds the
 
 A meeting bot ships with a model. You get whatever the vendor picked, priced into the seat.
 
-Savvy has no model of its own. It shells out to Claude Code or the Codex CLI already installed and signed in on your Mac, so recommendations bill to the plan you have and run under the terms you already agreed to. That is convenient if you already pay for one of those. It is a setup step if you do not. [Bring your own model](/blog/bring-your-own-model-claude-code-codex/) covers the cost and data-flow side in detail.
+In personal-provider mode, Savvy calls Claude Code or the Codex CLI installed and signed in on your Mac. Recommendations use your account and its terms. This reuses an existing account if you have one; otherwise you need to install a CLI and sign in. [Bring your own model](/blog/bring-your-own-model-claude-code-codex/) covers that setup. Managed assistance instead uses Savvy's hosted supplier access, so no CLI is required.
 
 ## Who pays
 
@@ -57,9 +58,9 @@ The tradeoffs are real, and they are the reason a team might still pick a bot:
 
 - **No shared record.** Savvy is built for one person on one Mac. It does not publish a transcript to the team or write to a CRM.
 - **You carry the consent conversation.** No bot appears in the participant list, so nobody is told automatically that a transcript exists. That is on you. [Recording a meeting: consent and etiquette](/blog/meeting-recording-consent-and-etiquette/) has the wording we suggest.
-- **Two accounts to set up.** A transcription key and a signed-in CLI, before the first recommendation.
+- **Provider access.** Personal setup needs a transcription key and a signed-in CLI. Managed setup needs a Savvy account and paid allowance. [Compare the options](/pricing/).
 - **Apple Silicon Macs on macOS 13 or newer.** Intel builds are possible from source but unsupported. No Windows, no Linux, no mobile.
-- **Audio leaves your Mac.** Your transcription provider receives it as Savvy captures it.
+- **Audio leaves your Mac.** It goes to your transcription provider directly, or through Savvy to Deepgram in managed mode.
 
 ## What you give up with a bot
 
@@ -72,6 +73,6 @@ The tradeoffs are real, and they are the reason a team might still pick a bot:
 
 Pick a bot if the goal is a searchable archive of every call for a team, and the people on those calls are fine being recorded by a third party.
 
-Pick Savvy if the goal is to walk into one call better prepared and get grounded, in-the-moment guidance from your own documents, on your own hardware, without a subscription. Read the [privacy section](/#privacy) first, then decide whether streaming audio to a transcription provider under your own account is acceptable for the calls you have in mind.
+Pick Savvy if the goal is to walk into one call better prepared and get grounded, in-the-moment guidance from your own documents, on your own hardware, with either personal providers or paid managed assistance. Read the [privacy policy](/privacy/) first, then decide whether the processing path fits your calls. For the live output, read [what a real-time meeting assistant does](/blog/what-real-time-meeting-assistant-means/).
 
 They are not exclusive. Some people run a bot for the record and Savvy for the call.

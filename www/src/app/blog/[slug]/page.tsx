@@ -33,6 +33,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
       url,
       type: "article",
       publishedTime: post.date,
+      modifiedTime: post.updated,
       tags: post.tags,
     },
   };
@@ -51,7 +52,7 @@ export default async function BlogPost({ params }: Params) {
         headline: post.title,
         description: post.description,
         datePublished: post.date,
-        dateModified: post.date,
+        dateModified: post.updated,
         keywords: post.tags.join(", "),
         inLanguage: "en",
         author: { "@type": "Organization", name: COMPANY_NAME },
@@ -89,6 +90,12 @@ export default async function BlogPost({ params }: Params) {
               </Link>
               <p className="mt-8 font-mono text-[11px] uppercase tracking-wider text-muted">
                 <time dateTime={post.date}>{formatDate(post.date)}</time>
+                {post.updated !== post.date && (
+                  <>
+                    {" · Updated "}
+                    <time dateTime={post.updated}>{formatDate(post.updated)}</time>
+                  </>
+                )}
                 {" · "}
                 {post.readingMinutes} min read
               </p>
@@ -116,6 +123,12 @@ export default async function BlogPost({ params }: Params) {
                 </p>
                 <div className="mt-6 flex flex-wrap items-center gap-4">
                   <DownloadCTA />
+                  <Link
+                    href="/pricing/"
+                    className="focus-ring text-sm font-medium underline underline-offset-4"
+                  >
+                    Compare setup and pricing
+                  </Link>
                   <Link
                     href="/"
                     className="text-sm font-medium text-muted transition-colors hover:text-foreground"

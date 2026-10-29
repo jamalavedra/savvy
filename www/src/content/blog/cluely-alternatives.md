@@ -2,6 +2,7 @@
 title: Cluely alternatives for work meetings
 description: Cluely alternatives for live help in sales, client and negotiation calls: open source, cheaper, or grounded in your own documents. With prices and limits.
 date: 2026-10-19
+updated: 2026-10-29
 tags: comparison, real-time, meeting-assistant
 ---
 
@@ -38,7 +39,7 @@ A general overlay answers from the model's knowledge plus whatever you uploaded.
 ### You want it cheaper
 
 - **Savvy with your own providers:** the app is free. It uses the Claude Code or Codex CLI you already pay for, so there is no model markup, and you pay Deepgram or AssemblyAI per audio minute for transcription. [Deepgram or AssemblyAI](/blog/deepgram-vs-assemblyai-for-meeting-transcription/) covers the cost.
-- **Savvy managed:** $79 a month for 10 meeting hours and 20 briefs, or a $29 pack of 3 hours, if you would rather not hold your own keys. See [pricing](/pricing/).
+- **Savvy managed:** optional paid assistance if you prefer provider access without your own keys or CLI. See current prices and allowances on the [pricing page](/pricing/).
 - **Pluely:** free with your own keys.
 - **Hedy:** a real-time meeting assistant with a free plan of 5 hours a month, where live suggestions run for the first 30 minutes of each session. Pro is $12.99 a month, $99.99 a year, or $299 once. It runs on phones, Mac, Windows and the web. Source: [hedy.ai/pricing](https://www.hedy.ai/pricing).
 
@@ -50,7 +51,7 @@ Then you are not really looking for a Cluely alternative. A note taker such as O
 
 - It does not hide from screen sharing or from the other people on the call. Tell them you are using it.
 - It is not a team record. Guidance is for one person, live.
-- It is not offline. Audio goes to your transcription provider, and document excerpts go to the model provider your CLI is signed in to. Local audio and transcripts are deleted after 30 days.
+- It is not offline. With personal providers, audio goes to your transcription account and selected excerpts, the whole brief and recent transcript turns to your CLI's provider. With managed assistance, audio passes through Savvy to Deepgram and selected context through Savvy to Fireworks GLM-5.3. Local audio and transcripts are deleted after 30 days, with cleanup at startup. Read the [privacy policy](/privacy/).
 
 ## Short version
 

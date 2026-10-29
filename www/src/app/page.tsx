@@ -3,6 +3,7 @@ import { Rail } from "@/components/layout/Rail";
 import { DataFootnote } from "@/components/sections/DataFootnote";
 import { Everything } from "@/components/sections/Everything";
 import { FAQ } from "@/components/sections/FAQ";
+import { Guides } from "@/components/sections/Guides";
 import { Hero } from "@/components/sections/Hero";
 import { Privacy } from "@/components/sections/Privacy";
 import { Divider } from "@/components/sections/primitives";
@@ -71,6 +72,8 @@ export default function Home() {
         <Privacy />
         <Divider />
         <FAQ />
+        <Divider />
+        <Guides />
         <Divider />
         <DataFootnote />
       </main>

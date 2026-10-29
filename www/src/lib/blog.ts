@@ -7,6 +7,7 @@ type Post = {
   description: string;
   /** ISO date, YYYY-MM-DD. */
   date: string;
+  updated: string;
   readingMinutes: number;
   tags: string[];
   body: string;
@@ -29,12 +30,23 @@ function parsePost(file: string): Post {
     if (!fields[key]) throw new Error(`${file}: frontmatter is missing "${key}"`);
   }
   const date = fields.date ?? "";
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error(`${file}: date must be YYYY-MM-DD`);
+  const updated = fields.updated ?? date;
+  for (const [key, value] of Object.entries({ date, updated })) {
+    const parsed = new Date(`${value}T00:00:00Z`);
+    if (
+      !/^\d{4}-\d{2}-\d{2}$/.test(value) ||
+      Number.isNaN(parsed.getTime()) ||
+      parsed.toISOString().slice(0, 10) !== value
+    )
+      throw new Error(`${file}: ${key} must be a valid YYYY-MM-DD date`);
+  }
+  if (updated < date) throw new Error(`${file}: updated must not precede date`);
   return {
     slug: file.replace(/\.md$/, ""),
     title: fields.title ?? "",
     description: fields.description ?? "",
     date,
+    updated,
     readingMinutes: Math.max(1, Math.ceil(body.split(/\s+/).length / 220)),
     tags: (fields.tags ?? "")
       .split(",")

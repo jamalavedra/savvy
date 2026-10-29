@@ -1,13 +1,14 @@
 ---
 title: Claude Code and Codex CLI use cases that are not coding
-description: A coding CLI signed in on your machine is a general-purpose local model runtime with a shell interface. What that unlocks outside the editor, and what we learned using one as a meeting assistant's engine.
+description: A signed-in coding CLI can power desktop workflows beyond programming. Lessons from Savvy's personal-provider setup, including data flow and setup limits.
 date: 2026-09-22
+updated: 2026-10-29
 tags: Claude Code, Codex CLI, bring your own model, architecture
 ---
 
 Claude Code and the Codex CLI are sold as coding agents, and most write-ups treat them that way: refactors, test generation, bug hunts. But what you actually have, once one of them is installed and signed in, is a model you can invoke from a shell, on a machine that holds your files, billed to a plan you already pay for.
 
-That is a runtime, and the interesting use cases are the ones that have nothing to do with source code. We built one of them, so this is partly a field report.
+This article describes the personal-provider path in Savvy, where the CLI runs locally and its provider receives selected meeting context under your account. Savvy also offers optional paid managed assistance through its backend, Deepgram and Fireworks GLM-5.3, without your own keys or CLI. See [setup and pricing](/pricing/) and the [privacy policy](/privacy/).
 
 ## The shape of the opportunity
 

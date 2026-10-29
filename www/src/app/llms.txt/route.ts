@@ -26,7 +26,7 @@ export function GET() {
 - Savvy deletes local audio and transcripts after 30 days, with cleanup at startup. Removing a client deletes derived data without touching the source folder.
 - App directories use 0700 permissions and sensitive files 0600. FileVault encrypts data at rest when enabled. Savvy does not add application-layer encryption.
 
-- Optional Savvy managed assistance uses the same desktop app and OIDC sign-in. Audio passes through Savvy to Deepgram; selected brief evidence and meeting context pass through Savvy to Fireworks GLM-5.3. Stripe hosts billing. See pricing for managed allowance and expiry rules.
+- Optional paid Savvy managed assistance uses the same desktop app, with browser sign-in through Google or an emailed code. No personal transcription key or CLI is required. Audio passes through Savvy to Deepgram; selected brief evidence and meeting context pass through Savvy to Fireworks GLM-5.3. Stripe hosts billing. See pricing for managed allowance and expiry rules.
 
 ## Links
 

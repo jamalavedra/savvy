@@ -2,6 +2,7 @@
 title: Granola AI alternatives, by what you actually need
 description: Granola AI alternatives grouped by the reason you are leaving: a team archive, a different platform, live in-call help, or an open-source app. With prices.
 date: 2026-09-22
+updated: 2026-10-29
 tags: comparison, meeting-assistant, mac
 ---
 
@@ -35,13 +36,15 @@ The honest cost: Savvy produces guidance for one person, live. It is not a team 
 
 Granola is a commercial product with per-seat pricing. Savvy is MIT-licensed and free, and you can read every line of how the audio is captured, what leaves the machine, and when a recommendation is triggered. With your own providers there is no model markup, because Savvy calls the Claude Code or Codex CLI already signed in on your Mac. Managed assistance is an optional paid plan, priced on the [pricing page](/pricing/).
 
-You still pay providers directly. A transcription key from Deepgram or AssemblyAI is billed per audio minute, which for streaming worked out to cents per hour of call at published 2026 rates. See [Deepgram or AssemblyAI](/blog/deepgram-vs-assemblyai-for-meeting-transcription/) for how to pick and what it costs.
+With personal providers, you still pay providers directly. A transcription key from Deepgram or AssemblyAI is billed per audio minute, which for streaming worked out to cents per hour of call at published 2026 rates. See [Deepgram or AssemblyAI](/blog/deepgram-vs-assemblyai-for-meeting-transcription/) for how to pick and what it costs.
 
 ## The part every comparison glosses over: where audio goes
 
 Bot-free does not mean nothing leaves your machine, for Granola or for Savvy. Both send audio somewhere to be turned into text.
 
-What differs is whose account it goes to. Savvy streams meeting audio to the transcription provider you hold the key for, sets Deepgram's `mip_opt_out=true` so it is not used for model training, keeps documents and transcripts on your Mac, and deletes local audio and transcripts after 30 days. Document excerpts, the brief, and recent transcript turns go to whichever provider your CLI is signed in to, under your own plan.
+What differs is whose account it goes to. With personal providers, Savvy streams meeting audio to the transcription provider you hold the key for, sets Deepgram's `mip_opt_out=true` so it is not used for model training, keeps documents and transcripts on your Mac, and deletes local audio and transcripts after 30 days. Document excerpts, the brief, and recent transcript turns go to whichever provider your CLI is signed in to, under your own plan.
+
+With managed assistance, audio passes through Savvy to Deepgram, and selected brief evidence and meeting context pass through Savvy to Fireworks GLM-5.3. No personal key or CLI is required.
 
 If you are evaluating either tool for confidential conversations, read the data-flow page rather than the marketing page. Ours is the [privacy section](/#privacy), and the full table is in the [README](https://github.com/jamalavedra/savvy#readme).
 
@@ -53,13 +56,13 @@ List prices in USD, per user, as published on each vendor's pricing page in Octo
 - **Otter:** Basic is free with 300 transcription minutes a month and 30 minutes per conversation. Pro lists at $16.99 a month or $8.33 a month billed annually, with 1,200 minutes. Business is $30 a month or $19.99 billed annually. Otter was running a discount on Pro when we checked. Source: [otter.ai/pricing](https://otter.ai/pricing).
 - **Fathom:** Free with unlimited recordings. Premium is $20 a month or $16 billed annually. Bot-free capture is a Mac beta. Source: [fathom.ai/pricing](https://www.fathom.ai/pricing).
 - **Fireflies:** a free tier and per-seat Pro and Business plans. The pricing page did not show figures when we checked, so look there directly: [fireflies.ai/pricing](https://fireflies.ai/pricing).
-- **Savvy:** the app is free and MIT-licensed. With your own providers you pay Deepgram or AssemblyAI per audio minute and use the Claude Code or Codex plan you already have. Savvy managed is $79 a month for 10 meeting hours and 20 briefs, or a $29 pack of 3 hours. Source: [pricing](/pricing/).
+- **Savvy:** the app is free and MIT-licensed. With your own providers you pay Deepgram or AssemblyAI per audio minute and use the Claude Code or Codex plan you already have. Optional paid managed assistance handles provider access. See current allowances and prices on the [pricing page](/pricing/).
 
 ## Questions people ask
 
 ### Is there a free Granola alternative?
 
-Fathom's free plan has unlimited recordings, and Otter's free plan covers 300 minutes a month. Both use a bot by default. Savvy is free to install and bot-free, but you pay your transcription provider per minute.
+Fathom's free plan has unlimited recordings, and Otter's free plan covers 300 minutes a month. Both use a bot by default. Savvy is free to install and bot-free. With personal providers you pay those providers directly; managed assistance is optional and paid.
 
 ### Is there an open-source Granola alternative?
 

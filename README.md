@@ -37,7 +37,7 @@ During a meeting the overlay mascot switches to _thinking_ for exactly three rea
 2. **Checking a red line** — someone touched a hard constraint from your brief.
 3. **Getting advice** — you pressed Advice.
 
-Between those, Savvy periodically re-reads your brief and notes against the last minute of conversation — **Checking notes**, then **Thinking** — with Advice still available; if it finds something concrete a card labelled _Savvy noticed_ appears. Savvy never thinks when no recommendation CLI is signed in; it shows one notice instead. Quitting Savvy during a meeting stops the meeting first.
+Between those, Savvy periodically re-reads your brief and notes against the last minute of conversation — **Checking notes**, then **Thinking** — with Advice still available; if it finds something concrete a card labelled _Savvy noticed_ appears. In personal-provider mode, an unavailable recommendation CLI produces one notice instead of model requests. Managed recommendations do not require a CLI. Quitting Savvy during a meeting stops the meeting first.
 
 ## Install
 

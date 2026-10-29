@@ -221,8 +221,8 @@ export function Privacy() {
                 icon: SparkIcon,
                 label: (
                   <span>
-                    <strong className="font-semibold">Managed:</strong> a top-performing model on EU
-                    servers, no keys to set up
+                    <strong className="font-semibold">Managed:</strong> audio through Savvy to
+                    Deepgram, selected context to Fireworks GLM-5.3, no keys to set up
                   </span>
                 ),
               },
