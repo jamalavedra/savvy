@@ -391,3 +391,82 @@ body {
     opacity: 0;
   }
 }
+
+/* Blog covers are drawn at a fixed 440x400 (Satori reuses them for OG), so they zoom to fit. */
+.cover-zoom {
+  display: flex;
+  zoom: 0.72;
+}
+.cover-zoom-sm {
+  display: flex;
+  zoom: 0.62;
+}
+
+@media (width >= 40rem) {
+  .cover-zoom {
+    zoom: 1;
+  }
+}
+
+/* Hand-drawn blog figures: sketchy strokes, handwritten notes. */
+.fig {
+  margin: 2.5rem 0;
+}
+.fig svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+.fig .s,
+.fig .p,
+.fig .r,
+.fig .g {
+  fill: none;
+  stroke: var(--color-foreground);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.fig .p {
+  stroke: var(--color-accent);
+}
+.fig .r {
+  stroke: var(--color-danger);
+}
+.fig .g {
+  stroke: var(--color-success);
+}
+.fig .d {
+  stroke-dasharray: 5 6;
+}
+.fig .h {
+  font-family: var(--font-hand), "Bradley Hand", cursive;
+  font-size: 21px;
+  fill: var(--color-foreground);
+}
+.fig .h.pen {
+  fill: var(--color-accent);
+}
+.fig .h.red {
+  fill: var(--color-danger);
+}
+.fig .h.go {
+  fill: var(--color-success);
+}
+.fig .t {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  fill: var(--color-muted);
+}
+.fig .ah {
+  fill: var(--color-foreground);
+}
+.fig figcaption {
+  margin-top: 0.6rem;
+  font-family: var(--font-hand), "Bradley Hand", cursive;
+  font-size: 1.25rem;
+  line-height: 1.3;
+  color: var(--color-muted);
+  text-align: center;
+}
