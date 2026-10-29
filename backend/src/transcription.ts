@@ -432,7 +432,10 @@ async function relay(
         try {
           nextDelivery =
             // Recover late timers within the existing one-second admission burst.
-            Math.max(nextDelivery, performance.now() - MAX_AUDIO / 32) +
+            Math.max(
+              nextDelivery,
+              performance.now() - (MAX_AUDIO - chunk.length) / 32,
+            ) +
             chunk.length / 32;
           await send(upstream, chunk, MAX_AUDIO);
         } catch (error) {

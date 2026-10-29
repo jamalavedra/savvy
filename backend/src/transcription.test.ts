@@ -645,6 +645,43 @@ test("late pacing timers recover queued audio without accumulating delivery lag"
   assert.equal(balance(h.db, 1n, h.state.clock()).meetingMsReserved, 0n);
 });
 
+test("catch-up after a long timer stall stays within the durable pacing allowance", async (t) => {
+  const h = await fixture(t),
+    ws = h.connect();
+  await once(ws, "open");
+  const ready = once(ws, "message");
+  ws.send(Buffer.alloc(640));
+  await ready;
+  const base = h.state.clock(),
+    started = performance.now(),
+    timeout = globalThis.setTimeout;
+  t.mock.method(h.state, "clock", () =>
+    base + BigInt(Math.floor(performance.now() - started)),
+  );
+  let stalled = false;
+  t.mock.method(
+    globalThis,
+    "setTimeout",
+    (...args: Parameters<typeof setTimeout>) => {
+      const delay = args[1] ?? 0;
+      if (!stalled && delay > 0 && delay <= 50) {
+        stalled = true;
+        args[1] = delay + 1100;
+      }
+      return timeout(...args);
+    },
+  );
+  let received = 0;
+  ws.on("message", () => received++);
+  for (let i = 0; i < 40; i++) ws.send(Buffer.alloc(1600));
+  while (received < 40 && performance.now() - started < 3000)
+    await new Promise((resolve) => timeout(resolve, 10));
+  assert.ok(stalled);
+  assert.equal(received, 40);
+  assert.equal(ws.readyState, WebSocket.OPEN);
+  assert.equal(h.forwarded(), 64_640);
+});
+
 test("a delayed audio burst survives the old one-second queue limit and settles only delivered audio", async (t) => {
   const h = await fixture(t),
     ws = h.connect();
