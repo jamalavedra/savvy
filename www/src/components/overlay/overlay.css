@@ -14,7 +14,8 @@
   --success: #368c66;
   --danger: #d85664;
 
-  --s-surface: color-mix(in srgb, var(--background) 98%, transparent);
+  /* 40% see-through so the call shows behind the card, like the app's overlay. */
+  --s-surface: color-mix(in srgb, var(--background) 60%, transparent);
   --s-accent: var(--accent);
   --s-muted: var(--muted);
   --s-faint: color-mix(in srgb, var(--muted), transparent 28%);
@@ -321,7 +322,7 @@
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 15px;
-  background: var(--surface);
+  background: transparent;
 }
 
 .ai-extension .recommendation-card {

@@ -8,19 +8,64 @@ function AppleIcon({ size = 14 }: { size?: number }) {
   );
 }
 
-export function DownloadCTA({ size = "md" }: { size?: "md" | "sm" }) {
+function WindowsIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg aria-hidden="true" width={size} height={size} viewBox="0 0 18 18">
+      <rect x="0" y="0" width="8.5" height="8.5" fill="#f25022" />
+      <rect x="9.5" y="0" width="8.5" height="8.5" fill="#7fba00" />
+      <rect x="0" y="9.5" width="8.5" height="8.5" fill="#00a4ef" />
+      <rect x="9.5" y="9.5" width="8.5" height="8.5" fill="#ffb900" />
+    </svg>
+  );
+}
+
+/** Compact link for the header and rail; the release page offers both platforms. */
+export function DownloadCTA() {
   return (
     <a
       href={LINKS.download}
       target="_blank"
       rel="noopener noreferrer"
-      className={`focus-ring press-feedback inline-flex items-center justify-center gap-2 rounded-full bg-foreground font-semibold text-background ${
-        size === "sm" ? "px-4 py-2 text-[13px]" : "px-5 py-2.5 text-sm"
-      }`}
+      className="focus-ring press-feedback inline-flex items-center justify-center gap-2 rounded-full bg-foreground px-4 py-2 text-[13px] font-semibold text-background"
     >
-      <AppleIcon size={size === "sm" ? 12 : 14} />
-      Download for Mac
+      Download
     </a>
+  );
+}
+
+const PLATFORMS = [
+  {
+    label: "Download for Mac",
+    href: LINKS.downloadMac,
+    note: "Free. macOS 13+, Apple Silicon",
+    icon: <AppleIcon size={18} />,
+    className: "gloss-mac",
+  },
+  {
+    label: "Download for Windows",
+    href: LINKS.downloadWindows,
+    note: "Free. Windows 10 or higher",
+    icon: <WindowsIcon />,
+    className: "gloss-windows",
+  },
+] as const;
+
+export function DownloadButtons({ align = "start" }: { align?: "start" | "center" }) {
+  return (
+    <div className={`flex flex-wrap gap-x-5 gap-y-4 ${align === "center" ? "justify-center" : ""}`}>
+      {PLATFORMS.map((p) => (
+        <div key={p.label} className="flex flex-col items-center gap-2">
+          <a
+            href={p.href}
+            className={`gloss-btn focus-ring press-feedback inline-flex items-center gap-2.5 rounded-full px-6 py-3 text-base font-semibold ${p.className}`}
+          >
+            {p.icon}
+            {p.label}
+          </a>
+          <span className="text-[13px] text-muted">{p.note}</span>
+        </div>
+      ))}
+    </div>
   );
 }
 

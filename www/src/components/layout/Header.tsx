@@ -21,7 +21,7 @@ export function Header() {
           ))}
         </nav>
       </div>
-      <DownloadCTA size="sm" />
+      <DownloadCTA />
     </header>
   );
 }

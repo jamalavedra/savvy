@@ -316,6 +316,39 @@ body {
   outline-offset: 2px;
 }
 
+/* Glossy download pills: top highlight band over a vertical gradient. */
+.gloss-btn {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border: 1px solid;
+  box-shadow:
+    0 10px 24px -12px rgba(0, 0, 0, 0.35),
+    inset 0 -2px 4px rgba(255, 255, 255, 0.35);
+}
+
+.gloss-btn::before {
+  content: "";
+  position: absolute;
+  inset: 3px 12px auto;
+  height: 45%;
+  border-radius: 999px;
+  background: linear-gradient(rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0.15));
+  z-index: -1;
+}
+
+.gloss-mac {
+  border-color: #2b3aa0;
+  background: linear-gradient(#a9c9ff, #6f9ef5 55%, #8db8ff);
+  color: #0b0b0b;
+}
+
+.gloss-windows {
+  border-color: #6b6b6b;
+  background: linear-gradient(#ffffff, #e4e4e4 55%, #f2f2f2);
+  color: #0b0b0b;
+}
+
 /* Press feedback; reduced motion dims instead of shrinking. */
 .press-feedback {
   transition:

@@ -3,7 +3,7 @@ import { FadeInUp } from "@/components/animations/FadeInUp";
 import { Footer } from "@/components/layout/Footer";
 import { Rail } from "@/components/layout/Rail";
 import { CHECK_PATH, TwoLineHeading } from "@/components/sections/primitives";
-import { DownloadCTA, GitHubCTA } from "@/components/ui/DownloadCTA";
+import { DownloadButtons, GitHubCTA } from "@/components/ui/DownloadCTA";
 import { REQUIREMENTS, SITE_URL } from "@/lib/constants";
 import catalog from "../../../../config/managed-catalog.json";
 
@@ -146,7 +146,7 @@ export default function Pricing() {
                 ))}
               </ul>
               <div className="mt-8 flex flex-wrap items-center gap-3">
-                <DownloadCTA />
+                <DownloadButtons />
                 <GitHubCTA />
                 <p className="text-small text-muted">
                   Every plan starts with the same download. Managed plans are bought from inside the
