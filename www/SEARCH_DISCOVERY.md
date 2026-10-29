@@ -32,9 +32,8 @@ baselines were not available for this review.
   refer readers to the pricing page for current managed prices and allowances.
 - The homepage names the managed suppliers instead of making a model-performance or hosting-region
   claim. The README and `/llms.txt` also distinguish managed access from personal CLI setup.
-- The live-assistance guide answers the category question in its opening paragraph and removes
-  claims that a citation guarantees correctness or that other kinds of live assistance have
-  no value.
+- The live-assistance guide answers the category question in its opening paragraph, explains
+  the practical uses of transcripts and coaching, and states that cited advice still needs checking.
 - Every article's existing download panel also links to setup and pricing.
 - Optional `updated` frontmatter preserves the publication date while exposing a substantive
   revision in the visible article, Open Graph metadata, JSON-LD and sitemap. Unchanged articles
@@ -82,10 +81,11 @@ before evaluating the changes.
 | What should I check before choosing a bot-free meeting assistant for confidential calls?                              | `/blog/local-first-meeting-assistant-vs-meeting-bots/` |
 | Can I use my own transcription and model accounts with a meeting assistant?                                           | `/blog/bring-your-own-model-claude-code-codex/`        |
 
-The hypothesis is that direct guide links and consistent setup explanations help qualified
-visitors reach the information they need. Compare the proportion of consented guide sessions
-that reach pricing before and after publication, alongside search and citation observations.
-Without a baseline, sufficient traffic and an activation measure, no growth claim follows.
+The hypothesis is that a higher proportion of consented sessions landing on the three
+homepage-linked guides will reach pricing during the 28 days after publication than during
+the preceding 28 days. Review search and citation observations separately. This comparison is
+observational; traffic mix, other releases and seasonal changes can affect it. Without a
+baseline, sufficient traffic and an activation measure, no growth claim follows.
 
 ## Work requiring more evidence
 
