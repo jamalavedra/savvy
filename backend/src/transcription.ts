@@ -415,9 +415,11 @@ async function relay(
         const chunk = queue.shift()!;
         // Network buffering can bunch up correctly paced client frames.
         nextDelivery ??= performance.now();
-        const delay = Math.ceil(nextDelivery - performance.now());
-        if (delay > 0)
+        for (;;) {
+          const delay = Math.ceil(nextDelivery - performance.now());
+          if (delay <= 0) break;
           await new Promise((resolve) => setTimeout(resolve, delay));
+        }
         if (stopping) break;
         state.requireAssistance();
         if (state.clock() >= tokenExpiry || !valid()) break;
