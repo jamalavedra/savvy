@@ -35,6 +35,8 @@ Before the call, you point Savvy at the folder for a client or deal. It reads th
 
 A general overlay answers from the model's knowledge plus whatever you uploaded. That is fine for "what is a good reply to this objection". It is weaker when the right answer is in your pricing sheet or last quarter's contract, and you need to know which document it came from. [How Savvy decides when to speak](/blog/when-savvy-speaks-up/) explains the triggers.
 
+{{figure}}
+
 ### You want it cheaper
 
 - **Savvy with your own providers:** the app is free. It uses the Claude Code or Codex CLI you already pay for, so there is no model markup, and you pay Deepgram or AssemblyAI per audio minute for transcription. [Deepgram or AssemblyAI](/blog/deepgram-vs-assemblyai-for-meeting-transcription/) covers the cost.

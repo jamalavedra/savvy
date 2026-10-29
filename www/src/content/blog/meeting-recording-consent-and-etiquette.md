@@ -13,6 +13,8 @@ Savvy captures your microphone and the system audio of the call, streams it to y
 
 That last point is the one that matters for consent. With a hosted meeting bot, the bot's presence is itself a form of notice. With Savvy, telling people is your job.
 
+{{figure}}
+
 ## One-party and all-party consent
 
 Most consent rules for recording a conversation fall into two families.

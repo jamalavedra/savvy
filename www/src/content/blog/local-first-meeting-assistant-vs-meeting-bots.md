@@ -39,6 +39,8 @@ Savvy deletes local audio and transcripts after 30 days, with cleanup at startup
 
 So the honest comparison is not "cloud vs no cloud". It is "one vendor holds the recording, the transcript and the summary under their terms" versus "your transcription provider hears the audio, your model provider sees excerpts, and the files stay with you".
 
+{{figure}}
+
 ## Who runs the model
 
 A meeting bot ships with a model. You get whatever the vendor picked, priced into the seat.

@@ -61,6 +61,8 @@ There are now tools that prepare for you: they read your calendar, look up the a
 
 They help less with steps 4 and 6, which are the ones that matter when the call gets hard. A tool that summarises the web does not know your discount ceiling, and it does not know which claims legal told you not to make. Those come from your own documents, and you are the one who knows which documents count.
 
+{{figure}}
+
 ## How Savvy does meeting prep
 
 [Savvy](/) is a free, open-source Mac app built around this page. You point it at the folder for a client or project, and it reads the documents and drafts the brief: purpose, positions, facts with their sources, questions, and the things you must not say. You edit it and approve it.

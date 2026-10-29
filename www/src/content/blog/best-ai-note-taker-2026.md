@@ -26,6 +26,8 @@ The practical consequences of that choice:
 - Bot-free capture works where a bot cannot go: a room, a phone, a platform that blocks unknown participants.
 - Bot-free capture puts the consent conversation on you, because nobody is notified automatically. We wrote up the wording we use in [Recording a meeting: consent and etiquette](/blog/meeting-recording-consent-and-etiquette/).
 
+{{figure}}
+
 ## Question two: after the call, or during it?
 
 Almost all of this category is post-call. Fireflies and Fathom produce their summary once the meeting ends. Granola is bot-free but still notes-first: it captures audio and cleans up the bullets you typed, rather than running a live transcript. Otter is the exception on live text, it types a real-time transcript and captions during the call, and its newer real-time meeting agent is gated to higher tiers.
