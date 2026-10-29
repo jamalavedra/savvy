@@ -421,25 +421,37 @@ async function relay(
           await new Promise((resolve) => setTimeout(resolve, delay));
         }
         if (stopping) break;
-        state.requireAssistance();
-        if (state.clock() >= tokenExpiry || !valid()) break;
-        const admittedAt = state.clock();
-        checkAudio(
-          state,
-          session.id,
-          source,
-          generation,
-          chunk.length,
-          admittedAt,
-        );
+        let admittedAt: bigint | undefined;
+        while (!stopping) {
+          state.requireAssistance();
+          const now = state.clock();
+          if (now >= tokenExpiry || !valid()) break;
+          try {
+            checkAudio(
+              state,
+              session.id,
+              source,
+              generation,
+              chunk.length,
+              now,
+            );
+            admittedAt = now;
+            break;
+          } catch (error) {
+            if (
+              !(error instanceof ApiError) ||
+              error.code !== "invalid_request" ||
+              error.retryAfterMs === undefined
+            )
+              throw error;
+            await new Promise((resolve) =>
+              setTimeout(resolve, Number(error.retryAfterMs)),
+            );
+          }
+        }
+        if (admittedAt === undefined) break;
         try {
-          nextDelivery =
-            // Recover late timers within the existing one-second admission burst.
-            Math.max(
-              nextDelivery,
-              performance.now() - (MAX_AUDIO - chunk.length) / 32,
-            ) +
-            chunk.length / 32;
+          nextDelivery += chunk.length / 32;
           await send(upstream, chunk, MAX_AUDIO);
         } catch (error) {
           upstreamWriteFailure =
