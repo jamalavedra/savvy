@@ -18,7 +18,7 @@ export function GET() {
 
 ## Requirements and data handling
 
-- macOS 13+ on Apple Silicon. Intel is buildable from source but unsupported.
+- macOS 13+ on Apple Silicon, or Windows 10+ (x64). Intel Macs are buildable from source but unsupported.
 - Personal-provider transcription requires a Deepgram or AssemblyAI account. Savvy streams meeting audio to that provider as it captures it. There is no offline transcription mode.
 - Savvy sets Deepgram's mip_opt_out=true to prevent model training on your audio. Check AssemblyAI's terms for its equivalent.
 - Personal-provider recommendations require Codex CLI or Claude Code installed and signed in. Savvy sends selected excerpts, the whole brief document, and recent relevant transcript turns to that CLI's model provider under your account and its terms.

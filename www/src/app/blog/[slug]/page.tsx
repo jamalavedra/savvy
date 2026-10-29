@@ -5,7 +5,7 @@ import { Markdown } from "@/components/blog/Markdown";
 import { Footer } from "@/components/layout/Footer";
 import { Rail } from "@/components/layout/Rail";
 import { TwoLineHeading } from "@/components/sections/primitives";
-import { DownloadCTA } from "@/components/ui/DownloadCTA";
+import { DownloadButtons } from "@/components/ui/DownloadCTA";
 import { formatDate, getAllPosts, getPost } from "@/lib/blog";
 import { COMPANY_NAME, REQUIREMENTS, SITE_URL } from "@/lib/constants";
 
@@ -115,7 +115,7 @@ export default async function BlogPost({ params }: Params) {
                   says what to say, what to avoid, and which file says so. {REQUIREMENTS}.
                 </p>
                 <div className="mt-6 flex flex-wrap items-center gap-4">
-                  <DownloadCTA />
+                  <DownloadButtons />
                   <Link
                     href="/"
                     className="text-sm font-medium text-muted transition-colors hover:text-foreground"

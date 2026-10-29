@@ -1,7 +1,7 @@
 import Image from "next/image";
 import { FadeInUp } from "@/components/animations/FadeInUp";
 import { ScriptedOverlay } from "@/components/overlay/OverlayCard";
-import { DownloadCTA } from "@/components/ui/DownloadCTA";
+import { DownloadButtons } from "@/components/ui/DownloadCTA";
 import { HERO_SCRIPT } from "@/content/scripts";
 
 // Footage: Mixkit clip 48680, Mixkit License, re-encoded as a loop.
@@ -91,8 +91,8 @@ export function Hero() {
             <App src="/images/logos/microsoft-teams.svg" name="Teams" /> and{" "}
             <App src="/images/logos/zoom.svg" name="Zoom" /> calls. No bot joins.
           </p>
-          <div className="mt-6 flex justify-center">
-            <DownloadCTA />
+          <div className="mt-6">
+            <DownloadButtons align="center" />
           </div>
         </FadeInUp>
 

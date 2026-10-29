@@ -31,7 +31,7 @@ export function Rail({ active = "/" }: { active?: string }) {
           ))}
         </nav>
         <div className="fixed bottom-8 left-8 z-40 flex flex-col items-start gap-2.5">
-          <DownloadCTA size="sm" />
+          <DownloadCTA />
           <GitHubCTA />
         </div>
       </div>

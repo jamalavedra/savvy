@@ -20,7 +20,7 @@ const jsonLd = {
       name: "Savvy",
       url: SITE_URL,
       applicationCategory: "BusinessApplication",
-      operatingSystem: "macOS 13 or later (Apple Silicon)",
+      operatingSystem: "macOS 13 or later (Apple Silicon), Windows 10 or later",
       description:
         "Local-first macOS meeting assistant. Prepares a brief from your own source documents, then offers source-grounded guidance during a live conversation: what to say, what to avoid, and which file says so.",
       downloadUrl: LINKS.download,
