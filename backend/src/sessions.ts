@@ -429,6 +429,17 @@ export function checkAudio(
       "session_conflict",
       "this meeting session is not active",
     );
+  const entry = state.sessions.get(row)?.sources.get(source) ?? freshSource();
+  if (entry.generation !== generation)
+    throw new ApiError("session_conflict", "superseded audio connection");
+  const sourceDebt =
+    max(entry.bytes - max(now - entry.startedMs, 0n) * 32n, 0n) + BigInt(bytes);
+  if (sourceDebt > BYTES_PER_SECOND)
+    throw new ApiError(
+      "invalid_request",
+      "audio is being uploaded faster than real time",
+      (sourceDebt - BYTES_PER_SECOND + 31n) / 32n,
+    );
   state.db
     .transaction(() => {
       reserveAttempt(state.db, account, "audio_frame", now, 1000n, 200n);
@@ -447,24 +458,13 @@ export function checkAudio(
         throw new ApiError(
           "invalid_request",
           "audio exceeds account real-time pacing",
+          (debt - BYTES_PER_SECOND + 31n) / 32n,
         );
       state.db
         .prepare("INSERT OR REPLACE INTO audio_pacing VALUES(?,?,?,?)")
         .run(account, source, debt, now);
     })
     .immediate();
-  const entry = state.sessions.get(row)?.sources.get(source) ?? freshSource();
-  if (entry.generation !== generation)
-    throw new ApiError("session_conflict", "superseded audio connection");
-  if (
-    max(entry.bytes - max(now - entry.startedMs, 0n) * 32n, 0n) +
-      BigInt(bytes) >
-    BYTES_PER_SECOND
-  )
-    throw new ApiError(
-      "invalid_request",
-      "audio is being uploaded faster than real time",
-    );
 }
 
 export function onAudio(

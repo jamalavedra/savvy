@@ -261,6 +261,38 @@ test("supplier write latency cannot shift pacing or bill the pre-delivery gap", 
   assert.equal(balance(h.db, 1n, h.state.clock()).meetingMsReserved, 0n);
 });
 
+test("pacing reports the wait without committing a rejected admission", (t) => {
+  for (const delivered of [false, true]) {
+    const h = fixture(t),
+      row = h.create(),
+      now = h.state.clock();
+    const generation = attachSource(h.state, row, "microphone", now);
+    checkAudio(h.state, row.id, "microphone", generation, 32_000, now);
+    if (delivered)
+      onAudio(h.state, 1n, ID, "microphone", 32_000, now, {
+        version: 1n,
+        generation,
+        admittedAt: now,
+      });
+    const before = h.db.prepare("SELECT * FROM audio_pacing").all();
+    assert.throws(
+      () => checkAudio(h.state, row.id, "microphone", generation, 2, now),
+      { code: "invalid_request", retryAfterMs: 1n },
+    );
+    assert.deepEqual(h.db.prepare("SELECT * FROM audio_pacing").all(), before);
+    h.advance(1n);
+    checkAudio(h.state, row.id, "microphone", generation, 2, h.state.clock());
+    assert.equal(
+      h.db
+        .prepare<[], { count: bigint }>(
+          "SELECT count FROM attempt_counters WHERE operation='audio_frame'",
+        )
+        .get()!.count,
+      2n,
+    );
+  }
+});
+
 test("account pacing survives reconnect and stale owners cannot mutate health or metering", (t) => {
   const h = fixture(t),
     row = h.create();
