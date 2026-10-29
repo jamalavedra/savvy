@@ -11,6 +11,25 @@ const options = [
 ];
 afterEach(() => vi.restoreAllMocks());
 
+it("selects an option when WebKit does not focus buttons on mouse-down", () => {
+  const select = vi.fn();
+  render(
+    <Select
+      label="App"
+      selectedValue="salesforce"
+      options={options}
+      onSelect={select}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "App" }));
+  const notion = screen.getByRole("option", { name: "Notion" });
+  if (fireEvent.mouseDown(notion))
+    fireEvent.blur(document.activeElement!, { relatedTarget: null });
+  fireEvent.mouseUp(notion);
+  fireEvent.click(notion);
+  expect(select).toHaveBeenCalledWith("notion");
+});
+
 it("shares a labeled chooser with keyboard navigation, disabled options and focus restoration", () => {
   const select = vi.fn();
   render(

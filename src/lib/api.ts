@@ -21,6 +21,8 @@ import type {
   ClientDocument,
   SourceRecord,
   SourceRefresh,
+  FundingChoice,
+  ManagedAccount,
 } from "../types";
 
 declare global {
@@ -635,13 +637,19 @@ export async function generateBriefDraft(
   clientId: string | null,
   instructions: string,
   requestId?: string,
+  funding?: FundingChoice,
 ): Promise<NegotiationBrief> {
   if (!window.__TAURI_INTERNALS__) {
     if (browserSettings.serviceMode === "managed") {
       const account = requireDemoManaged();
-      if (account.briefsAvailable <= 0)
+      const choice = await managedFundingSnapshot();
+      assertFunding(funding, choice);
+      requireDemoSeat(account);
+      if (managedBalance(account).briefsAvailable <= 0)
         throw new Error("quota_exhausted: No briefs remain.");
-      account.briefsAvailable -= 1;
+      if (choice.kind === "organization")
+        account.organizationAllowance!.usedBriefs += 1;
+      else account.briefsAvailable -= 1;
     }
     return {
       ...demoBrief,
@@ -660,6 +668,7 @@ export async function generateBriefDraft(
     clientId,
     instructions,
     requestId,
+    ...(funding ? { funding } : {}),
   });
 }
 
@@ -762,11 +771,15 @@ export async function startMeeting(
   reviewedContent?: string,
   excludeSourcePaths: string[] = [],
   staleSourcePaths: string[] = [],
+  funding?: FundingChoice,
 ): Promise<MeetingSession> {
   if (!window.__TAURI_INTERNALS__) {
     if (browserSettings.serviceMode === "managed") {
       const account = requireDemoManaged();
-      if (account.meetingMsAvailable <= 0)
+      const choice = await managedFundingSnapshot();
+      assertFunding(funding, choice);
+      requireDemoSeat(account);
+      if (managedBalance(account).meetingMsAvailable <= 0)
         throw new Error("quota_exhausted: Buy a pack before starting.");
       demoManagedLastAudio = Date.now();
     }
@@ -804,6 +817,7 @@ export async function startMeeting(
     expectedBriefHash,
     excludeSourcePaths,
     staleSourcePaths,
+    ...(funding ? { funding } : {}),
   });
 }
 
@@ -832,7 +846,9 @@ export async function resumeMeeting(
 ): Promise<MeetingSession> {
   if (!window.__TAURI_INTERNALS__) {
     if (browserSettings.serviceMode === "managed") {
-      if (requireDemoManaged().meetingMsAvailable <= 0)
+      await managedFundingSnapshot();
+      requireDemoSeat(requireDemoManaged());
+      if (managedBalance(requireDemoManaged()).meetingMsAvailable <= 0)
         throw new Error("quota_exhausted: Buy a pack before resuming.");
       demoManagedLastAudio = Date.now();
     }
@@ -852,7 +868,9 @@ export async function requestRecommendation(sessionId: string): Promise<void> {
     if (browserSettings.serviceMode === "managed") {
       requireDemoManaged();
       settleDemoManaged();
-      if (requireDemoManaged().meetingMsAvailable <= 0)
+      await managedFundingSnapshot();
+      requireDemoSeat(requireDemoManaged());
+      if (managedBalance(requireDemoManaged()).meetingMsAvailable <= 0)
         throw new Error("quota_exhausted: add time and explicitly resume");
       if (
         browserDemo.activeSession?.id !== sessionId ||
@@ -934,13 +952,104 @@ export async function probeSystemAudioPermission(): Promise<void> {
 // Browser purchases change synthetic fixtures only; they never open Checkout.
 let demoManagedAccount: import("../types").ManagedAccount | null = null;
 let demoAuthorization: { flowId: string; completed: boolean } | null = null;
+
+export function managedBalance(account: ManagedAccount) {
+  if (account.funding?.kind === "unavailable")
+    return { meetingMsAvailable: 0, meetingMsReserved: 0, briefsAvailable: 0 };
+  if (account.funding?.kind !== "organization") return account;
+  const allowance =
+    account.organization?.id === account.funding.organizationId &&
+    account.organization.assignmentId
+      ? account.organizationAllowance
+      : null;
+  return {
+    meetingMsAvailable: allowance
+      ? Math.max(0, allowance.totalMs - allowance.usedMs - allowance.reservedMs)
+      : 0,
+    meetingMsReserved: allowance?.reservedMs ?? 0,
+    briefsAvailable: allowance
+      ? Math.max(
+          0,
+          allowance.totalBriefs -
+            allowance.usedBriefs -
+            allowance.reservedBriefs,
+        )
+      : 0,
+  };
+}
+
+function assertFunding(
+  expected: FundingChoice | undefined,
+  actual: FundingChoice,
+) {
+  if (
+    expected &&
+    (expected.kind !== actual.kind ||
+      (expected.kind === "organization" &&
+        actual.kind === "organization" &&
+        expected.organizationId !== actual.organizationId))
+  )
+    throw new Error(
+      "funding_mismatch: Funding changed while preparing. Review and start again.",
+    );
+}
+
+export async function managedFundingSnapshot(): Promise<FundingChoice> {
+  const account = await managedAccount();
+  if (!account) throw new Error("sign_in_required: Sign in to Savvy.");
+  const choice = account.funding ?? { kind: "personal" };
+  if (choice.kind === "unavailable")
+    throw new Error(
+      account.fundingError ?? "funding_unavailable: Choose a payer in Account.",
+    );
+  return choice;
+}
+
+function requireDemoSeat(account: ManagedAccount) {
+  if (
+    account.funding?.kind === "organization" &&
+    (account.organization?.id !== account.funding.organizationId ||
+      !account.organization.assignmentId ||
+      !account.organizationAllowance)
+  )
+    throw new Error(
+      "no_seat: Your organization seat is unavailable. Choose personal funding explicitly to use personal credit.",
+    );
+}
+
+export async function managedSetFunding(funding: FundingChoice): Promise<void> {
+  if (window.__TAURI_INTERNALS__)
+    return invoke("managed_set_funding", { funding });
+  const account = requireDemoManaged();
+  if (browserDemo.activeSession || account.fundingLocked)
+    throw new Error(
+      "funding_mismatch: End the meeting before changing funding.",
+    );
+  if (
+    funding.kind === "organization" &&
+    (account.organization?.id !== funding.organizationId ||
+      !account.organization.assignmentId ||
+      !account.organizationAllowance)
+  )
+    throw new Error("no_seat: You do not have an available organization seat.");
+  account.funding = funding;
+}
+
+export async function managedOpenTeam(): Promise<void> {
+  if (window.__TAURI_INTERNALS__) return invoke("managed_open_team");
+}
 export async function managedAccount(): Promise<
   import("../types").ManagedAccount | null
 > {
   if (!window.__TAURI_INTERNALS__) {
     if (demoManagedOffline) throw new Error("provider_unavailable: offline");
     settleDemoManaged();
-    return demoManagedAccount ? { ...demoManagedAccount } : null;
+    return demoManagedAccount
+      ? structuredClone({
+          ...demoManagedAccount,
+          ...(browserDemo.activeSession ? { fundingLocked: true } : {}),
+        })
+      : null;
   }
   return invoke("managed_account");
 }
@@ -965,6 +1074,9 @@ export async function managedSignInFinish(
       throw new Error("Sign-in cancelled or expired.");
     demoAuthorization.completed = true;
     demoManagedAccount = {
+      organization: null,
+      organizationAllowance: null,
+      funding: { kind: "personal" },
       catalog: managedCatalog,
       pendingPurchases: [],
       nowMs: Date.now(),
@@ -1046,20 +1158,27 @@ function settleDemoManaged() {
   )
     return;
   const now = Date.now();
+  const balance = managedBalance(demoManagedAccount);
   const spent = Math.min(
-    demoManagedAccount.meetingMsAvailable,
+    balance.meetingMsAvailable,
     Math.max(0, now - demoManagedLastAudio),
   );
-  demoManagedAccount.meetingMsAvailable -= spent;
-  demoManagedAccount.monthlyMsUsed += Math.min(
-    spent,
-    Math.max(
-      0,
-      demoManagedAccount.monthlyMsTotal - demoManagedAccount.monthlyMsUsed,
-    ),
-  );
+  if (demoManagedAccount.funding?.kind === "organization") {
+    if (demoManagedAccount.organizationAllowance)
+      demoManagedAccount.organizationAllowance.usedMs += spent;
+  } else {
+    demoManagedAccount.meetingMsAvailable -= spent;
+    demoManagedAccount.monthlyMsUsed += Math.min(
+      spent,
+      Math.max(
+        0,
+        demoManagedAccount.monthlyMsTotal - demoManagedAccount.monthlyMsUsed,
+      ),
+    );
+  }
   demoManagedAccount.nowMs = now;
-  demoManagedLastAudio = demoManagedAccount.meetingMsAvailable > 0 ? now : null;
+  demoManagedLastAudio =
+    managedBalance(demoManagedAccount).meetingMsAvailable > 0 ? now : null;
   if (demoManagedLastAudio === null && browserDemo.activeSession)
     browserDemo.activeSession.state = "paused";
 }
@@ -1072,6 +1191,9 @@ export function setManagedDemoScenario(
     | "exhausted"
     | "pastDue"
     | "cancelledWithPacks"
+    | "organization"
+    | "unseated"
+    | "revokedOrganization"
     | "offline",
 ) {
   demoManagedOffline = scenario === "offline";
@@ -1080,6 +1202,9 @@ export function setManagedDemoScenario(
     scenario === "signedOut"
       ? null
       : {
+          organization: null,
+          organizationAllowance: null,
+          funding: { kind: "personal" },
           nowMs: Date.now(),
           catalog: managedCatalog,
           pendingPurchases:
@@ -1118,6 +1243,37 @@ export function setManagedDemoScenario(
             cancelAtPeriodEnd: scenario === "cancelledWithPacks",
           },
         };
+  if (
+    demoManagedAccount &&
+    ["organization", "unseated", "revokedOrganization"].includes(scenario)
+  ) {
+    demoManagedAccount.organization = {
+      id: "7",
+      name: "Northstar Sales",
+      role: "member",
+      seatId: scenario === "organization" ? "11" : null,
+      seatNumber: scenario === "organization" ? 1 : null,
+      assignmentId: scenario === "organization" ? "15" : null,
+      seatPeriodEndMs: Date.now() + 86_400_000,
+      teamUrl: "https://api.savvycopilot.com/team",
+      minimumDesktopVersion: "0.1.5",
+    };
+    demoManagedAccount.organizationAllowance =
+      scenario === "organization"
+        ? {
+            totalMs: managedCatalog.monthly.hours * 3_600_000,
+            totalBriefs: managedCatalog.monthly.briefs,
+            usedMs: 0,
+            reservedMs: 0,
+            usedBriefs: 0,
+            reservedBriefs: 0,
+          }
+        : null;
+    demoManagedAccount.funding =
+      scenario === "unseated"
+        ? { kind: "personal" }
+        : { kind: "organization", organizationId: "7" };
+  }
 }
 
 export async function managedSignInCancel(): Promise<void> {

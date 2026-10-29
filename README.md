@@ -10,6 +10,8 @@ Managed offer amounts, allowances and expiry rules live in [the shared catalog](
 
 Managed audio passes through Savvy to Deepgram; selected brief evidence and meeting context pass through Savvy to Fireworks GLM-5.3. Documents and history remain on your computer. The provider descriptions below describe personal-provider setup. See the [backend guide](backend/README.md) and [deployment guide](deploy/README.md) for running the managed service.
 
+Organization seats require Savvy 0.1.5 or later on Mac and Windows. An owner buys a monthly seat quantity and invites colleagues at `/team` on the managed backend. Each person signs in separately, then deliberately chooses their assigned seat or personal allowance in Account. The payer stays fixed for a brief or meeting; losing a seat never switches to personal credit. Seat quantity changes apply at the next paid renewal. Personal packs stay personal. Owners see membership, assignments and aggregate usage, without access to colleagues' files, Composio connections or meeting content. Team acquisition stays disabled until release acceptance and operator activation are complete.
+
 ## Where your data goes
 
 Savvy keeps your documents and history on your computer, but live transcription is not local. Read this before pointing it at anything confidential.

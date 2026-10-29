@@ -64,6 +64,7 @@ import {
   deleteTranscriptionApiKey,
   deleteMeeting,
   generateBriefDraft,
+  managedFundingSnapshot,
   cancelBriefDraft,
   getBriefProgress,
   type BriefStage,
@@ -680,6 +681,10 @@ function App() {
     setBusy(true);
     setError(null);
     try {
+      const funding =
+        appSettings?.serviceMode === "managed"
+          ? await managedFundingSnapshot()
+          : undefined;
       if (
         instructions !== appSettings?.briefGenerationPrompt &&
         !(await saveAppSettings({ briefGenerationPrompt: instructions }))
@@ -703,6 +708,7 @@ function App() {
           ? `${instructions}\n\nMeeting objective: ${meetingObjective.trim()}`
           : instructions,
         job.requestId,
+        ...(funding ? ([funding] as const) : []),
       );
       setPreparation((current) => (current ? { ...current, brief } : current));
       setDashboard((current) =>
@@ -865,6 +871,10 @@ function App() {
     setBusy(true);
     setError(null);
     try {
+      const funding =
+        appSettings?.serviceMode === "managed"
+          ? await managedFundingSnapshot()
+          : undefined;
       if (window.__TAURI_INTERNALS__ && appSettings) {
         // BYOK needs a transcription key; managed eligibility is checked by the
         // Rust preflight and, authoritatively, by the hosted service.
@@ -940,6 +950,7 @@ function App() {
         meetingBrief?.documentContent,
         excludeSourcePaths,
         staleSourcePaths,
+        ...(funding ? ([funding] as const) : []),
       );
       setReadinessOpen(false);
       setTranscriptTurns([]);
@@ -1326,6 +1337,9 @@ function App() {
               settings={appSettings}
               version={version}
               saving={settingsBusy}
+              fundingBusy={
+                busy || !!briefProgress || !!dashboard?.activeSession
+              }
               onSave={saveAppSettings}
             />
           )}
@@ -1886,7 +1900,11 @@ function MeetingContextSelector({
         <ChevronsUpDown />
       </Button>
       {open && !disabled && (
-        <div className="meeting-context-menu">
+        <div
+          className="meeting-context-menu"
+          // WebKit can blur the focused option before a button receives click.
+          onMouseDown={(event) => event.preventDefault()}
+        >
           <div
             id={listId}
             role="listbox"
@@ -3493,12 +3511,14 @@ function SettingsView({
   settings,
   version,
   saving,
+  fundingBusy,
   onSave,
 }: {
   section: View;
   settings: AppSettings | null;
   version: string;
   saving: boolean;
+  fundingBusy: boolean;
   onSave: (patch: Partial<AppSettings>) => Promise<boolean>;
 }) {
   const [configureProviders, setConfigureProviders] = useState(false);
@@ -3718,7 +3738,7 @@ function SettingsView({
     if (settings.serviceMode === "managed" && !configureProviders)
       return (
         <div className="page-content preference-page">
-          <ManagedAccount />
+          <ManagedAccount fundingBusy={fundingBusy} />
           <Button
             variant="secondary"
 
@@ -3768,7 +3788,7 @@ function SettingsView({
             }
           />
         </SettingsGroup>
-        <ManagedAccount />
+        <ManagedAccount fundingBusy={fundingBusy} />
         {settings.serviceMode === "managed" ? (
           <>
             <p>

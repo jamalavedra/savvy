@@ -15,7 +15,16 @@ import { configuration } from "./config.js";
 import { ApiError } from "./errors.js";
 import { insertGrant, balance } from "./billing.js";
 import { managedRequest } from "./api.js";
-import { reconcile } from "./stripe.js";
+import { reconcile, bindCustomer } from "./stripe.js";
+import { CATALOG } from "./catalog.js";
+import { setCapability } from "./capability.js";
+import {
+  createOrganization,
+  inviteMember,
+  acceptInvitation,
+  assignSeat,
+} from "./org.js";
+import { fulfillSeatInvoice } from "./org-billing.js";
 import { completeRequest } from "./advice.js";
 import { checkInput, generate, requestBody } from "./ai.js";
 
@@ -391,6 +400,82 @@ async function fixture(
 
 test("connected CRM and document reach managed advice; outage uses a marked local copy", async (t) => {
   const h = await fixture(t, { env: { COMPOSIO_API_KEY: "synthetic" } });
+  const tx = <T>(fn: () => T) => h.db.transaction(fn).immediate();
+  const personalBefore = balance(h.db, 1n, h.state.clock());
+  tx(() => setCapability(h.db, "team_purchase_enabled", "1", h.state.clock()));
+  const org = tx(() =>
+    createOrganization(h.db, 2n, "Synthetic sales team", h.state.clock()),
+  );
+  tx(() => bindCustomer(h.db, "organization", org, "cus_connected_team"));
+  h.db
+    .prepare(
+      "INSERT INTO organization_subscriptions(organization_id,stripe_subscription_id,stripe_item_id,price_id,status,quantity_next,updated_at_ms) VALUES(?,'sub_connected','si_connected','price_monthly','active',2,?)",
+    )
+    .run(org, h.state.clock());
+  h.db
+    .prepare(
+      "INSERT INTO organization_checkouts(organization_id,request_key,quantity,price_id,return_url,stripe_idempotency_key,stripe_session_id,stripe_subscription_id,stripe_item_id,state,created_at_ms,updated_at_ms) VALUES(?,'synthetic-checkout',2,'price_monthly','https://fixture.test/team','connected','cs_connected','sub_connected','si_connected','payment_pending',?,?)",
+    )
+    .run(org, h.state.clock(), h.state.clock());
+  const start = Number(h.state.clock() / 1000n);
+  tx(() =>
+    fulfillSeatInvoice(
+      h.state,
+      org,
+      {
+        id: "in_connected",
+        customer: "cus_connected_team",
+        status: "paid",
+        currency: "usd",
+        amount_paid: 2 * CATALOG.monthly.amountCents,
+        billing_reason: "subscription_create",
+        parent: { subscription_details: { subscription: "sub_connected" } },
+        lines: {
+          data: [
+            {
+              quantity: 2,
+              pricing: { price_details: { price: "price_monthly" } },
+              period: { start, end: start + 30 * 86400 },
+              parent: {
+                subscription_item_details: {
+                  subscription_item: "si_connected",
+                  proration: false,
+                },
+              },
+            },
+          ],
+        },
+      },
+      CATALOG.monthly,
+      h.state.clock(),
+    ),
+  )();
+  const invitation = tx(() =>
+    inviteMember(h.db, 2n, org, "rep@example.test", false, h.state.clock()),
+  );
+  tx(() =>
+    acceptInvitation(
+      h.db,
+      1n,
+      "rep@example.test",
+      invitation.token,
+      h.state.clock(),
+    ),
+  );
+  const assignment = tx(() => assignSeat(h.db, 2n, org, 1n, h.state.clock()));
+  const funding = { kind: "organization", organizationId: org.toString() };
+  const seatFunding = {
+    kind: "organization" as const,
+    organizationId: org,
+    assignmentId: BigInt(assignment.assignmentId),
+  };
+  const seatAudio = () => {
+    for (let i = 0; i < 10; i++) {
+      for (const source of ["microphone", "system"] as const)
+        onAudio(h.state, 1n, SESSION, source, 16_000, h.state.clock());
+      h.advance(500n);
+    }
+  };
   const connected = new Set<string>();
   let unavailable = false;
   let proxyCalls = 0;
@@ -572,10 +657,15 @@ test("connected CRM and document reach managed advice; outage uses a marked loca
     );
   }
   assert.equal(
-    (await h.post("/v1/sessions", { sessionId: SESSION })).status,
+    (await h.post("/v1/sessions", { sessionId: SESSION, funding })).status,
     200,
   );
-  h.audio();
+  seatAudio();
+  assert.equal(requireSession(h.db, 1n, SESSION).funding_scope, "organization");
+  assert.equal(
+    requireSession(h.db, 1n, SESSION).funding_assignment_id,
+    seatFunding.assignmentId,
+  );
   const request = { ...adviceRequest, evidence };
   assert.equal(
     (
@@ -642,7 +732,7 @@ test("connected CRM and document reach managed advice; outage uses a marked loca
       };
   h.setOutput({ ...advice, evidenceIds: [stale.id] });
   h.advance(5_000n);
-  h.audio();
+  seatAudio();
   const fallback = await h.post(`/v1/sessions/${SESSION}/recommendations`, {
     idempotencyKey: "stale-advice",
     leaseVersion: 1,
@@ -658,7 +748,7 @@ test("connected CRM and document reach managed advice; outage uses a marked loca
   assert.match(JSON.stringify(h.calls.at(-1)?.body), /stale copy/);
   if (unavailableSnapshot) {
     h.advance(5_000n);
-    h.audio();
+    seatAudio();
     h.setOutput({
       ...advice,
       evidenceIds: [unavailableSnapshot.excluded[0].id],
@@ -680,6 +770,60 @@ test("connected CRM and document reach managed advice; outage uses a marked loca
       /Renewal price is 24,000 euros/,
     );
   }
+  const stopped = await h.post(`/v1/sessions/${SESSION}/stop`, {
+    leaseVersion: 1,
+    commandId: 1,
+  });
+  assert.equal(stopped.status, 200, JSON.stringify(stopped.body));
+  const deliveredMs = unavailableSnapshot ? 15_000n : 10_000n;
+  assert.equal(
+    requireSession(h.db, 1n, SESSION).settled_ms,
+    deliveredMs,
+    "two simultaneous sources debit their union, without the outage gaps",
+  );
+  assert.equal(
+    balance(h.db, 1n, h.state.clock(), seatFunding).meetingMsAvailable,
+    BigInt(CATALOG.monthly.hours) * 3_600_000n - deliveredMs,
+  );
+  assert.deepEqual(balance(h.db, 1n, h.state.clock()), personalBefore);
+  assert.equal(
+    (await h.post("/v1/sessions", { sessionId: SOURCE, funding })).status,
+    200,
+  );
+  h.advance(10_000n);
+  assert.equal(
+    (
+      await h.post(`/v1/sessions/${SOURCE}/stop`, {
+        leaseVersion: 1,
+        commandId: 2,
+      })
+    ).status,
+    200,
+  );
+  assert.equal(
+    requireSession(h.db, 1n, SOURCE).settled_ms,
+    0n,
+    "an idle seat session never debits",
+  );
+  h.setStatus(503);
+  const rejectedBrief = await h.post("/v1/briefs", {
+    idempotencyKey: "seat-brief-failure",
+    funding,
+    request: {
+      clientName: "Acme",
+      instructions: "Prepare a renewal",
+      guidance: [],
+      clientEvidence: [],
+    },
+  });
+  assert.equal(rejectedBrief.status, 503, JSON.stringify(rejectedBrief.body));
+  const remaining = balance(h.db, 1n, h.state.clock(), seatFunding);
+  assert.equal(remaining.briefsReserved, 0n);
+  assert.equal(remaining.briefsAvailable, BigInt(CATALOG.monthly.briefs));
+  assert.deepEqual(balance(h.db, 1n, h.state.clock()), personalBefore);
+  t.diagnostic(
+    `SYNTHETIC organization invoice, invitation, assignment, ${runNative ? "native local imports" : "source wire fixtures"}, cited advice, outage and metering: ${deliveredMs}ms seat debit; personal unchanged; idle and failed brief zero debit.`,
+  );
 });
 
 test(

@@ -139,8 +139,10 @@ test("Stripe transport keeps uncertain purchases unresolved and catalog associat
   });
   assert.equal(calls, before);
   state.billingCalls = 0;
-  const release = acquireBilling(state, 1n);
-  assert.throws(() => acquireBilling(state, 1n), { code: "payment_pending" });
+  const release = acquireBilling(state, "account:1");
+  assert.throws(() => acquireBilling(state, "account:1"), {
+    code: "payment_pending",
+  });
   release();
   assert.equal(state.billingInFlight.size, 0);
   assert.equal(stripeId({ id: "cus_test" }), "cus_test");
@@ -192,6 +194,9 @@ test("Stripe transport keeps uncertain purchases unresolved and catalog associat
   ).run(JSON.stringify(CATALOG.pack));
   db.prepare(
     "INSERT INTO accounts(id,issuer,subject,stripe_customer_id,created_at_ms) VALUES(1,'issuer','subject','cus_test',0)",
+  ).run();
+  db.prepare(
+    "INSERT INTO stripe_customers(stripe_customer_id,owner_kind,owner_id) SELECT stripe_customer_id,'account',id FROM accounts WHERE stripe_customer_id IS NOT NULL",
   ).run();
   purchaseFlow = true;
   expectedKey = "savvy-checkout-1-original";

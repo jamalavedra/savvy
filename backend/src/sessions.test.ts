@@ -90,7 +90,19 @@ test("two simultaneous sources cost 75 seconds across pause/resume and lifecycle
   const resumed = lifecycle(h.state, 1n, ID, "resume", 2n, 3n);
   assert.equal(resumed.settledMs, 65_000n);
   const controller = new AbortController();
-  h.state.cancellations.set(1n, new Map([["advice", controller]]));
+  h.state.cancellations.set(
+    1n,
+    new Map([
+      [
+        "advice",
+        {
+          controller,
+          fundingAssignmentId: null,
+          sessionId: requireSession(h.db, 1n, ID).id,
+        },
+      ],
+    ]),
+  );
   assert.deepEqual(lifecycle(h.state, 1n, ID, "pause", 1n, 2n), resumed);
   assert.equal(
     controller.signal.aborted,
@@ -211,6 +223,74 @@ test("abnormal audio disconnect releases the reservation and allows a same-lease
     generation: second,
   });
   assert.equal(h.view().state, "active");
+});
+
+test("supplier write latency cannot shift pacing or bill the pre-delivery gap", (t) => {
+  const h = fixture(t),
+    row = h.create(),
+    start = h.state.clock();
+  const generation = attachSource(h.state, row, "microphone", start);
+  checkAudio(h.state, row.id, "microphone", generation, 32_000, start);
+  h.advance(100n);
+  onAudio(h.state, 1n, ID, "microphone", 32_000, h.state.clock(), {
+    version: 1n,
+    generation,
+    admittedAt: start,
+  });
+  const source = h.state.sessions.get(row.id)!.sources.get("microphone")!;
+  assert.equal(source.lastAudioMs, start + 100n);
+  assert.equal(source.audioEndUnits, (start + 1100n) * 32n);
+  h.advance(900n);
+  checkAudio(
+    h.state,
+    row.id,
+    "microphone",
+    generation,
+    32_000,
+    h.state.clock(),
+  );
+  h.advance(100n);
+  onAudio(h.state, 1n, ID, "microphone", 32_000, h.state.clock(), {
+    version: 1n,
+    generation,
+    admittedAt: start + 1000n,
+  });
+  h.advance(1000n);
+  const stopped = lifecycle(h.state, 1n, ID, "stop", 1n, 1n);
+  assert.equal(stopped.settledMs, 2000n);
+  assert.equal(balance(h.db, 1n, h.state.clock()).meetingMsReserved, 0n);
+});
+
+test("pacing reports the wait without committing a rejected admission", (t) => {
+  for (const delivered of [false, true]) {
+    const h = fixture(t),
+      row = h.create(),
+      now = h.state.clock();
+    const generation = attachSource(h.state, row, "microphone", now);
+    checkAudio(h.state, row.id, "microphone", generation, 32_000, now);
+    if (delivered)
+      onAudio(h.state, 1n, ID, "microphone", 32_000, now, {
+        version: 1n,
+        generation,
+        admittedAt: now,
+      });
+    const before = h.db.prepare("SELECT * FROM audio_pacing").all();
+    assert.throws(
+      () => checkAudio(h.state, row.id, "microphone", generation, 2, now),
+      { code: "invalid_request", retryAfterMs: 1n },
+    );
+    assert.deepEqual(h.db.prepare("SELECT * FROM audio_pacing").all(), before);
+    h.advance(1n);
+    checkAudio(h.state, row.id, "microphone", generation, 2, h.state.clock());
+    assert.equal(
+      h.db
+        .prepare<[], { count: bigint }>(
+          "SELECT count FROM attempt_counters WHERE operation='audio_frame'",
+        )
+        .get()!.count,
+      2n,
+    );
+  }
 });
 
 test("account pacing survives reconnect and stale owners cannot mutate health or metering", (t) => {

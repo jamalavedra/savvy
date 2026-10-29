@@ -714,6 +714,7 @@ describe("App", () => {
           },
         ],
       };
+      api.setManagedDemoScenario("active");
       const settings = await api.getAppSettings();
       const preparation = await api.getPreparationSnapshot(client.id);
       vi.spyOn(api, "getDashboard").mockResolvedValue({
@@ -770,6 +771,7 @@ describe("App", () => {
           expect.any(String),
           useStale ? [] : ["savvy-source-salesforce-1.md"],
           useStale ? ["savvy-source-salesforce-1.md"] : [],
+          { kind: "personal" },
         ),
       );
       if (!savedCopyAvailable) {
@@ -2026,6 +2028,20 @@ describe("App", () => {
     expect(
       screen.queryByRole("button", { name: /Connect sources/ }),
     ).not.toBeInTheDocument();
+  });
+
+  it("opens the client picker when WebKit does not focus buttons on mouse-down", async () => {
+    const choose = vi.spyOn(api, "chooseClientFolder").mockResolvedValue(null);
+    render(<App />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Meeting context" }),
+    );
+    const add = screen.getByRole("button", { name: "Add client folder…" });
+    if (fireEvent.mouseDown(add))
+      fireEvent.blur(document.activeElement!, { relatedTarget: null });
+    fireEvent.mouseUp(add);
+    fireEvent.click(add);
+    expect(choose).toHaveBeenCalledOnce();
   });
 
   it("supports keyboard selection and keeps the client creation action outside the listbox", async () => {

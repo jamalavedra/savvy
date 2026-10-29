@@ -212,3 +212,193 @@ a {
   font-size: 22px;
   text-align: left;
 }
+
+/* The hosted team page uses the desktop's Button/Input/Select/Alert and dialog. */
+:root {
+  --text: #0f0f0f;
+  --background: var(--surface);
+  --background-ui: var(--input);
+  --accent-pale: color-mix(in srgb, var(--accent) 20%, var(--surface));
+  --danger: #a12636;
+  --warning: #805500;
+  --success: #176336;
+}
+.team-page {
+  width: min(100% - 32px, 1040px);
+}
+.team-page .account-card {
+  margin: 20px 0;
+}
+.team-page h2 {
+  font-size: 16px;
+  margin: 0 0 16px;
+}
+.team-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin: 20px 0;
+}
+.team-toolbar span {
+  flex: 1 1 240px;
+  overflow-wrap: anywhere;
+}
+.team-toolbar button {
+  width: auto;
+  margin: 0;
+}
+.team-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+.team-page form {
+  max-width: 420px;
+}
+.team-table {
+  overflow-x: auto;
+}
+.team-page table {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 620px;
+}
+.team-page caption {
+  text-align: left;
+  padding: 0 0 16px;
+  color: var(--muted);
+}
+.team-page th,
+.team-page td {
+  text-align: left;
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.team-page td {
+  overflow-wrap: anywhere;
+}
+.team-page td button {
+  margin-top: 4px;
+}
+.team-page small {
+  display: block;
+  color: var(--muted);
+  margin-top: 8px;
+}
+.team-item {
+  padding: 16px 0;
+  border-bottom: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+.team-page fieldset {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  line-height: 1.5;
+  font-weight: 400;
+}
+.checkbox-label input[type="checkbox"] {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  min-height: 20px;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--link);
+}
+.ui-alert {
+  margin: 16px 0;
+  padding: 12px;
+  border: 1px solid var(--danger);
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+.ui-alert-info {
+  border-color: var(--control-border);
+  color: var(--text);
+}
+.ui-alert-warning {
+  border-color: var(--warning);
+  color: var(--warning);
+}
+.ui-alert-success {
+  border-color: var(--success);
+  color: var(--success);
+}
+.ui-select {
+  display: inline-block;
+  width: 100%;
+}
+.dropdown-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--text);
+  border-color: var(--control-border);
+  background: var(--input);
+  text-align: left;
+}
+.dropdown-control span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dropdown-menu {
+  padding: 4px;
+  overflow-y: auto;
+  border: 1px solid var(--control-border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 22%);
+}
+.select-menu {
+  z-index: 1000;
+}
+.dropdown-menu button {
+  margin: 0;
+  color: var(--text);
+  text-align: left;
+  background: transparent;
+  border: 0;
+}
+.dropdown-menu button:hover,
+.dropdown-menu button.selected {
+  background: var(--accent-pale);
+}
+.confirmation-dialog {
+  width: min(420px, calc(100vw - 40px));
+  max-height: calc(100vh - 40px);
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+}
+.confirmation-dialog::backdrop {
+  background: rgb(0 0 0 / 40%);
+}
+.onboarding-actions {
+  display: flex;
+  gap: 12px;
+}
+@media (max-width: 720px) {
+  .team-grid {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --text: #fbfbfb;
+    --danger: #ff9ea9;
+    --warning: #f4d486;
+    --success: #9be1b2;
+  }
+}

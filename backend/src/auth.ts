@@ -260,6 +260,8 @@ export function createAuth(env: NodeJS.ProcessEnv = process.env) {
     get auth() {
       return (auth ??= buildAuth());
     },
+    mail,
+    mailFrom: env.SMTP_FROM,
     options,
     audience,
     db,

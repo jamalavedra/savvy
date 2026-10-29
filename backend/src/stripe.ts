@@ -1,3 +1,8 @@
+import {
+  processOrganizationEvent,
+  reconcileOrganizationBilling,
+  refreshOrganizationForAccount,
+} from "./org-stripe-events.js";
 import type { ServiceState } from "./state.js";
 import { ApiError } from "./errors.js";
 import {
@@ -15,7 +20,7 @@ import {
 import { randomUUID, createHmac, timingSafeEqual } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
 
-const billingDeadline = new AsyncLocalStorage<AbortSignal>();
+export const billingDeadline = new AsyncLocalStorage<AbortSignal>();
 function checkDeadline() {
   billingDeadline.getStore()?.throwIfAborted();
 }
@@ -154,7 +159,58 @@ export function hostedUrl(value: StripeObject, portal: boolean): string {
   return value.url;
 }
 
-export function acquireBilling(state: ServiceState, account: bigint) {
+export function resolveCustomer(db: ServiceState["db"], customer: string) {
+  return db
+    .prepare<
+      [string],
+      { owner_kind: "account" | "organization"; owner_id: bigint }
+    >(
+      "SELECT owner_kind,owner_id FROM stripe_customers WHERE stripe_customer_id=?",
+    )
+    .get(stripeId(customer));
+}
+export function bindCustomer(
+  db: ServiceState["db"],
+  kind: "account" | "organization",
+  owner: bigint,
+  customer: string,
+) {
+  if (!db.inTransaction)
+    throw new Error("Customer binding requires a transaction");
+  const id = stripeId(customer),
+    known = resolveCustomer(db, id);
+  if (known && (known.owner_kind !== kind || known.owner_id !== owner))
+    throw new ApiError(
+      "invalid_request",
+      "billing customer belongs to another payer",
+    );
+  const table = kind === "account" ? "accounts" : "organizations";
+  const current = db
+    .prepare<[bigint], { stripe_customer_id: string | null }>(
+      `SELECT stripe_customer_id FROM ${table} WHERE id=?`,
+    )
+    .get(owner);
+  if (
+    !current ||
+    (current.stripe_customer_id !== null && current.stripe_customer_id !== id)
+  )
+    throw new ApiError("invalid_request", "billing payer identity changed");
+  db.prepare(
+    "INSERT OR IGNORE INTO stripe_customers(stripe_customer_id,owner_kind,owner_id) VALUES(?,?,?)",
+  ).run(id, kind, owner);
+  const binding = resolveCustomer(db, id);
+  if (!binding || binding.owner_kind !== kind || binding.owner_id !== owner)
+    throw new ApiError("invalid_request", "billing customer binding failed");
+  db.prepare(`UPDATE ${table} SET stripe_customer_id=? WHERE id=?`).run(
+    id,
+    owner,
+  );
+}
+
+export function acquireBilling(
+  state: ServiceState,
+  account: `account:${bigint}` | `org:${bigint}`,
+) {
   if (state.billingInFlight.size >= 8 || state.billingInFlight.has(account))
     throw new ApiError(
       "payment_pending",
@@ -196,7 +252,7 @@ export async function checkout(
       .get(account, body.product)?.request_key;
   let release: () => void;
   try {
-    release = acquireBilling(state, account);
+    release = acquireBilling(state, `account:${account}`);
   } catch (error) {
     const key = pending();
     if (key !== undefined) return { status: "payment_pending", attemptId: key };
@@ -280,11 +336,12 @@ export async function checkout(
           ["metadata[savvy_account]", String(account)],
         ]),
       );
+      const createdCustomer = customer;
       state.db
-        .prepare(
-          "UPDATE accounts SET stripe_customer_id=? WHERE id=? AND stripe_customer_id IS NULL",
+        .transaction(() =>
+          bindCustomer(state.db, "account", account, createdCustomer),
         )
-        .run(customer, account);
+        .immediate();
     }
     const row = state.db
       .prepare<
@@ -380,7 +437,7 @@ export async function checkout(
 }
 
 export async function portal(state: ServiceState, account: bigint) {
-  const release = acquireBilling(state, account);
+  const release = acquireBilling(state, `account:${account}`);
   try {
     reserveBilling(state, account);
     const customer = state.db
@@ -436,7 +493,7 @@ export function verifySignature(
   throw new ApiError("invalid_request", "invalid webhook signature");
 }
 
-function field(value: unknown, ...path: (string | number)[]): unknown {
+export function field(value: unknown, ...path: (string | number)[]): unknown {
   for (const key of path)
     value =
       value !== null && typeof value === "object"
@@ -445,7 +502,7 @@ function field(value: unknown, ...path: (string | number)[]): unknown {
   return value;
 }
 
-function integer(value: unknown, message: string): bigint {
+export function integer(value: unknown, message: string): bigint {
   if (typeof value !== "number" || !Number.isSafeInteger(value))
     throw new ApiError("invalid_request", message);
   return BigInt(value);
@@ -560,11 +617,18 @@ async function processEventInner(
   }
   let object = await fetchEventObject(state, path, kind);
   const customer = stripeId(object.customer);
-  const account = db
-    .prepare<[string], { id: bigint }>(
-      "SELECT id FROM accounts WHERE stripe_customer_id=?",
-    )
-    .get(customer)?.id;
+  const payer = resolveCustomer(db, customer);
+  if (payer?.owner_kind === "organization") {
+    if (owner !== undefined)
+      throw new ApiError("invalid_request", "billing payer mismatch");
+    await processOrganizationEvent(state, payer.owner_id, kind, objectId);
+    if (record)
+      db.prepare(
+        "UPDATE billing_events SET status='processed' WHERE stripe_event_id=?",
+      ).run(eventId);
+    return;
+  }
+  const account = payer?.owner_kind === "account" ? payer.owner_id : undefined;
   if (account === undefined) {
     if (record)
       db.prepare(
@@ -575,7 +639,9 @@ async function processEventInner(
   if (owner !== undefined && owner !== account)
     throw new ApiError("invalid_request", "billing account mismatch");
   const release =
-    owner === undefined ? acquireBilling(state, account) : undefined;
+    owner === undefined
+      ? acquireBilling(state, `account:${account}`)
+      : undefined;
   try {
     if (release) {
       // This fetch only proves ownership; ledger writes re-read the object
@@ -893,6 +959,7 @@ export async function reconcile(state: ServiceState) {
     reconcileEvents,
     reconcilePurchases,
     reconcileSubscriptions,
+    reconcileOrganizationBilling,
   ]) {
     if (state.draining) return;
     try {
@@ -1021,7 +1088,7 @@ export async function reconcilePurchases(state: ServiceState) {
       key = row.request_key;
     let release: () => void;
     try {
-      release = acquireBilling(state, account);
+      release = acquireBilling(state, `account:${account}`);
     } catch {
       continue;
     }
@@ -1220,9 +1287,10 @@ async function reconcileSubscriptions(state: ServiceState) {
 
 export async function refreshRenewal(state: ServiceState, account: bigint) {
   if (!state.config.billing) return;
+  await refreshOrganizationForAccount(state, account);
   let release: () => void;
   try {
-    release = acquireBilling(state, account);
+    release = acquireBilling(state, `account:${account}`);
   } catch {
     return;
   }

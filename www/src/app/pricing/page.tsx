@@ -153,6 +153,11 @@ export default function Pricing() {
                   app.
                 </p>
               </div>
+              <p className="mt-4 text-small text-muted">
+                Teams buy seats at the monthly price each; manage at{" "}
+                <a href="https://api.savvycopilot.com/team">api.savvycopilot.com/team</a>. Each seat
+                has its own allowance. Seat quantity changes take effect at the next paid renewal.
+              </p>
             </FadeInUp>
           </div>
         </section>

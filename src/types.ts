@@ -229,6 +229,7 @@ export type AppStatus = {
 
 export type AppSettings = {
   serviceMode: "byok" | "managed";
+  managedFundingPreferences?: unknown;
   startListeningShortcut: string;
   selectedMicrophone: string | null;
   selectedChannel: number | null;
@@ -280,7 +281,32 @@ export type AudioDevice = {
   channels: number;
 };
 
+export type FundingChoice =
+  { kind: "personal" } | { kind: "organization"; organizationId: string };
+
 export type ManagedAccount = {
+  funding?: FundingChoice | { kind: "unavailable" };
+  fundingError?: string;
+  fundingLocked?: boolean;
+  organization?: {
+    id: string;
+    name: string;
+    role: "owner" | "member";
+    seatId: string | null;
+    seatNumber: number | null;
+    assignmentId: string | null;
+    seatPeriodEndMs: number | null;
+    teamUrl: string;
+    minimumDesktopVersion: string;
+  } | null;
+  organizationAllowance?: {
+    totalMs: number;
+    totalBriefs: number;
+    usedMs: number;
+    reservedMs: number;
+    usedBriefs: number;
+    reservedBriefs: number;
+  } | null;
   identity?: {
     issuer: string;
     subject: string;

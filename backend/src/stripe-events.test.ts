@@ -1,3 +1,6 @@
+import { setCapability } from "./capability.js";
+import { createOrganization, assignSeat } from "./org.js";
+import { organizationCheckout } from "./org-stripe.js";
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -169,6 +172,9 @@ async function fixture(t: TestContext) {
   db.prepare(
     "INSERT INTO accounts(id,issuer,subject,stripe_customer_id,created_at_ms) VALUES(1,'issuer','subject','cus_test',0),(2,'issuer','other','cus_other',0)",
   ).run();
+  db.prepare(
+    "INSERT INTO stripe_customers(stripe_customer_id,owner_kind,owner_id) SELECT stripe_customer_id,'account',id FROM accounts WHERE stripe_customer_id IS NOT NULL",
+  ).run();
   for (const product of ["pack", "monthly"] as const)
     db.prepare("INSERT INTO catalog_prices VALUES(?,?,?)").run(
       `price_${product}`,
@@ -279,7 +285,7 @@ test("signed HTTP webhooks replay once, isolate purchase refunds and retain mont
   h.purchase("one");
   h.objects.set("/v1/checkout/sessions/cs_one", pack("one", "pi_one"));
   const paid = event("evt_one", "checkout.session.completed", "cs_one");
-  const release = acquireBilling(h.state, 1n);
+  const release = acquireBilling(h.state, "account:1");
   assert.equal((await h.deliver(paid)).status, 402);
   assert.equal(balance(h.db, 1n, h.state.clock()).meetingMsAvailable, 0n);
   release();
@@ -1343,4 +1349,627 @@ test("no-payment-required status cannot grant an incomplete or nonzero checkout"
     );
   }
   assert.equal(balance(h.db, 1n, h.state.clock()).meetingMsAvailable, 0n);
+});
+
+async function organizationFixture(t: TestContext) {
+  const h = await fixture(t);
+  h.db
+    .transaction(() =>
+      setCapability(h.db, "team_purchase_enabled", "1", h.state.clock()),
+    )
+    .immediate();
+  const org = h.db
+    .transaction(() =>
+      createOrganization(h.db, 1n, "Fixture team", h.state.clock()),
+    )
+    .immediate();
+  h.objects.set("POST /v1/customers", { id: "cus_org" });
+  const checkout: StripeObject = {
+    id: "cs_org",
+    customer: "cus_org",
+    metadata: { savvy_org: org.toString(), savvy_key: "org-buy" },
+    payment_status: "unpaid",
+    status: "open",
+    mode: "subscription",
+    line_items: { data: [{ price: "price_monthly", quantity: 5 }] },
+    url: "https://checkout.stripe.com/c/org",
+  };
+  h.objects.set("POST /v1/checkout/sessions", checkout);
+  await organizationCheckout(h.state, 1n, org, {
+    quantity: 5,
+    requestKey: "org-buy",
+  });
+  Object.assign(checkout, {
+    status: "complete",
+    payment_status: "paid",
+    subscription: "sub_org",
+  });
+  h.objects.set("/v1/checkout/sessions/cs_org", checkout);
+  const subscription: StripeObject = {
+    id: "sub_org",
+    customer: "cus_org",
+    status: "active",
+    cancel_at_period_end: false,
+    latest_invoice: "in_org",
+    items: { data: [{ id: "si_org", quantity: 5, price: "price_monthly" }] },
+  };
+  h.objects.set("/v1/subscriptions/sub_org", subscription);
+  const makeInvoice = (
+    id = "in_org",
+    quantity = 5,
+    start = 1000,
+    end = 2000,
+  ): StripeObject => ({
+    id,
+    customer: "cus_org",
+    status: "paid",
+    currency: "usd",
+    billing_reason:
+      id === "in_org" ? "subscription_create" : "subscription_cycle",
+    amount_paid: quantity * CATALOG.monthly.amountCents,
+    lines: {
+      data: [
+        {
+          pricing: { price_details: { price: "price_monthly" } },
+          quantity,
+          period: { start, end },
+          parent: {
+            subscription_item_details: {
+              subscription_item: "si_org",
+              proration: false,
+            },
+          },
+        },
+      ],
+    },
+    parent: { subscription_details: { subscription: "sub_org" } },
+  });
+  h.objects.set("/v1/invoices/in_org", makeInvoice());
+  return { ...h, org, checkout, subscription, makeInvoice };
+}
+
+test("organization invoice before checkout notification fulfills through signed HTTP and replays without personal spending", async (t) => {
+  const h = await organizationFixture(t);
+  assert.equal(
+    (await h.deliver(event("evt_org_invoice", "invoice.paid", "in_org")))
+      .status,
+    200,
+  );
+  assert.equal(
+    (
+      await h.deliver(
+        event("evt_org_checkout", "checkout.session.completed", "cs_org"),
+      )
+    ).status,
+    200,
+  );
+  for (let replay = 0; replay < 2; replay++)
+    assert.equal(
+      (await h.deliver(event("evt_org_duplicate", "invoice.paid", "in_org")))
+        .status,
+      200,
+    );
+  assert.equal(
+    h.db
+      .prepare<[], { n: bigint }>("SELECT count(*) AS n FROM seat_periods")
+      .get()!.n,
+    5n,
+  );
+  assert.equal(
+    h.db
+      .prepare<[], { n: bigint }>(
+        "SELECT count(*) AS n FROM allowance_grants WHERE kind='seat'",
+      )
+      .get()!.n,
+    0n,
+  );
+  const assignment = h.db
+    .transaction(() => assignSeat(h.db, 1n, h.org, 1n, h.state.clock(), 1n))
+    .immediate();
+  assert.equal(balance(h.db, 1n, h.state.clock()).meetingMsAvailable, 0n);
+  assert.equal(
+    balance(h.db, 1n, h.state.clock(), {
+      kind: "organization",
+      organizationId: h.org,
+      assignmentId: BigInt(assignment.assignmentId),
+    }).briefsAvailable,
+    20n,
+  );
+  assert.equal(
+    h.db
+      .prepare<[], { n: bigint }>("SELECT count(*) AS n FROM stripe_payments")
+      .get()!.n,
+    0n,
+  );
+  assert.deepEqual(
+    h.db.prepare("SELECT stripe_customer_id FROM accounts WHERE id=1").get(),
+    { stripe_customer_id: "cus_test" },
+  );
+});
+
+test("future organization invoices stay pending and gap filling preserves paid holders until the new period", async (t) => {
+  const h = await organizationFixture(t);
+  await processEvent(
+    h.state,
+    event("evt_org_initial", "invoice.paid", "in_org"),
+  );
+  const assignment = h.db
+    .transaction(() => assignSeat(h.db, 1n, h.org, 1n, h.state.clock(), 1n))
+    .immediate();
+  h.objects.set(
+    "/v1/invoices/in_future",
+    h.makeInvoice("in_future", 3, 2000, 3000),
+  );
+  Object.assign(h.subscription, {
+    latest_invoice: "in_future",
+    items: { data: [{ id: "si_org", quantity: 3, price: "price_monthly" }] },
+  });
+  const future = await h.deliver(
+    event("evt_org_future", "invoice.paid", "in_future"),
+  );
+  assert.equal(future.status, 402);
+  assert.deepEqual(
+    h.db
+      .prepare(
+        "SELECT status FROM billing_events WHERE stripe_event_id='evt_org_future'",
+      )
+      .get(),
+    { status: "pending" },
+  );
+  assert.equal(
+    h.db
+      .prepare<[], { n: bigint }>(
+        "SELECT count(*) AS n FROM seats WHERE status<>'retired'",
+      )
+      .get()!.n,
+    5n,
+  );
+  assert.equal(
+    balance(h.db, 1n, h.state.clock(), {
+      kind: "organization",
+      organizationId: h.org,
+      assignmentId: BigInt(assignment.assignmentId),
+    }).briefsAvailable,
+    20n,
+  );
+  h.advance(1_000_000n);
+  assert.equal(
+    (await h.deliver(event("evt_org_future", "invoice.paid", "in_future")))
+      .status,
+    200,
+  );
+  assert.equal(
+    h.db
+      .prepare<[], { n: bigint }>(
+        "SELECT count(*) AS n FROM seats WHERE status<>'retired'",
+      )
+      .get()!.n,
+    3n,
+  );
+  assert.equal(
+    h.db
+      .prepare<[], { n: bigint }>("SELECT count(*) AS n FROM seat_periods")
+      .get()!.n,
+    8n,
+  );
+  assert.equal(
+    (
+      await h.deliver({
+        ...event("evt_org_stale", "customer.subscription.updated", "sub_org"),
+        created: 1,
+      })
+    ).status,
+    200,
+  );
+  assert.equal(
+    h.db
+      .prepare<[], { quantity_next: bigint }>(
+        "SELECT quantity_next FROM organization_subscriptions",
+      )
+      .get()!.quantity_next,
+    3n,
+  );
+});
+
+test("organization reversal before fulfillment and a canonical dispute win never erase an unseen partial refund", async (t) => {
+  const h = await organizationFixture(t);
+  h.objects.set("/v1/charges/ch_org", {
+    id: "ch_org",
+    customer: "cus_org",
+    payment_intent: "pi_org",
+    invoice: "in_org",
+    amount_refunded: 1,
+  });
+  h.objects.set("/v1/disputes/dp_org", {
+    id: "dp_org",
+    charge: "ch_org",
+    status: "won",
+  });
+  assert.equal(
+    (
+      await h.deliver(
+        event("evt_org_won_first", "charge.dispute.closed", "dp_org"),
+      )
+    ).status,
+    200,
+  );
+  assert.equal(
+    (await h.deliver(event("evt_org_paid_refunded", "invoice.paid", "in_org")))
+      .status,
+    200,
+  );
+  assert.equal(
+    h.db
+      .prepare<[], { n: bigint }>(
+        "SELECT count(*) AS n FROM seat_periods WHERE financial_status='reversed'",
+      )
+      .get()!.n,
+    5n,
+  );
+  assert.throws(
+    () =>
+      h.db
+        .transaction(() => assignSeat(h.db, 1n, h.org, 1n, h.state.clock(), 1n))
+        .immediate(),
+    { code: "quota_exhausted" },
+  );
+  assert.equal(
+    (
+      await h.deliver(
+        event("evt_org_late_open", "charge.dispute.created", "dp_org"),
+      )
+    ).status,
+    200,
+  );
+  assert.equal(
+    h.db
+      .prepare<[], { n: bigint }>(
+        "SELECT count(*) AS n FROM organization_reversals WHERE kind='refund'",
+      )
+      .get()!.n,
+    1n,
+  );
+  assert.equal(
+    h.db
+      .prepare<[], { n: bigint }>("SELECT count(*) AS n FROM reversals")
+      .get()!.n,
+    0n,
+  );
+});
+
+test("organization dispute restoration is scoped to its invoice while closed inquiries and later renewals stay eligible", async (t) => {
+  const h = await organizationFixture(t);
+  await processEvent(h.state, event("evt_org_paid", "invoice.paid", "in_org"));
+  const assignment = h.db
+    .transaction(() => assignSeat(h.db, 1n, h.org, 1n, h.state.clock(), 1n))
+    .immediate();
+  const funding = {
+    kind: "organization" as const,
+    organizationId: h.org,
+    assignmentId: BigInt(assignment.assignmentId),
+  };
+  h.objects.set("/v1/charges/ch_org", {
+    id: "ch_org",
+    customer: "cus_org",
+    payment_intent: "pi_org",
+    invoice: "in_org",
+    amount_refunded: 0,
+  });
+  const dispute = { id: "dp_org", charge: "ch_org", status: "needs_response" };
+  h.objects.set("/v1/disputes/dp_org", dispute);
+  await processEvent(
+    h.state,
+    event("evt_org_dispute", "charge.dispute.created", "dp_org"),
+  );
+  assert.throws(() => balance(h.db, 1n, h.state.clock(), funding), {
+    code: "no_seat",
+  });
+  dispute.status = "won";
+  await processEvent(
+    h.state,
+    event("evt_org_dispute_won", "charge.dispute.closed", "dp_org"),
+  );
+  assert.equal(
+    balance(h.db, 1n, h.state.clock(), funding).briefsAvailable,
+    20n,
+  );
+  dispute.status = "warning_closed";
+  await processEvent(
+    h.state,
+    event("evt_org_inquiry_closed", "charge.dispute.closed", "dp_org"),
+  );
+  assert.equal(
+    balance(h.db, 1n, h.state.clock(), funding).briefsAvailable,
+    20n,
+  );
+  h.advance(1_000_000n);
+  h.objects.set(
+    "/v1/invoices/in_org_renew",
+    h.makeInvoice("in_org_renew", 5, 2000, 3000),
+  );
+  h.subscription.latest_invoice = "in_org_renew";
+  h.objects.set("/v1/events?limit=100", { data: [], has_more: false });
+  await reconcile(h.state);
+  assert.equal(
+    h.db
+      .prepare<[], { n: bigint }>("SELECT count(*) AS n FROM seat_periods")
+      .get()!.n,
+    10n,
+  );
+  Object.assign(h.objects.get("/v1/charges/ch_org")!, { amount_refunded: 1 });
+  await processEvent(
+    h.state,
+    event("evt_org_old_refund", "charge.refunded", "ch_org"),
+  );
+  assert.equal(
+    balance(h.db, 1n, h.state.clock(), funding).briefsAvailable,
+    20n,
+  );
+});
+
+test("organization invoice rejects unknown subscription, wrong quantity and proration without minting allowance", async (t) => {
+  const h = await organizationFixture(t);
+  const bad = h.makeInvoice("in_bad", 5);
+  h.objects.set("/v1/invoices/in_bad", bad);
+  Object.assign(bad, {
+    lines: {
+      data: [
+        {
+          pricing: { price_details: { price: "price_monthly" } },
+          quantity: 5,
+          period: { start: 1000, end: 2000 },
+          parent: {
+            subscription_item_details: {
+              subscription_item: "si_org",
+              proration: true,
+            },
+          },
+        },
+      ],
+    },
+  });
+  assert.equal(
+    (await h.deliver(event("evt_org_bad", "invoice.paid", "in_bad"))).status,
+    400,
+  );
+  h.objects.set("/v1/invoices/in_bad", { ...h.makeInvoice("in_bad", 0) });
+  assert.equal(
+    (await h.deliver(event("evt_org_zero", "invoice.paid", "in_bad"))).status,
+    400,
+  );
+  const mismatch = {
+    ...h.makeInvoice(),
+    lines: {
+      data: [
+        {
+          pricing: { price_details: { price: "price_monthly" } },
+          quantity: 4,
+          period: { start: 1000, end: 2000 },
+          parent: {
+            subscription_item_details: {
+              subscription_item: "si_org",
+              proration: false,
+            },
+          },
+        },
+      ],
+    },
+  };
+  h.objects.set("/v1/invoices/in_org", mismatch);
+  assert.equal(
+    (await h.deliver(event("evt_org_mismatch", "invoice.paid", "in_org")))
+      .status,
+    400,
+  );
+  assert.equal(
+    h.db
+      .prepare<[], { n: bigint }>("SELECT count(*) AS n FROM allowance_grants")
+      .get()!.n,
+    0n,
+  );
+});
+
+test("Basil charge lookup finds its invoice without a charge.invoice field and rejects an unrelated subscription", async (t) => {
+  const h = await organizationFixture(t);
+  h.objects.set("/v1/charges/ch_basil", {
+    id: "ch_basil",
+    customer: "cus_org",
+    payment_intent: "pi_basil",
+    amount_refunded: 1,
+  });
+  h.objects.set("/v1/invoice_payments", {
+    data: [{ id: "ip_basil", invoice: "in_org" }],
+    has_more: false,
+  });
+  assert.equal(
+    (await h.deliver(event("evt_basil_org", "charge.refunded", "ch_basil")))
+      .status,
+    200,
+  );
+  assert.deepEqual(
+    h.db
+      .prepare(
+        "SELECT owner_kind FROM stripe_customers WHERE stripe_customer_id='cus_org'",
+      )
+      .get(),
+    { owner_kind: "organization" },
+  );
+  await processEvent(
+    h.state,
+    event("evt_basil_paid", "invoice.paid", "in_org"),
+  );
+  assert.equal(
+    h.db
+      .prepare<[], { n: bigint }>(
+        "SELECT count(*) AS n FROM seat_periods WHERE financial_status='reversed'",
+      )
+      .get()!.n,
+    5n,
+  );
+  h.objects.set("/v1/subscriptions/sub_unknown", {
+    ...h.subscription,
+    id: "sub_unknown",
+  });
+  h.objects.set("/v1/invoices/in_unknown", {
+    ...h.makeInvoice("in_unknown"),
+    parent: { subscription_details: { subscription: "sub_unknown" } },
+  });
+  assert.equal(
+    (
+      await h.deliver(
+        event("evt_org_unknown_sub", "invoice.paid", "in_unknown"),
+      )
+    ).status,
+    400,
+  );
+});
+
+test("replacement subscription keeps old checkout/item history and late historical invoices cannot alter the new allowance", async (t) => {
+  const h = await organizationFixture(t);
+  await processEvent(h.state, event("evt_old_paid", "invoice.paid", "in_org"));
+  const assigned = h.db
+    .transaction(() => assignSeat(h.db, 1n, h.org, 1n, h.state.clock(), 1n))
+    .immediate();
+  h.advance(1_000_000n);
+  h.subscription.status = "canceled";
+  await processEvent(
+    h.state,
+    event("evt_old_canceled", "customer.subscription.deleted", "sub_org"),
+  );
+  const checkout = {
+    ...h.checkout,
+    id: "cs_new",
+    status: "open",
+    payment_status: "unpaid",
+    subscription: null,
+    metadata: { savvy_org: h.org.toString(), savvy_key: "new-buy" },
+    line_items: { data: [{ price: "price_monthly", quantity: 2 }] },
+  };
+  h.objects.set("POST /v1/checkout/sessions", checkout);
+  await organizationCheckout(h.state, 1n, h.org, {
+    quantity: 2,
+    requestKey: "new-buy",
+  });
+  Object.assign(checkout, {
+    status: "complete",
+    payment_status: "paid",
+    subscription: "sub_new",
+  });
+  h.objects.set("/v1/checkout/sessions/cs_new", checkout);
+  h.objects.set("/v1/subscriptions/sub_new", {
+    ...h.subscription,
+    id: "sub_new",
+    status: "active",
+    latest_invoice: "in_new",
+    items: { data: [{ id: "si_new", quantity: 2, price: "price_monthly" }] },
+  });
+  h.objects.set("/v1/invoices/in_new", {
+    ...h.makeInvoice("in_new", 2, 2000, 3000),
+    parent: { subscription_details: { subscription: "sub_new" } },
+    lines: {
+      data: [
+        {
+          quantity: 2,
+          pricing: { price_details: { price: "price_monthly" } },
+          period: { start: 2000, end: 3000 },
+          parent: {
+            subscription_item_details: {
+              subscription_item: "si_new",
+              proration: false,
+            },
+          },
+        },
+      ],
+    },
+  });
+  assert.equal(
+    (await h.deliver(event("evt_new_paid", "invoice.paid", "in_new"))).status,
+    200,
+  );
+  h.objects.set(
+    "/v1/invoices/in_historical",
+    h.makeInvoice("in_historical", 5, 500, 1000),
+  );
+  assert.equal(
+    (
+      await h.deliver(
+        event("evt_late_historical", "invoice.paid", "in_historical"),
+      )
+    ).status,
+    200,
+  );
+  assert.deepEqual(
+    h.db
+      .prepare(
+        "SELECT stripe_subscription_id,paid_through_ms FROM organization_subscriptions",
+      )
+      .get(),
+    { stripe_subscription_id: "sub_new", paid_through_ms: 3_000_000n },
+  );
+  assert.equal(
+    balance(h.db, 1n, h.state.clock(), {
+      kind: "organization",
+      organizationId: h.org,
+      assignmentId: BigInt(assigned.assignmentId),
+    }).briefsAvailable,
+    20n,
+  );
+  assert.equal(
+    h.db
+      .prepare<[], { n: bigint }>("SELECT count(*) AS n FROM allowance_grants")
+      .get()!.n,
+    2n,
+  );
+});
+
+test("reconciliation retries a durable quantity intent with its original key and cannot reapply an older canonical snapshot", async (t) => {
+  const h = await organizationFixture(t);
+  await processEvent(
+    h.state,
+    event("evt_recovery_paid", "invoice.paid", "in_org"),
+  );
+  h.db
+    .prepare(
+      "INSERT INTO organization_quantity_changes(organization_id,request_key,quantity,retire_seat_ids,previous_retire_seat_ids,stripe_idempotency_key,stripe_subscription_id,stripe_item_id,price_id,state,created_at_ms) VALUES(?,'recover',3,'[\"4\",\"5\"]','[]','original-quantity-key','sub_org','si_org','price_monthly','unknown',?)",
+    )
+    .run(h.org, h.state.clock());
+  h.db.prepare("UPDATE seats SET status='retiring' WHERE id IN(4,5)").run();
+  h.setPost(async (path) => {
+    assert.equal(path, "/v1/subscriptions/sub_org");
+    h.subscription.items = {
+      data: [{ id: "si_org", price: "price_monthly", quantity: 3 }],
+    };
+    return { status: 200, body: h.subscription };
+  });
+  assert.equal(
+    (
+      await h.deliver(
+        event("evt_recovery_sub", "customer.subscription.updated", "sub_org"),
+      )
+    ).status,
+    200,
+  );
+  assert.deepEqual(
+    h.db
+      .prepare(
+        "SELECT quantity_next,external_change FROM organization_subscriptions",
+      )
+      .get(),
+    { quantity_next: 3n, external_change: 0n },
+  );
+  assert.deepEqual(
+    h.db.prepare("SELECT state FROM organization_quantity_changes").get(),
+    { state: "applied" },
+  );
+  const retry = h.posts.find((p) => p.path === "/v1/subscriptions/sub_org")!;
+  assert.equal(retry.key, "original-quantity-key");
+  assert.equal(retry.form.get("proration_behavior"), "none");
+  assert.equal(
+    h.db
+      .prepare<[], { n: bigint }>(
+        "SELECT count(*) AS n FROM seats WHERE status<>'retired'",
+      )
+      .get()!.n,
+    5n,
+  );
 });

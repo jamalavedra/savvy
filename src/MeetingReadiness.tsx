@@ -6,6 +6,7 @@ import {
   getRecommendationProviderStatus,
   getTranscriptionKeyStatus,
   managedAccount,
+  managedBalance,
 } from "./lib/api";
 import type { AppSettings } from "./types";
 
@@ -89,8 +90,8 @@ export default function MeetingReadiness({
           const account = await managedAccount();
           if (!account)
             throw new Error("Sign in to Savvy to check your allowance.");
-          result.allowance = account.meetingMsAvailable;
-          result.eligible = account.meetingMsAvailable > 0;
+          result.allowance = managedBalance(account).meetingMsAvailable;
+          result.eligible = result.allowance > 0;
           result.transcription = result.eligible
             ? "Allowance available"
             : "No allowance";

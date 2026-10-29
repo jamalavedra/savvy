@@ -45,6 +45,17 @@ sudo install -d -o savvy -g savvy -m 0750 "$release"
 sudo cp -a "$package/." "$release/"
 sudo chown -R savvy:savvy "$release"
 
+sudo install -m 0644 deploy/savvy-release.mjs /usr/local/libexec/savvy-release.mjs
+funding_preflight() {
+  sudo -u savvy /opt/node-v22.23.4-linux-x64/bin/node \
+    /usr/local/libexec/savvy-release.mjs check /opt/savvy/current "$1" /var/lib/savvy/service.sqlite
+}
+switch_release() {
+  sudo /opt/node-v22.23.4-linux-x64/bin/node \
+    /usr/local/libexec/savvy-release.mjs switch /opt/savvy/current "$1" /var/lib/savvy/service.sqlite
+}
+funding_preflight "$release"
+
 sudo install -m 0755 deploy/savvy-backup.sh /usr/local/libexec/savvy-backup
 sudo install -m 0644 deploy/savvy-backend.service /etc/systemd/system/
 sudo systemctl daemon-reload
@@ -55,9 +66,12 @@ migration_started=false
 restore_on_error() {
   status=$?
   if [[ $status -ne 0 && "$migration_started" == false ]]; then
-    sudo ln -sfn "$previous" /opt/savvy/current.previous
-    sudo mv -Tf /opt/savvy/current.previous /opt/savvy/current
-    sudo systemctl start savvy-backend.service
+    if switch_release "$previous"; then
+      sudo systemctl start savvy-backend.service
+    else
+      echo 'Funding guard refused automatic rollback; backend stays stopped.' >&2
+      migration_started=true
+    fi
   fi
   if [[ "$timer_stopped" == true && ( $status -eq 0 || "$migration_started" == false ) ]]; then
     sudo systemctl start savvy-backup.timer
@@ -69,8 +83,7 @@ sudo systemctl stop savvy-backup.service
 sudo systemctl start savvy-backup.service
 sudo systemctl is-active --quiet savvy-backend.service
 sudo systemctl stop savvy-backend.service
-sudo ln -sfn "$release" /opt/savvy/current.next
-sudo mv -Tf /opt/savvy/current.next /opt/savvy/current
+switch_release "$release"
 migration_started=true
 sudo -u savvy env \
   SAVVY_AUTH_DATABASE=/var/lib/savvy/auth.sqlite \

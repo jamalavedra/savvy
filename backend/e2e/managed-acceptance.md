@@ -13,7 +13,7 @@ private signing material, source documents or customer audio in public evidence.
 
 ## Environments and gates
 
-- Fixtures: complete checkout; Node 22.23.2, pnpm 10.34.5, the repository Rust toolchain.
+- Fixtures: complete checkout; Node 22.23.4, pnpm 10.34.5, the repository Rust toolchain.
   Install all three lockfiles and Playwright Chromium before running the commands below.
   These checks use synthetic suppliers; native-auth uses MockRuntime, not Keychain.
 - Hosted staging: `jaume@epistoma`, separate service/state on loopback 8789, existing
@@ -197,5 +197,69 @@ Observed: pending. Status: NOT RUN. Evidence: pending.
 ### TEST-017
 
 Verify the production backend remains loopback-only, raw Stripe signatures survive the tunnel, auth/API responses are not cached, and credentials are absent from desktop assets/logs. Check the privacy/pricing statements against observed managed data flow and retention. Confirm the release version exceeds `0.1.2`, the artifact is signed/notarized, and the published updater offers the matching new artifact. Record recovery commands and close every reported finding.
+
+Observed: pending. Status: NOT RUN. Evidence: pending.
+
+### TEST-018
+
+On the final installed Mac and Windows 11 candidates, buy two seats through the
+hosted browser using Stripe TEST mode. Invite a second verified identity, accept
+after OTP and real Google redirects and a reload, and explicitly assign a seat.
+Verify membership without a seat, owner without a seat, owner transfer and the
+member's restricted view. On each desktop, deliberately select organization
+funding, import an invented CRM record and a document into one client's folder,
+start a real call, trigger advice and inspect its citation against the imported
+local file. Prove the provider received the new evidence and the delivered advice
+uses a unique invented fact. Inspect ledger debits on the seat assignment and
+unchanged personal grants. End the call, switch to personal, repeat, and verify
+only personal credit changes. Record the exact installed binary and commit.
+Synthetic MockRuntime source imports are supplementary evidence only. They do not
+prove OS callback delivery, Keychain/Credential Manager, physical microphone,
+system loopback, real upstream model comprehension or an installed Windows flow.
+Apply TEST-009/010 hardware, consent and capture gates to both call repetitions.
+
+Observed: pending. Status: NOT RUN. Evidence: pending.
+
+### TEST-019
+
+Revoke a seated member during a real installed call and during a pending brief.
+Verify upstream capture/advice stop, reservations release, confirmed usage remains
+conserved, and the selected organization payer stays selected without using
+personal credit. Switching is refused while a call or brief remains pending.
+Sign out and relaunch as the same and a different verified identity; preferences
+are separate. Retrying an already-paid unsaved brief uses its original identity
+and payer without a second debit. Repeat with a Composio outage: choose a marked
+stale copy or exclude it, then prove advice performs no Composio RPC and audio
+usage remains billable only for delivered intervals. Idle calls and failed briefs
+consume nothing. Verify cached source-count and context limits still apply.
+
+Observed: pending. Status: NOT RUN. Evidence: pending.
+
+### TEST-020
+
+In Stripe TEST mode with the pinned API version, advance a test clock through
+renewal after an owner-selected decrease from two seats to one vacant retiring
+slot. Confirm there is no proration or immediate capacity reduction. Check the
+organization portal prevents quantity edits. Deliberately cause external quantity
+drift, reconcile, and verify canonical paid invoice quantity determines paid seat
+capacity. Refund an invoice with an occupied and a vacant seat; neither retains
+spendable budget. A won dispute clears only its own restriction and cannot undo a
+refund or another dispute. Cancel through the portal and verify the paid window
+ends without a replacement purchase before it expires. Record redacted Stripe
+objects and the matching ledger conservation checks. Never run against live mode.
+
+Observed: pending. Status: NOT RUN. Evidence: pending.
+
+### TEST-021
+
+Against stopped staging state, verify capability-1 checkpoint compatibility before
+activation, then a full capability-2 release, activation and immutable checkpoint.
+An old release with missing metadata and the capability-1 checkpoint must both be
+refused before symlink switch or process start, including with a pending team
+purchase and no grants. A complete capability-2 candidate succeeds against current
+financial state. Disabling acquisition blocks new purchases/invites, preserves old
+invitation acceptance and existing spending, and does not lower the floor. Check
+that a lower-capability backend refuses startup. Exercise packaged commands with
+production dependencies only. Preserve current financial state throughout.
 
 Observed: pending. Status: NOT RUN. Evidence: pending.

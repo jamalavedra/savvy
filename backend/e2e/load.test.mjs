@@ -24,6 +24,10 @@ const run = promisify(execFile);
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const p95 = (samples) =>
   [...samples].sort((a, b) => a - b)[Math.ceil(samples.length * 0.95) - 1];
+const shutdown = (child) => {
+  if (process.platform === "win32") child.send("shutdown");
+  else child.kill("SIGINT");
+};
 
 test(
   "five-minute mixed audio, OTP and delayed billing load on one backend",
@@ -125,7 +129,7 @@ test(
       child = spawn(
         process.execPath,
         [join(root, "backend/e2e/load-process.mjs")],
-        { env, stdio: ["ignore", "pipe", "pipe"] },
+        { env, stdio: ["ignore", "pipe", "pipe", "ipc"] },
       );
       let output = "";
       for (const stream of [child.stdout, child.stderr])
@@ -208,7 +212,7 @@ test(
         for (let frame = 0; frame < 6000; frame++) {
           await sleep(Math.max(0, start + frame * 50 - performance.now()));
           for (const ws of sockets) {
-            assert.equal(ws.readyState, WebSocket.OPEN);
+            assert.equal(ws.readyState, WebSocket.OPEN, output);
             ws.send(Buffer.alloc(1600));
             sentFrames++;
             maximumQueue = Math.max(maximumQueue, ws.bufferedAmount);
@@ -274,6 +278,8 @@ test(
         product: "pack",
         idempotencyKey: "load-shutdown-checkout",
       });
+      // Observe rejection immediately; the response is asserted after shutdown.
+      void drainingCheckout.catch(() => {});
       for (
         let attempt = 0;
         stripeCalls === beforeDrainCalls && attempt < 100;
@@ -284,7 +290,7 @@ test(
         stripeCalls > beforeDrainCalls,
         "checkout must reach upstream before shutdown",
       );
-      child.kill("SIGINT");
+      shutdown(child);
       assert.deepEqual(await exited, [0, null], output);
       assert.equal((await drainingCheckout).status, 503);
       const metrics = JSON.parse(
@@ -353,10 +359,11 @@ test(
           join(root, "backend/e2e/load-results.json"),
         JSON.stringify(result, null, 2) + "\n",
       );
-      child = spawn(process.execPath, [join(root, "backend/build/server.js")], {
-        env,
-        stdio: "ignore",
-      });
+      child = spawn(
+        process.execPath,
+        [join(root, "backend/e2e/load-process.mjs")],
+        { env, stdio: ["ignore", "ignore", "ignore", "ipc"] },
+      );
       exited = once(child, "exit");
       for (let i = 0; i < 100; i++) {
         if (
@@ -371,7 +378,7 @@ test(
         (await request("/v1/account", accounts[0].credential)).status,
         200,
       );
-      child.kill("SIGINT");
+      shutdown(child);
       assert.deepEqual(await exited, [0, null]);
       const restarted = new Database(env.SAVVY_DB_PATH, { readonly: true });
       try {

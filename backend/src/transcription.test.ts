@@ -586,6 +586,79 @@ test("audio authorization rejects invalid and foreign-account credentials", asyn
   }
 });
 
+test("failed durable admission commit forwards no audio and rolls back counters", async (t) => {
+  const h = await fixture(t),
+    ws = h.connect();
+  await once(ws, "open");
+  const transaction = h.db.transaction.bind(h.db);
+  let fail = true;
+  t.mock.method(
+    h.db,
+    "transaction",
+    (callback: (...args: unknown[]) => unknown) => {
+      const outer = !h.db.inTransaction;
+      return transaction((...args: unknown[]) => {
+        const result = callback(...args);
+        if (outer && fail) {
+          fail = false;
+          throw new Error("synthetic commit failure");
+        }
+        return result;
+      });
+    },
+  );
+  const closed = once(ws, "close");
+  ws.send(Buffer.alloc(640));
+  await closed;
+  await waitFor(() => h.view().state === "paused");
+  assert.equal(fail, false);
+  assert.equal(h.forwarded(), 0);
+  assert.deepEqual(h.db.prepare("SELECT * FROM audio_pacing").all(), []);
+  assert.deepEqual(
+    h.db
+      .prepare("SELECT * FROM attempt_counters WHERE operation='audio_frame'")
+      .all(),
+    [],
+  );
+  assert.equal(h.view().settledMs, 0n);
+  assert.equal(balance(h.db, 1n, h.state.clock()).meetingMsReserved, 0n);
+});
+
+test("one source waiting for pacing does not block another source's admission", async (t) => {
+  const h = await fixture(t),
+    mic = h.connect(),
+    system = h.connect("system");
+  await Promise.all([once(mic, "open"), once(system, "open")]);
+  h.db
+    .prepare("INSERT INTO audio_pacing VALUES(1,'microphone',32000,?)")
+    .run(h.state.clock());
+  const microphone = once(mic, "message"),
+    speaker = once(system, "message");
+  mic.send(Buffer.alloc(640));
+  system.send(Buffer.alloc(640));
+  await speaker;
+  assert.equal(h.forwarded(), 640);
+  assert.equal(
+    h.db
+      .prepare<[], { count: bigint }>(
+        "SELECT count FROM attempt_counters WHERE operation='audio_frame'",
+      )
+      .get()!.count,
+    1n,
+  );
+  h.advance(1000n);
+  await microphone;
+  assert.equal(h.forwarded(), 1280);
+  h.advance(20n);
+  const closed = [once(mic, "close"), once(system, "close")];
+  mic.close();
+  system.close();
+  await Promise.all(closed);
+  await waitFor(() => h.view().state === "paused");
+  assert.equal(h.view().settledMs, 40n);
+  assert.equal(balance(h.db, 1n, h.state.clock()).meetingMsReserved, 0n);
+});
+
 test("network-bunched audio is paced before reaching the supplier", async (t) => {
   const h = await fixture(t),
     ws = h.connect();
@@ -599,6 +672,91 @@ test("network-bunched audio is paced before reaching the supplier", async (t) =>
   assert.ok(received[19]! - started >= 900);
   assert.equal(h.forwarded(), 32_000);
   assert.equal(h.view().state, "active");
+});
+
+test("late pacing timers recover queued audio without accumulating delivery lag", async (t) => {
+  const h = await fixture(t),
+    ws = h.connect();
+  await once(ws, "open");
+  const ready = once(ws, "message");
+  ws.send(Buffer.alloc(640));
+  await ready;
+  h.advance(20n);
+  const timeout = globalThis.setTimeout;
+  let lateTimers = 0;
+  t.mock.method(
+    globalThis,
+    "setTimeout",
+    (...args: Parameters<typeof setTimeout>) => {
+      const delay = args[1] ?? 0;
+      if (delay >= 25 && delay <= 50) {
+        lateTimers++;
+        args[1] = delay + 100;
+      }
+      return timeout(...args);
+    },
+  );
+  let received = 0;
+  ws.on("message", () => {
+    received++;
+    h.advance(50n);
+  });
+  const started = performance.now();
+  for (let i = 0; i < 100; i++) ws.send(Buffer.alloc(1600));
+  while (received < 100 && performance.now() - started < 6000)
+    await new Promise((resolve) => timeout(resolve, 10));
+  assert.ok(lateTimers > 10, "pacing timers must actually run late");
+  assert.equal(received, 100, "all queued frames recover within six seconds");
+  assert.ok(performance.now() - started >= 4900, "audio stays paced");
+  assert.equal(h.forwarded(), 160_640);
+  assert.equal(ws.readyState, WebSocket.OPEN);
+  const closed = once(ws, "close");
+  ws.close();
+  await closed;
+  await waitFor(() => h.view().state === "paused");
+  assert.equal(h.view().settledMs, 5020n);
+  assert.equal(balance(h.db, 1n, h.state.clock()).meetingMsReserved, 0n);
+});
+
+test("catch-up after a long timer stall stays within the durable pacing allowance", async (t) => {
+  const h = await fixture(t),
+    ws = h.connect();
+  await once(ws, "open");
+  const ready = once(ws, "message");
+  ws.send(Buffer.alloc(640));
+  await ready;
+  const base = h.state.clock(),
+    started = performance.now(),
+    timeout = globalThis.setTimeout;
+  t.mock.method(
+    h.state,
+    "clock",
+    () => base + BigInt(Math.floor(performance.now() - started)),
+  );
+  let stalled = false;
+  t.mock.method(
+    globalThis,
+    "setTimeout",
+    (...args: Parameters<typeof setTimeout>) => {
+      const delay = args[1] ?? 0;
+      if (!stalled && delay > 0 && delay <= 50) {
+        stalled = true;
+        args[1] = delay + 1100;
+      } else if (stalled && delay > 0 && delay <= 50) {
+        args[1] = Math.max(0, delay - 2);
+      }
+      return timeout(...args);
+    },
+  );
+  let received = 0;
+  ws.on("message", () => received++);
+  for (let i = 0; i < 40; i++) ws.send(Buffer.alloc(1600));
+  while (received < 40 && performance.now() - started < 3000)
+    await new Promise((resolve) => timeout(resolve, 10));
+  assert.ok(stalled);
+  assert.equal(received, 40);
+  assert.equal(ws.readyState, WebSocket.OPEN);
+  assert.equal(h.forwarded(), 64_640);
 });
 
 test("a delayed audio burst survives the old one-second queue limit and settles only delivered audio", async (t) => {

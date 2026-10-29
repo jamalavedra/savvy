@@ -1,7 +1,8 @@
-import { Alert, Button, Input } from "./ui";
+import { Alert, Button, Input, Select } from "./ui";
 import BrowserSignInLink from "./BrowserSignInLink";
 import ConfirmDialog from "./ConfirmDialog";
 import catalog from "../config/managed-catalog.json";
+import { version } from "../package.json";
 import { useCallback, useEffect, useState, useRef } from "react";
 import {
   getAppSettings,
@@ -12,15 +13,34 @@ import {
   managedSignInCancel,
   managedSignInFinish,
   managedSignOut,
+  managedSetFunding,
+  managedOpenTeam,
+  managedBalance,
 } from "./lib/api";
-import type { ManagedAccount as Account } from "./types";
+import type { ManagedAccount as Account, FundingChoice } from "./types";
+
+function needsSeatUpdate(minimum: string) {
+  const current = version.split(".").map(Number),
+    required = minimum.split(".").map(Number);
+  if (
+    required.length !== 3 ||
+    required.some((part) => !Number.isSafeInteger(part) || part < 0)
+  )
+    return true;
+  for (let i = 0; i < 3; i++) {
+    if (current[i] !== required[i]) return current[i] < required[i];
+  }
+  return false;
+}
 
 export default function ManagedAccount({
   compact = false,
   pricingOnly = false,
+  fundingBusy = false,
 }: {
   compact?: boolean;
   pricingOnly?: boolean;
+  fundingBusy?: boolean;
 }) {
   const [dismissedPurchase, setDismissedPurchase] = useState("");
   const accountHeading = useRef<HTMLHeadingElement>(null);
@@ -42,6 +62,9 @@ export default function ManagedAccount({
   const [busy, setBusy] = useState(false);
   const [code, setCode] = useState("");
   const [confirmSignOut, setConfirmSignOut] = useState(false);
+  const [confirmFunding, setConfirmFunding] = useState<FundingChoice | null>(
+    null,
+  );
   const refreshGeneration = useRef(0);
   const operationPending = useRef(false);
   const refresh = useCallback(async () => {
@@ -104,8 +127,18 @@ export default function ManagedAccount({
   const unbilled = account?.catalog === null;
   const pending = (product: string) =>
     account?.pendingPurchases?.some((purchase) => purchase.product === product);
-  const remaining = account
-    ? account.meetingMsAvailable + account.meetingMsReserved
+  const balance = account ? managedBalance(account) : null;
+  const organizationFunding = account?.funding?.kind === "organization";
+  const teamSupported = account?.organization !== undefined;
+  const fundingUnavailable =
+    account?.funding?.kind === "unavailable" ||
+    (organizationFunding &&
+      (!account?.organization?.assignmentId ||
+        !account?.organizationAllowance ||
+        account.organization.id !==
+          (account.funding as { organizationId: string }).organizationId));
+  const remaining = balance
+    ? balance.meetingMsAvailable + balance.meetingMsReserved
     : 0;
   const paymentPending =
     !!account?.paymentPending || !!account?.pendingPurchases?.length;
@@ -138,7 +171,9 @@ export default function ManagedAccount({
     (paymentPending && remaining <= 0
       ? "Assistance paused while payment is processing. Refresh after confirmation, then explicitly resume."
       : remaining <= 0
-        ? "Assistance paused. Buy a pack, then explicitly resume your meeting."
+        ? organizationFunding
+          ? "Organization assistance paused. Ask your owner about your seat allowance, or explicitly choose personal funding after ending this meeting."
+          : "Assistance paused. Buy a pack, then explicitly resume your meeting."
         : remaining <= 120000
           ? "Two minutes or less remain."
           : remaining <= 600000
@@ -242,14 +277,17 @@ export default function ManagedAccount({
           aria-live="polite"
         >
           {error ||
+            (fundingUnavailable
+              ? "Your selected funding is unavailable. Review the payer in Account. Personal credit will not be used automatically."
+              : "") ||
             warning ||
             (account
-              ? `${Math.floor(remaining / 60000)} managed minutes and ${account.briefsAvailable} briefs remain.`
+              ? `${Math.floor(remaining / 60000)} ${organizationFunding ? "organization" : "managed"} minutes and ${balance?.briefsAvailable ?? 0} briefs remain.`
               : loading
                 ? "Loading your account…"
                 : "Sign in to Savvy in Account before using managed assistance.")}
         </Alert>
-        {unbilled ? (
+        {organizationFunding ? null : unbilled ? (
           <p>This backend has no billing.</p>
         ) : (
           <>
@@ -323,10 +361,160 @@ export default function ManagedAccount({
             {!noPlan && !recoveryVisible && !paymentPending && (
               <>
                 . {Math.floor(remaining / 60000)} meeting minutes and{" "}
-                {account.briefsAvailable} briefs remain.
+                {balance?.briefsAvailable ?? 0} briefs remain
+                {organizationFunding
+                  ? " on your organization seat"
+                  : teamSupported
+                    ? " personally"
+                    : ""}
+                .
               </>
             )}
           </p>
+          {(teamSupported || organizationFunding || fundingUnavailable) && (
+            <section
+              aria-label="Assistance funding"
+              className="managed-empty-card"
+            >
+              <h3 className="group-title">Pay for assistance with</h3>
+              <Select
+                label="Assistance funding"
+                selectedValue={
+                  account.funding?.kind === "unavailable"
+                    ? "unavailable"
+                    : organizationFunding
+                      ? "organization"
+                      : "personal"
+                }
+                disabled={busy || fundingBusy || account.fundingLocked}
+                options={[
+                  ...(account.funding?.kind === "unavailable"
+                    ? [
+                        {
+                          value: "unavailable",
+                          label: "Choose a payer",
+                          disabled: true,
+                        },
+                      ]
+                    : []),
+                  { value: "personal", label: "Personal allowance" },
+                  ...(account.organization || organizationFunding
+                    ? [
+                        {
+                          value: "organization",
+                          label:
+                            account.organization?.name ??
+                            "Unavailable organization seat",
+                          disabled:
+                            !account.organization?.assignmentId ||
+                            !account.organizationAllowance,
+                        },
+                      ]
+                    : []),
+                ]}
+                onSelect={(value) => {
+                  if (value === "personal")
+                    setConfirmFunding({ kind: "personal" });
+                  else if (account.organization)
+                    setConfirmFunding({
+                      kind: "organization",
+                      organizationId: account.organization.id,
+                    });
+                }}
+              />
+              <p>
+                New briefs and meetings use this payer. Personal credit is never
+                used automatically if a seat becomes unavailable.
+              </p>
+              {(fundingBusy || account.fundingLocked) && (
+                <p>
+                  End the meeting and finish or cancel pending briefs before
+                  changing funding.
+                </p>
+              )}
+              {fundingUnavailable && (
+                <Alert variant="warning" role="alert">
+                  {account.fundingError ??
+                    "Your selected organization seat is unavailable. Ask the owner for a seat, or deliberately choose personal funding."}
+                </Alert>
+              )}
+            </section>
+          )}
+          {teamSupported && (
+            <section
+              aria-label="Organization seat"
+              className="managed-empty-card"
+            >
+              <h3 className="group-title">
+                {account.organization?.name ?? "Organization seats"}
+              </h3>
+              {account.organization ? (
+                <>
+                  <p>
+                    {account.organization.assignmentId
+                      ? `Seat ${account.organization.seatNumber}`
+                      : "You are a member without a paid seat. Ask the owner to assign one."}
+                  </p>
+                  {account.organizationAllowance && (
+                    <p>
+                      {Math.floor(
+                        Math.max(
+                          0,
+                          account.organizationAllowance.totalMs -
+                            account.organizationAllowance.usedMs -
+                            account.organizationAllowance.reservedMs,
+                        ) / 60000,
+                      )}{" "}
+                      seat minutes and{" "}
+                      {Math.max(
+                        0,
+                        account.organizationAllowance.totalBriefs -
+                          account.organizationAllowance.usedBriefs -
+                          account.organizationAllowance.reservedBriefs,
+                      )}{" "}
+                      briefs available.
+                      {account.organization.seatPeriodEndMs
+                        ? ` Expires ${new Date(account.organization.seatPeriodEndMs).toLocaleDateString()}.`
+                        : ""}
+                    </p>
+                  )}
+                  <p>
+                    The owner sees membership, seat assignment and aggregate
+                    usage. Your files, connections and meeting content stay
+                    private.
+                  </p>
+                  <p>
+                    Seats require Savvy{" "}
+                    {account.organization.minimumDesktopVersion} or later on Mac
+                    and Windows.
+                  </p>
+                  {needsSeatUpdate(
+                    account.organization.minimumDesktopVersion,
+                  ) && (
+                    <Alert variant="warning" role="status">
+                      Update Savvy to use your team seat.{" "}
+                      <a
+                        href="https://github.com/jamalavedra/savvy/releases/latest"
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Get the latest desktop release
+                      </a>
+                      .
+                    </Alert>
+                  )}
+                </>
+              ) : (
+                <p>
+                  Buy seats for colleagues or manage an invitation in your
+                  browser.
+                </p>
+              )}
+              <Button disabled={busy} onClick={() => void run(managedOpenTeam)}>
+                Manage organization
+              </Button>
+            </section>
+          )}
           {!noPlan &&
             !recoveryVisible &&
             !paymentPending &&
@@ -627,6 +815,33 @@ export default function ManagedAccount({
             </Button>
           )}
           {error && <Alert role="alert">{error}</Alert>}
+        </ConfirmDialog>
+      )}
+      {confirmFunding && (
+        <ConfirmDialog
+          title="Change assistance funding?"
+          confirm="Use this payer"
+          busy={busy}
+          onCancel={() => setConfirmFunding(null)}
+          onConfirm={() =>
+            void run(async () => {
+              await managedSetFunding(confirmFunding);
+              setConfirmFunding(null);
+            })
+          }
+        >
+          <p>
+            Future briefs and meetings will use{" "}
+            {confirmFunding.kind === "personal"
+              ? "your personal allowance"
+              : "your assigned organization seat"}
+            . Existing allowance stays with its current payer.
+          </p>
+          {error && (
+            <Alert variant="error" role="alert">
+              {error}
+            </Alert>
+          )}
         </ConfirmDialog>
       )}
       <Button disabled={busy} onClick={() => setConfirmSignOut(true)}>

@@ -94,6 +94,51 @@ export function migrateService(db: Db) {
       readFileSync(new URL("./service-schema.sql", import.meta.url), "utf8"),
     );
     const columns = [
+      ["organization_checkouts", "stripe_item_id", "TEXT"],
+      [
+        "organization_quantity_changes",
+        "stripe_subscription_id",
+        "TEXT NOT NULL DEFAULT ''",
+      ],
+      [
+        "organization_quantity_changes",
+        "stripe_item_id",
+        "TEXT NOT NULL DEFAULT ''",
+      ],
+      ["organization_quantity_changes", "price_id", "TEXT NOT NULL DEFAULT ''"],
+      [
+        "organization_quantity_changes",
+        "previous_retire_seat_ids",
+        "TEXT NOT NULL DEFAULT '[]'",
+      ],
+      ["organization_checkouts", "search_cursor", "TEXT"],
+      ["managed_sessions", "funding_scope", "TEXT NOT NULL DEFAULT 'personal'"],
+      [
+        "managed_sessions",
+        "funding_assignment_id",
+        "INTEGER REFERENCES seat_assignments(id)",
+      ],
+      [
+        "provider_requests",
+        "funding_scope",
+        "TEXT NOT NULL DEFAULT 'personal'",
+      ],
+      [
+        "provider_requests",
+        "funding_assignment_id",
+        "INTEGER REFERENCES seat_assignments(id)",
+      ],
+      [
+        "allowance_grants",
+        "seat_period_id",
+        "INTEGER REFERENCES seat_periods(id)",
+      ],
+      [
+        "allowance_grants",
+        "seat_assignment_id",
+        "INTEGER REFERENCES seat_assignments(id)",
+      ],
+      ["allowance_grants", "revocation_reason", "TEXT"],
       ["composio_sessions", "user_id", "TEXT NOT NULL DEFAULT ''"],
       ["managed_sessions", "lifecycle_command", "INTEGER NOT NULL DEFAULT 0"],
       ["checkouts", "created_at_ms", "INTEGER NOT NULL DEFAULT 0"],
@@ -114,6 +159,23 @@ export function migrateService(db: Db) {
       if (!exists)
         db.exec(`ALTER TABLE ${table} ADD COLUMN ${field} ${definition}`);
     }
+    db.exec(`
+      INSERT OR IGNORE INTO stripe_customers(stripe_customer_id,owner_kind,owner_id)
+        SELECT stripe_customer_id,'account',id FROM accounts WHERE stripe_customer_id IS NOT NULL;
+      INSERT OR IGNORE INTO service_capabilities(key,value,set_at_ms)
+        VALUES('schema_funding_scope','1',0);
+    `);
+    if (
+      db
+        .prepare(
+          `SELECT 1 FROM accounts a LEFT JOIN stripe_customers c ON c.stripe_customer_id=a.stripe_customer_id
+      WHERE a.stripe_customer_id IS NOT NULL AND (c.stripe_customer_id IS NULL OR c.owner_kind<>'account' OR c.owner_id<>a.id) LIMIT 1`,
+        )
+        .get()
+    )
+      throw new Error(
+        "Personal Stripe customer ownership conflicts with the customer registry",
+      );
     db.exec(
       "UPDATE checkouts SET search_cursor=NULL WHERE stripe_id IS NULL AND state IN ('pending','payment_pending')",
     );

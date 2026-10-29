@@ -1,3 +1,4 @@
+import { assertFunding, fundingForRow } from "./funding.js";
 import type { Server, IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
@@ -138,6 +139,39 @@ export function attachAudio(server: Server, state: ServiceState) {
   const active = new Map<WebSocket, Promise<void>>();
   const sourceSlots = new Map<string, Promise<void>>();
   const upgrades = new Set<Duplex>();
+  const admissions: {
+    run: () => bigint | undefined;
+    resolve: (value: bigint | undefined) => void;
+    reject: (error: unknown) => void;
+  }[] = [];
+  const admit = (run: () => bigint | undefined) =>
+    new Promise<bigint | undefined>((resolve, reject) => {
+      admissions.push({ run, resolve, reject });
+      if (admissions.length !== 1) return;
+      setImmediate(() => {
+        const batch = admissions.splice(0);
+        const complete: (() => void)[] = [];
+        try {
+          // Each check keeps its savepoint; release frames only after one durable commit.
+          state.db
+            .transaction(() => {
+              for (const request of batch) {
+                try {
+                  const value = request.run();
+                  complete.push(() => request.resolve(value));
+                } catch (error) {
+                  complete.push(() => request.reject(error));
+                }
+              }
+            })
+            .immediate();
+        } catch (error) {
+          for (const request of batch) request.reject(error);
+          return;
+        }
+        for (const finish of complete) finish();
+      });
+    });
   let closing = false;
   const upgrade = async (
     req: IncomingMessage,
@@ -193,6 +227,12 @@ export function attachAudio(server: Server, state: ServiceState) {
       )
         throw new ApiError("invalid_request", "invalid audio query");
       const session = requireSession(state.db, account.accountId, id);
+      assertFunding(
+        state.db,
+        account.accountId,
+        fundingForRow(state.db, account.accountId, session),
+        state.clock(),
+      );
       if (session.state !== "active")
         throw new ApiError(
           "session_conflict",
@@ -240,6 +280,7 @@ export function attachAudio(server: Server, state: ServiceState) {
         const previous = sourceSlots.get(key);
         const done = relay(
           state,
+          admit,
           client,
           session,
           source,
@@ -280,6 +321,7 @@ export function attachAudio(server: Server, state: ServiceState) {
 
 async function relay(
   state: ServiceState,
+  admit: (run: () => bigint | undefined) => Promise<bigint | undefined>,
   client: WebSocket,
   session: SessionRow,
   source: Source,
@@ -399,7 +441,7 @@ async function relay(
     await Promise.all([close(client), ...(upstream ? [close(upstream)] : [])]);
     finishResolve();
   };
-  let nextDelivery = 0;
+  let nextDelivery: number | undefined;
   const pump = async () => {
     if (pumping || stopping || upstream?.readyState !== WebSocket.OPEN) return;
     pumping = true;
@@ -407,23 +449,52 @@ async function relay(
       while (queue.length && !stopping) {
         const chunk = queue.shift()!;
         // Network buffering can bunch up correctly paced client frames.
-        const delay = Math.ceil(nextDelivery - performance.now());
-        if (delay > 0)
+        nextDelivery ??= performance.now();
+        for (;;) {
+          const delay = Math.ceil(nextDelivery - performance.now());
+          if (delay <= 0) break;
           await new Promise((resolve) => setTimeout(resolve, delay));
+        }
         if (stopping) break;
-        state.requireAssistance();
-        if (state.clock() >= tokenExpiry || !valid()) break;
-        checkAudio(
-          state,
-          session.id,
-          source,
-          generation,
-          chunk.length,
-          state.clock(),
-        );
+        let admittedAt: bigint | undefined;
+        while (!stopping) {
+          try {
+            admittedAt = await admit(() => {
+              state.requireAssistance();
+              const now = state.clock();
+              if (stopping || now >= tokenExpiry || !valid()) return;
+              checkAudio(
+                state,
+                session.id,
+                source,
+                generation,
+                chunk.length,
+                now,
+              );
+              return now;
+            });
+            break;
+          } catch (error) {
+            if (
+              !(error instanceof ApiError) ||
+              error.code !== "invalid_request" ||
+              error.retryAfterMs === undefined
+            )
+              throw error;
+            await new Promise((resolve) =>
+              setTimeout(resolve, Number(error.retryAfterMs)),
+            );
+          }
+        }
+        if (
+          admittedAt === undefined ||
+          stopping ||
+          state.clock() >= tokenExpiry ||
+          !valid()
+        )
+          break;
         try {
-          nextDelivery =
-            Math.max(nextDelivery, performance.now() - 50) + chunk.length / 32;
+          nextDelivery += chunk.length / 32;
           await send(upstream, chunk, MAX_AUDIO);
         } catch (error) {
           upstreamWriteFailure =
@@ -450,7 +521,7 @@ async function relay(
           source,
           chunk.length,
           state.clock(),
-          { version: session.lease_version, generation },
+          { version: session.lease_version, generation, admittedAt },
         );
         lastDelivered = state.clock();
         deliveredBytes += chunk.length;

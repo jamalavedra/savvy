@@ -3,6 +3,10 @@ import { monitorEventLoopDelay } from "node:perf_hooks";
 import { writeFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import { state } from "../build/server.js";
+// Windows child.kill("SIGINT") terminates without running signal handlers.
+process.on("message", (message) => {
+  if (message === "shutdown") process.emit("SIGINT");
+});
 const delay = monitorEventLoopDelay({ resolution: 10 });
 delay.enable();
 const sessions = new Map();

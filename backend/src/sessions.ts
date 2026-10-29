@@ -3,6 +3,17 @@ import type { ServiceState } from "./state.js";
 import { ApiError } from "./errors.js";
 import { balance, reserveAttempt, recordUsage, min, max } from "./billing.js";
 
+import {
+  PERSONAL,
+  assertFunding,
+  assertFundingChoice,
+  fundingForRow,
+  scopeFilter,
+  type FundingChoice,
+  type FundingRow,
+} from "./funding.js";
+import { resolveFundingContext } from "./org.js";
+
 export const RESERVATION_MS = 30_000n;
 export const CHECKPOINT_MS = 5_000n;
 export const AUDIO_IDLE_MS = 5_000n;
@@ -46,7 +57,7 @@ export interface LiveSession {
   sources: Map<Source, SourceState>;
   deliveredUntilMs: bigint;
 }
-export interface SessionRow {
+export interface SessionRow extends FundingRow {
   id: bigint;
   account_id: bigint;
   local_session_id: string;
@@ -58,6 +69,8 @@ export interface SessionRow {
   billable_since_ms: bigint | null;
 }
 export interface SessionView {
+  funding:
+    { kind: "personal" } | { kind: "organization"; organizationId: string };
   sessionId: string;
   state: string;
   leaseVersion: bigint;
@@ -88,7 +101,7 @@ function liveSession(state: ServiceState, id: bigint) {
 function readSession(db: Db, account: bigint, id: string) {
   return db
     .prepare<[bigint, string], SessionRow>(
-      "SELECT id,account_id,local_session_id,state,lease_version,lease_expires_ms,reserved_ms,settled_ms,billable_since_ms FROM managed_sessions WHERE account_id=? AND local_session_id=?",
+      "SELECT id,account_id,local_session_id,state,lease_version,lease_expires_ms,reserved_ms,settled_ms,billable_since_ms,funding_scope,funding_assignment_id FROM managed_sessions WHERE account_id=? AND local_session_id=?",
     )
     .get(account, id);
 }
@@ -113,6 +126,9 @@ function setReservation(
   now: bigint,
 ) {
   requireTransaction(db);
+  const funding = fundingForRow(db, session.account_id, session);
+  if (desired > 0n) assertFunding(db, session.account_id, funding, now);
+  const scope = scopeFilter(funding);
   db.prepare(
     "UPDATE allowance_grants SET meeting_ms_reserved=meeting_ms_reserved-COALESCE((SELECT amount_ms FROM session_reservations WHERE session_id=? AND grant_id=allowance_grants.id),0)",
   ).run(session.id);
@@ -120,13 +136,10 @@ function setReservation(
     session.id,
   );
   const rows = db
-    .prepare<
-      [bigint, bigint, bigint, bigint],
-      { id: bigint; available: bigint }
-    >(
-      "SELECT id,min(meeting_ms_total-meeting_ms_used-meeting_ms_reserved,COALESCE(valid_until_ms-?,9223372036854775807)) AS available FROM allowance_grants WHERE account_id=? AND revoked=0 AND valid_from_ms<=? AND (valid_until_ms IS NULL OR valid_until_ms>?) ORDER BY (valid_until_ms IS NULL),valid_until_ms,created_at_ms,id",
+    .prepare<bigint[], { id: bigint; available: bigint }>(
+      `SELECT id,min(meeting_ms_total-meeting_ms_used-meeting_ms_reserved,COALESCE(valid_until_ms-?,9223372036854775807)) AS available FROM allowance_grants WHERE account_id=? AND ${scope.sql} AND revoked=0 AND valid_from_ms<=? AND (valid_until_ms IS NULL OR valid_until_ms>?) ORDER BY (valid_until_ms IS NULL),valid_until_ms,created_at_ms,id`,
     )
-    .all(now, session.account_id, now, now);
+    .all(now, session.account_id, ...scope.params, now, now);
   let remaining = max(desired, 0n);
   for (const row of rows) {
     const take = min(remaining, max(row.available, 0n));
@@ -170,15 +183,27 @@ function spendInterval(
         valid_from_ms: bigint;
         valid_until_ms: bigint | null;
         revoked: bigint;
+        financially_eligible: bigint;
       }
     >(
-      "SELECT g.id,r.amount_ms,g.valid_from_ms,g.valid_until_ms,g.revoked FROM session_reservations r JOIN allowance_grants g ON g.id=r.grant_id WHERE r.session_id=? ORDER BY (g.valid_until_ms IS NULL),g.valid_until_ms,g.created_at_ms,g.id",
+      `SELECT g.id,r.amount_ms,g.valid_from_ms,g.valid_until_ms,g.revoked,
+       CASE WHEN g.kind='seat' THEN ms.funding_scope='organization' AND EXISTS(
+         SELECT 1 FROM seat_assignments a JOIN seats s ON s.id=a.seat_id
+         JOIN seat_periods p ON p.seat_id=s.id
+         JOIN organization_members m ON m.organization_id=s.organization_id AND m.account_id=a.account_id
+         WHERE a.id=ms.funding_assignment_id AND a.id=g.seat_assignment_id
+           AND a.account_id=ms.account_id AND a.account_id=g.account_id AND a.ended_at_ms IS NULL
+           AND p.id=g.seat_period_id AND p.organization_id=s.organization_id AND p.financial_status='paid')
+       ELSE ms.funding_scope='personal' AND g.seat_assignment_id IS NULL AND g.seat_period_id IS NULL END AS financially_eligible
+       FROM session_reservations r JOIN allowance_grants g ON g.id=r.grant_id
+       JOIN managed_sessions ms ON ms.id=r.session_id WHERE r.session_id=?
+       ORDER BY (g.valid_until_ms IS NULL),g.valid_until_ms,g.created_at_ms,g.id`,
     )
     .all(session.id);
   let cursor = since,
     spent = 0n;
   for (const row of rows) {
-    if (row.revoked) continue;
+    if (row.revoked || !row.financially_eligible) continue;
     const start = max(cursor, row.valid_from_ms);
     const take = min(
       max(min(until, row.valid_until_ms ?? until) - start, 0n),
@@ -226,10 +251,14 @@ export function createSession(
   account: bigint,
   id: string,
   now: bigint,
+  choice: FundingChoice = PERSONAL,
 ): SessionRow {
   requireTransaction(db);
   const existing = readSession(db, account, id);
   if (existing) {
+    const funding = fundingForRow(db, account, existing);
+    assertFundingChoice(funding, choice);
+    if (existing.state !== "stopped") assertFunding(db, account, funding, now);
     if (existing.state === "stopped")
       throw new ApiError(
         "session_ended",
@@ -237,6 +266,7 @@ export function createSession(
       );
     return existing;
   }
+  const funding = resolveFundingContext(db, account, choice, now);
   reserveAttempt(db, account, "session", now, 3_600_000n, 120n);
   db.prepare(
     "DELETE FROM managed_sessions WHERE account_id=? AND state='stopped' AND settled_ms=0 AND reserved_ms=0 AND updated_at_ms<? AND NOT EXISTS(SELECT 1 FROM session_reservations WHERE session_id=managed_sessions.id) AND NOT EXISTS(SELECT 1 FROM usage_events WHERE account_id=? AND session_id=managed_sessions.local_session_id)",
@@ -262,14 +292,24 @@ export function createSession(
       "session_conflict",
       "another assisted meeting is already running on this account",
     );
-  if (balance(db, account, now).meetingMsAvailable <= 0n)
+  if (balance(db, account, now, funding).meetingMsAvailable <= 0n)
     throw new ApiError(
       "quota_exhausted",
-      "no meeting time remains; buy an hours pack to continue",
+      funding.kind === "organization"
+        ? "no meeting time remains on your organization seat"
+        : "no meeting time remains; buy an hours pack to continue",
     );
   db.prepare(
-    "INSERT INTO managed_sessions(account_id,local_session_id,state,lease_version,lease_expires_ms,created_at_ms,updated_at_ms) VALUES(?,?,'active',1,?,?,?)",
-  ).run(account, id, now + LEASE_MS, now, now);
+    "INSERT INTO managed_sessions(account_id,local_session_id,state,lease_version,lease_expires_ms,created_at_ms,updated_at_ms,funding_scope,funding_assignment_id) VALUES(?,?,'active',1,?,?,?,?,?)",
+  ).run(
+    account,
+    id,
+    now + LEASE_MS,
+    now,
+    now,
+    funding.kind,
+    funding.kind === "organization" ? funding.assignmentId : null,
+  );
   setReservation(db, requireSession(db, account, id), RESERVATION_MS, now);
   return requireSession(db, account, id);
 }
@@ -296,7 +336,7 @@ function settleTo(
   );
   return [spent, spent < elapsed];
 }
-function finishInterval(
+export function finishInterval(
   db: Db,
   account: bigint,
   id: string,
@@ -325,6 +365,12 @@ export function attachSource(
   source: Source,
   now: bigint,
 ) {
+  assertFunding(
+    state.db,
+    session.account_id,
+    fundingForRow(state.db, session.account_id, session),
+    now,
+  );
   const live = liveSession(state, session.id);
   const entry = live.sources.get(source) ?? freshSource();
   entry.generation = nextGeneration++;
@@ -383,6 +429,17 @@ export function checkAudio(
       "session_conflict",
       "this meeting session is not active",
     );
+  const entry = state.sessions.get(row)?.sources.get(source) ?? freshSource();
+  if (entry.generation !== generation)
+    throw new ApiError("session_conflict", "superseded audio connection");
+  const sourceDebt =
+    max(entry.bytes - max(now - entry.startedMs, 0n) * 32n, 0n) + BigInt(bytes);
+  if (sourceDebt > BYTES_PER_SECOND)
+    throw new ApiError(
+      "invalid_request",
+      "audio is being uploaded faster than real time",
+      (sourceDebt - BYTES_PER_SECOND + 31n) / 32n,
+    );
   state.db
     .transaction(() => {
       reserveAttempt(state.db, account, "audio_frame", now, 1000n, 200n);
@@ -401,24 +458,13 @@ export function checkAudio(
         throw new ApiError(
           "invalid_request",
           "audio exceeds account real-time pacing",
+          (debt - BYTES_PER_SECOND + 31n) / 32n,
         );
       state.db
         .prepare("INSERT OR REPLACE INTO audio_pacing VALUES(?,?,?,?)")
         .run(account, source, debt, now);
     })
     .immediate();
-  const entry = state.sessions.get(row)?.sources.get(source) ?? freshSource();
-  if (entry.generation !== generation)
-    throw new ApiError("session_conflict", "superseded audio connection");
-  if (
-    max(entry.bytes - max(now - entry.startedMs, 0n) * 32n, 0n) +
-      BigInt(bytes) >
-    BYTES_PER_SECOND
-  )
-    throw new ApiError(
-      "invalid_request",
-      "audio is being uploaded faster than real time",
-    );
 }
 
 export function onAudio(
@@ -428,7 +474,7 @@ export function onAudio(
   source: Source,
   bytes: number,
   now: bigint,
-  expected?: { version: bigint; generation: bigint },
+  expected?: { version: bigint; generation: bigint; admittedAt?: bigint },
 ): "continue" | "exhausted" {
   if (!Number.isSafeInteger(bytes) || bytes <= 0 || bytes % 2)
     throw new ApiError("invalid_request", "invalid PCM frame");
@@ -457,6 +503,7 @@ export function onAudio(
           .get(account)!.disabled
       )
         throw new ApiError("sign_in_required", "account disabled");
+      assertFunding(db, account, fundingForRow(db, account, session), now);
       const previous = state.sessions.get(session.id);
       const live: LiveSession = {
         sources: new Map(
@@ -469,8 +516,9 @@ export function onAudio(
       };
       const previousEnd = live.deliveredUntilMs;
       const entry = live.sources.get(source) ?? freshSource(now);
+      const admittedAt = expected?.admittedAt ?? now;
       const debt =
-        max(entry.bytes - max(now - entry.startedMs, 0n) * 32n, 0n) +
+        max(entry.bytes - max(admittedAt - entry.startedMs, 0n) * 32n, 0n) +
         BigInt(bytes);
       if (debt > BYTES_PER_SECOND)
         throw new ApiError(
@@ -479,7 +527,8 @@ export function onAudio(
         );
       entry.bytes = debt;
       entry.connected = true;
-      entry.startedMs = now;
+      // Pacing uses admission time; coverage and billing use delivered time below.
+      entry.startedMs = admittedAt;
       entry.lastAudioMs = now;
       // One unit is 1/32 ms. Retain fractional samples across frames and gaps.
       const startUnits = max(
@@ -554,6 +603,12 @@ export function onIdleCheck(
 ) {
   const session = readSession(state.db, account, id);
   if (!session) return true;
+  assertFunding(
+    state.db,
+    account,
+    fundingForRow(state.db, account, session),
+    now,
+  );
   const live = state.sessions.get(session.id);
   const idle = [...(live?.sources.values() ?? [])].every(
     (s) => now - s.lastAudioMs >= AUDIO_IDLE_MS,
@@ -579,7 +634,7 @@ export function sessionView(
   now: bigint,
 ): SessionView {
   const session = requireSession(db, account, id),
-    available = balance(db, account, now);
+    available = balance(db, account, now, fundingForRow(db, account, session));
   const remaining = available.meetingMsAvailable + available.meetingMsReserved;
   const warning =
     remaining === 0n
@@ -592,7 +647,15 @@ export function sessionView(
               available.monthlyMsUsed * 100n >= available.monthlyMsTotal * 80n
             ? "monthly_eighty_percent"
             : null;
+  const funding = fundingForRow(db, account, session);
   return {
+    funding:
+      funding.kind === "personal"
+        ? { kind: "personal" }
+        : {
+            kind: "organization",
+            organizationId: funding.organizationId.toString(),
+          },
     sessionId: session.local_session_id,
     state: session.state,
     leaseVersion: session.lease_version,
@@ -664,8 +727,9 @@ export function lifecycle(
     .immediate();
   if (changed) {
     state.sessions.delete(requireSession(state.db, account, id).id);
-    for (const controller of state.cancellations.get(account)?.values() ?? [])
-      controller.abort();
+    const row = requireSession(state.db, account, id).id;
+    for (const entry of state.cancellations.get(account)?.values() ?? [])
+      if (entry.sessionId === row) entry.controller.abort();
   }
   return view;
 }
@@ -793,8 +857,9 @@ export function pauseSession(state: ServiceState, account: bigint, id: string) {
     })
     .immediate();
   state.sessions.delete(requireSession(state.db, account, id).id);
-  for (const controller of state.cancellations.get(account)?.values() ?? [])
-    controller.abort();
+  const row = requireSession(state.db, account, id).id;
+  for (const entry of state.cancellations.get(account)?.values() ?? [])
+    if (entry.sessionId === row) entry.controller.abort();
   return view;
 }
 export function expireStaleSessions(state: ServiceState) {

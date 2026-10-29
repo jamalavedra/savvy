@@ -1,3 +1,6 @@
+import { organizationRequest } from "./org-api.js";
+import { organizationAccountSummary } from "./org.js";
+import { fundingChoice } from "./funding.js";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { ServiceState } from "./state.js";
 import { available } from "./ai.js";
@@ -117,6 +120,10 @@ export async function managedRequest(
   path: string,
 ) {
   try {
+    if (path === "/v1/org" || path.startsWith("/v1/org/")) {
+      await organizationRequest(state, req, res, path);
+      return;
+    }
     if (path === "/v1/sources/connections" && req.method === "GET") {
       const account = await state.authorize(req.headers);
       send(res, {
@@ -254,6 +261,19 @@ export async function managedRequest(
           undefined,
           422,
         );
+      const funding = fundingChoice.optional().safeParse(body.funding);
+      if (
+        !funding.success ||
+        Object.keys(body).some(
+          (key) => key !== "sessionId" && key !== "funding",
+        )
+      )
+        throw new ApiError(
+          "invalid_request",
+          "invalid session funding",
+          undefined,
+          422,
+        );
       const id = validateSessionId(body.sessionId);
       const existing = state.db
         .prepare(
@@ -270,7 +290,13 @@ export async function managedRequest(
         state.db
           .transaction(() => {
             if (!existing) state.requireAssistance();
-            createSession(state.db, account.accountId, id, state.clock());
+            createSession(
+              state.db,
+              account.accountId,
+              id,
+              state.clock(),
+              funding.data,
+            );
             return sessionView(state.db, account.accountId, id, state.clock());
           })
           .immediate(),
@@ -387,6 +413,12 @@ export async function managedRequest(
         .immediate();
       send(res, {
         ...summary,
+        ...organizationAccountSummary(
+          state.db,
+          account.accountId,
+          state.clock(),
+          state.config.issuer,
+        ),
         identity: account.displayIdentity,
         purchaseAvailability: {
           monthly: !state.draining,

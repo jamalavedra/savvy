@@ -224,3 +224,72 @@ compares balances, usage, pending purchases and durable attempt limits.
 
 See [`deploy/README.md`](../deploy/README.md) for the single-process deployment
 layout. These local checks do not touch any production configuration or data.
+
+## Organization seats
+
+`/team` and `/team/join` are part of the same hosted bundle and origin as sign-in.
+No new environment variables or Better Auth organization plugin are required.
+The service database owns membership, stable seats, assignment history, invoice
+periods and grants. Better Auth owns identity. One owner manages up to 50 seats;
+an owner need not occupy one. Each seat uses the existing monthly catalog Price
+and its per-person allowance. Quantity changes apply at the next paid renewal,
+without proration. Decreases require vacant seats selected for retirement.
+
+`GET /v1/org` works for a verified browser cookie or desktop bearer token. The
+following POST routes accept JSON: `/v1/org` to create, `/v1/org/checkout`,
+`/v1/org/seats` to schedule quantity, `/v1/org/portal`, `/v1/org/invitations`,
+`/v1/org/invitations/{id}/revoke`, `/v1/org/invitations/{id}/resend`,
+`/v1/org/invitations/accept`, `/v1/org/seats/{id}/assign`,
+`/v1/org/seats/{id}/unassign`, `/v1/org/members/{id}/remove`,
+`/v1/org/transfer-owner`, and `/v1/org/leave`. Cookie writes require the exact
+configured Origin and `application/json`. An invalid bearer header never falls
+back to a cookie. Ownership and membership are rechecked inside write transactions.
+
+Invitations use the existing SMTP transport after the database commit. A link
+carries its random token in `/team/join#token`; only its hash is stored. Tokens
+expire after seven days and require the invited verified email. At most 50 open
+invitations are allowed. Resending rotates the token. Failed mail is visible and
+does not erase the invitation. Acceptance creates membership even when no paid
+seat is vacant. Owner responses contain membership and aggregate usage only.
+
+New desktop requests send `funding: {kind:"personal"}` or
+`funding: {kind:"organization", organizationId:"<decimal id>"}` when creating a
+session or brief. Omitted funding is personal only. The backend freezes the
+resolved assignment on the operation and checks it before spending. Personal
+account totals exclude seat grants; `/v1/account` adds `organization` and
+`organizationAllowance`. Advice and audio inherit the session's payer. Seat loss,
+exhaustion, refund or dispute never causes fallback to another allowance. Any
+partial refund invalidates that invoice's whole seat budget. A won dispute cannot
+undo a refund or another open dispute. Reassignment transfers only the unspent
+remainder, without transferring personal data or creating fresh allowance.
+
+New desktop preferences are stored per verified issuer and subject. Paid pending
+brief files include their original identity and funding choice. A different payer
+cannot silently recover them as a new request. Legacy managed pending files
+without this metadata remain preserved and require explicit local recovery;
+they are not regenerated or charged automatically.
+
+Acquisition defaults off. The packaged `capability` command supports `show`,
+`configure-team-portal`, `disable-team-purchases`, and `activate-team-purchases`; each requires
+`--db <existing service.sqlite>`. Activation also requires
+`--checkpoint-commit <40-character sha>` and
+`--checkpoint-manifest <built service-capabilities.json>`. Stop the service first.
+Before activation, run `configure-team-portal --db <existing service.sqlite>
+--configuration <bpc_id>` with the existing `SAVVY_STRIPE_SECRET_KEY` loaded
+privately. It retrieves the configuration from Stripe using the pinned API version
+and saves its ID only when active, cancellation is enabled, and subscription
+updates are disabled. Invalid or unavailable configurations leave the stored ID
+unchanged. Activation refuses a missing configuration; portal opening revalidates
+the current Stripe settings.
+The source manifest remains capability 1 until complete-release acceptance.
+Activation requires capability 2, records an immutable compatible checkpoint and
+permanent database floor before payment creation, and cannot be reversed by
+turning acquisition off. Disabled acquisition blocks new organizations, checkouts
+and invitation sends, while existing invitations, entitlements, renewals,
+reconciliation, revocations and administration continue.
+
+Run `pnpm rollback-preflight --db <existing service.sqlite> --candidate
+<candidate/backend/build/service-capabilities.json>` from the current backend
+package before switching releases. Missing metadata means capability 0. The CLI
+reads the existing database without migrations and rejects incompatible releases.
+See the deployment guide for the guarded atomic switch and activation gates.

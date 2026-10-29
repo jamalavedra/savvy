@@ -216,11 +216,55 @@
         "notnull": 1,
         "dflt_value": null,
         "pk": 0
+      },
+      {
+        "cid": 15,
+        "name": "seat_period_id",
+        "type": "INTEGER",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 16,
+        "name": "seat_assignment_id",
+        "type": "INTEGER",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 17,
+        "name": "revocation_reason",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
       }
     ],
     "foreignKeys": [
       {
         "id": 0,
+        "seq": 0,
+        "table": "seat_assignments",
+        "from": "seat_assignment_id",
+        "to": "id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      },
+      {
+        "id": 1,
+        "seq": 0,
+        "table": "seat_periods",
+        "from": "seat_period_id",
+        "to": "id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      },
+      {
+        "id": 2,
         "seq": 0,
         "table": "accounts",
         "from": "account_id",
@@ -887,6 +931,22 @@
       },
       {
         "cid": 12,
+        "name": "funding_scope",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": "'personal'",
+        "pk": 0
+      },
+      {
+        "cid": 13,
+        "name": "funding_assignment_id",
+        "type": "INTEGER",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 14,
         "name": "lifecycle_command",
         "type": "INTEGER",
         "notnull": 1,
@@ -897,6 +957,16 @@
     "foreignKeys": [
       {
         "id": 0,
+        "seq": 0,
+        "table": "seat_assignments",
+        "from": "funding_assignment_id",
+        "to": "id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      },
+      {
+        "id": 1,
         "seq": 0,
         "table": "accounts",
         "from": "account_id",
@@ -922,6 +992,921 @@
             "seqno": 1,
             "cid": 2,
             "name": "local_session_id"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "organization_checkouts",
+    "columns": [
+      {
+        "cid": 0,
+        "name": "id",
+        "type": "INTEGER",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 1
+      },
+      {
+        "cid": 1,
+        "name": "organization_id",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 2,
+        "name": "request_key",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 3,
+        "name": "quantity",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 4,
+        "name": "price_id",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 5,
+        "name": "return_url",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 6,
+        "name": "stripe_idempotency_key",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 7,
+        "name": "stripe_session_id",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 8,
+        "name": "stripe_subscription_id",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 9,
+        "name": "stripe_item_id",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 10,
+        "name": "state",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 11,
+        "name": "search_cursor",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 12,
+        "name": "created_at_ms",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 13,
+        "name": "updated_at_ms",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      }
+    ],
+    "foreignKeys": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "organizations",
+        "from": "organization_id",
+        "to": "id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "indexes": [
+      {
+        "name": "organization_one_pending_checkout",
+        "unique": 1,
+        "origin": "c",
+        "partial": 1,
+        "columns": [
+          {
+            "seqno": 0,
+            "cid": 1,
+            "name": "organization_id"
+          }
+        ]
+      },
+      {
+        "name": "sqlite_autoindex_organization_checkouts_3",
+        "unique": 1,
+        "origin": "u",
+        "partial": 0,
+        "columns": [
+          {
+            "seqno": 0,
+            "cid": 1,
+            "name": "organization_id"
+          },
+          {
+            "seqno": 1,
+            "cid": 2,
+            "name": "request_key"
+          }
+        ]
+      },
+      {
+        "name": "sqlite_autoindex_organization_checkouts_2",
+        "unique": 1,
+        "origin": "u",
+        "partial": 0,
+        "columns": [
+          {
+            "seqno": 0,
+            "cid": 7,
+            "name": "stripe_session_id"
+          }
+        ]
+      },
+      {
+        "name": "sqlite_autoindex_organization_checkouts_1",
+        "unique": 1,
+        "origin": "u",
+        "partial": 0,
+        "columns": [
+          {
+            "seqno": 0,
+            "cid": 6,
+            "name": "stripe_idempotency_key"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "organization_invitations",
+    "columns": [
+      {
+        "cid": 0,
+        "name": "id",
+        "type": "INTEGER",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 1
+      },
+      {
+        "cid": 1,
+        "name": "organization_id",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 2,
+        "name": "email_normalized",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 3,
+        "name": "token_hash",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 4,
+        "name": "assign_seat",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": "0",
+        "pk": 0
+      },
+      {
+        "cid": 5,
+        "name": "expires_ms",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 6,
+        "name": "delivery_state",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 7,
+        "name": "accepted_account_id",
+        "type": "INTEGER",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 8,
+        "name": "accepted_at_ms",
+        "type": "INTEGER",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 9,
+        "name": "revoked",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": "0",
+        "pk": 0
+      },
+      {
+        "cid": 10,
+        "name": "created_at_ms",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      }
+    ],
+    "foreignKeys": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "accounts",
+        "from": "accepted_account_id",
+        "to": "id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      },
+      {
+        "id": 1,
+        "seq": 0,
+        "table": "organizations",
+        "from": "organization_id",
+        "to": "id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "indexes": [
+      {
+        "name": "sqlite_autoindex_organization_invitations_1",
+        "unique": 1,
+        "origin": "u",
+        "partial": 0,
+        "columns": [
+          {
+            "seqno": 0,
+            "cid": 3,
+            "name": "token_hash"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "organization_members",
+    "columns": [
+      {
+        "cid": 0,
+        "name": "organization_id",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 1
+      },
+      {
+        "cid": 1,
+        "name": "account_id",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 2
+      },
+      {
+        "cid": 2,
+        "name": "role",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 3,
+        "name": "display_email",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 4,
+        "name": "created_at_ms",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      }
+    ],
+    "foreignKeys": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "accounts",
+        "from": "account_id",
+        "to": "id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      },
+      {
+        "id": 1,
+        "seq": 0,
+        "table": "organizations",
+        "from": "organization_id",
+        "to": "id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "indexes": [
+      {
+        "name": "organization_single_owner",
+        "unique": 1,
+        "origin": "c",
+        "partial": 1,
+        "columns": [
+          {
+            "seqno": 0,
+            "cid": 0,
+            "name": "organization_id"
+          }
+        ]
+      },
+      {
+        "name": "sqlite_autoindex_organization_members_2",
+        "unique": 1,
+        "origin": "pk",
+        "partial": 0,
+        "columns": [
+          {
+            "seqno": 0,
+            "cid": 0,
+            "name": "organization_id"
+          },
+          {
+            "seqno": 1,
+            "cid": 1,
+            "name": "account_id"
+          }
+        ]
+      },
+      {
+        "name": "sqlite_autoindex_organization_members_1",
+        "unique": 1,
+        "origin": "u",
+        "partial": 0,
+        "columns": [
+          {
+            "seqno": 0,
+            "cid": 1,
+            "name": "account_id"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "organization_payments",
+    "columns": [
+      {
+        "cid": 0,
+        "name": "stripe_object_id",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 1
+      },
+      {
+        "cid": 1,
+        "name": "organization_id",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 2,
+        "name": "invoice_id",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 3,
+        "name": "amount_cents",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 4,
+        "name": "created_ms",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      }
+    ],
+    "foreignKeys": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "organizations",
+        "from": "organization_id",
+        "to": "id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "indexes": [
+      {
+        "name": "sqlite_autoindex_organization_payments_1",
+        "unique": 1,
+        "origin": "pk",
+        "partial": 0,
+        "columns": [
+          {
+            "seqno": 0,
+            "cid": 0,
+            "name": "stripe_object_id"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "organization_quantity_changes",
+    "columns": [
+      {
+        "cid": 0,
+        "name": "id",
+        "type": "INTEGER",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 1
+      },
+      {
+        "cid": 1,
+        "name": "organization_id",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 2,
+        "name": "request_key",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 3,
+        "name": "quantity",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 4,
+        "name": "stripe_subscription_id",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 5,
+        "name": "stripe_item_id",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 6,
+        "name": "price_id",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 7,
+        "name": "retire_seat_ids",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 8,
+        "name": "previous_retire_seat_ids",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": "'[]'",
+        "pk": 0
+      },
+      {
+        "cid": 9,
+        "name": "stripe_idempotency_key",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 10,
+        "name": "state",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 11,
+        "name": "created_at_ms",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      }
+    ],
+    "foreignKeys": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "organizations",
+        "from": "organization_id",
+        "to": "id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "indexes": [
+      {
+        "name": "organization_one_pending_quantity_change",
+        "unique": 1,
+        "origin": "c",
+        "partial": 1,
+        "columns": [
+          {
+            "seqno": 0,
+            "cid": 1,
+            "name": "organization_id"
+          }
+        ]
+      },
+      {
+        "name": "sqlite_autoindex_organization_quantity_changes_2",
+        "unique": 1,
+        "origin": "u",
+        "partial": 0,
+        "columns": [
+          {
+            "seqno": 0,
+            "cid": 1,
+            "name": "organization_id"
+          },
+          {
+            "seqno": 1,
+            "cid": 2,
+            "name": "request_key"
+          }
+        ]
+      },
+      {
+        "name": "sqlite_autoindex_organization_quantity_changes_1",
+        "unique": 1,
+        "origin": "u",
+        "partial": 0,
+        "columns": [
+          {
+            "seqno": 0,
+            "cid": 9,
+            "name": "stripe_idempotency_key"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "organization_reversals",
+    "columns": [
+      {
+        "cid": 0,
+        "name": "stripe_object_id",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 1
+      },
+      {
+        "cid": 1,
+        "name": "organization_id",
+        "type": "INTEGER",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 2,
+        "name": "invoice_id",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 3,
+        "name": "kind",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 4,
+        "name": "status",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 5,
+        "name": "created_ms",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      }
+    ],
+    "foreignKeys": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "organizations",
+        "from": "organization_id",
+        "to": "id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "indexes": [
+      {
+        "name": "sqlite_autoindex_organization_reversals_1",
+        "unique": 1,
+        "origin": "pk",
+        "partial": 0,
+        "columns": [
+          {
+            "seqno": 0,
+            "cid": 0,
+            "name": "stripe_object_id"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "organization_subscriptions",
+    "columns": [
+      {
+        "cid": 0,
+        "name": "organization_id",
+        "type": "INTEGER",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 1
+      },
+      {
+        "cid": 1,
+        "name": "stripe_subscription_id",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 2,
+        "name": "stripe_item_id",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 3,
+        "name": "price_id",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 4,
+        "name": "status",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 5,
+        "name": "quantity_next",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": "0",
+        "pk": 0
+      },
+      {
+        "cid": 6,
+        "name": "external_change",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": "0",
+        "pk": 0
+      },
+      {
+        "cid": 7,
+        "name": "paid_through_ms",
+        "type": "INTEGER",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 8,
+        "name": "cancel_at_period_end",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": "0",
+        "pk": 0
+      },
+      {
+        "cid": 9,
+        "name": "updated_at_ms",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 10,
+        "name": "checked_at_ms",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": "0",
+        "pk": 0
+      }
+    ],
+    "foreignKeys": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "organizations",
+        "from": "organization_id",
+        "to": "id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "indexes": [
+      {
+        "name": "sqlite_autoindex_organization_subscriptions_1",
+        "unique": 1,
+        "origin": "u",
+        "partial": 0,
+        "columns": [
+          {
+            "seqno": 0,
+            "cid": 1,
+            "name": "stripe_subscription_id"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "organizations",
+    "columns": [
+      {
+        "cid": 0,
+        "name": "id",
+        "type": "INTEGER",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 1
+      },
+      {
+        "cid": 1,
+        "name": "name",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 2,
+        "name": "stripe_customer_id",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 3,
+        "name": "created_at_ms",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      }
+    ],
+    "foreignKeys": [],
+    "indexes": [
+      {
+        "name": "sqlite_autoindex_organizations_1",
+        "unique": 1,
+        "origin": "u",
+        "partial": 0,
+        "columns": [
+          {
+            "seqno": 0,
+            "cid": 2,
+            "name": "stripe_customer_id"
           }
         ]
       }
@@ -1025,11 +2010,37 @@
         "notnull": 1,
         "dflt_value": null,
         "pk": 0
+      },
+      {
+        "cid": 12,
+        "name": "funding_scope",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": "'personal'",
+        "pk": 0
+      },
+      {
+        "cid": 13,
+        "name": "funding_assignment_id",
+        "type": "INTEGER",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
       }
     ],
     "foreignKeys": [
       {
         "id": 0,
+        "seq": 0,
+        "table": "seat_assignments",
+        "from": "funding_assignment_id",
+        "to": "id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      },
+      {
+        "id": 1,
         "seq": 0,
         "table": "accounts",
         "from": "account_id",
@@ -1125,6 +2136,358 @@
     ]
   },
   {
+    "name": "seat_assignments",
+    "columns": [
+      {
+        "cid": 0,
+        "name": "id",
+        "type": "INTEGER",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 1
+      },
+      {
+        "cid": 1,
+        "name": "seat_id",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 2,
+        "name": "account_id",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 3,
+        "name": "assigned_at_ms",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 4,
+        "name": "ended_at_ms",
+        "type": "INTEGER",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 5,
+        "name": "end_reason",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
+      }
+    ],
+    "foreignKeys": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "accounts",
+        "from": "account_id",
+        "to": "id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      },
+      {
+        "id": 1,
+        "seq": 0,
+        "table": "seats",
+        "from": "seat_id",
+        "to": "id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "indexes": [
+      {
+        "name": "account_one_open_assignment",
+        "unique": 1,
+        "origin": "c",
+        "partial": 1,
+        "columns": [
+          {
+            "seqno": 0,
+            "cid": 2,
+            "name": "account_id"
+          }
+        ]
+      },
+      {
+        "name": "seat_one_open_assignment",
+        "unique": 1,
+        "origin": "c",
+        "partial": 1,
+        "columns": [
+          {
+            "seqno": 0,
+            "cid": 1,
+            "name": "seat_id"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "seat_periods",
+    "columns": [
+      {
+        "cid": 0,
+        "name": "id",
+        "type": "INTEGER",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 1
+      },
+      {
+        "cid": 1,
+        "name": "organization_id",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 2,
+        "name": "seat_id",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 3,
+        "name": "invoice_id",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 4,
+        "name": "starts_ms",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 5,
+        "name": "ends_ms",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 6,
+        "name": "price_id",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 7,
+        "name": "budget_ms",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 8,
+        "name": "budget_briefs",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 9,
+        "name": "financial_status",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      }
+    ],
+    "foreignKeys": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "seats",
+        "from": "seat_id",
+        "to": "id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      },
+      {
+        "id": 1,
+        "seq": 0,
+        "table": "organizations",
+        "from": "organization_id",
+        "to": "id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "indexes": [
+      {
+        "name": "sqlite_autoindex_seat_periods_1",
+        "unique": 1,
+        "origin": "u",
+        "partial": 0,
+        "columns": [
+          {
+            "seqno": 0,
+            "cid": 2,
+            "name": "seat_id"
+          },
+          {
+            "seqno": 1,
+            "cid": 3,
+            "name": "invoice_id"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "seats",
+    "columns": [
+      {
+        "cid": 0,
+        "name": "id",
+        "type": "INTEGER",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 1
+      },
+      {
+        "cid": 1,
+        "name": "organization_id",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 2,
+        "name": "seat_number",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 3,
+        "name": "status",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 4,
+        "name": "created_at_ms",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      }
+    ],
+    "foreignKeys": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "organizations",
+        "from": "organization_id",
+        "to": "id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "indexes": [
+      {
+        "name": "sqlite_autoindex_seats_1",
+        "unique": 1,
+        "origin": "u",
+        "partial": 0,
+        "columns": [
+          {
+            "seqno": 0,
+            "cid": 1,
+            "name": "organization_id"
+          },
+          {
+            "seqno": 1,
+            "cid": 2,
+            "name": "seat_number"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "service_capabilities",
+    "columns": [
+      {
+        "cid": 0,
+        "name": "key",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 1
+      },
+      {
+        "cid": 1,
+        "name": "value",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 2,
+        "name": "set_at_ms",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      }
+    ],
+    "foreignKeys": [],
+    "indexes": [
+      {
+        "name": "sqlite_autoindex_service_capabilities_1",
+        "unique": 1,
+        "origin": "pk",
+        "partial": 0,
+        "columns": [
+          {
+            "seqno": 0,
+            "cid": 0,
+            "name": "key"
+          }
+        ]
+      }
+    ]
+  },
+  {
     "name": "session_reservations",
     "columns": [
       {
@@ -1190,6 +2553,69 @@
             "seqno": 1,
             "cid": 1,
             "name": "grant_id"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "stripe_customers",
+    "columns": [
+      {
+        "cid": 0,
+        "name": "stripe_customer_id",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 1
+      },
+      {
+        "cid": 1,
+        "name": "owner_kind",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 2,
+        "name": "owner_id",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      }
+    ],
+    "foreignKeys": [],
+    "indexes": [
+      {
+        "name": "sqlite_autoindex_stripe_customers_2",
+        "unique": 1,
+        "origin": "u",
+        "partial": 0,
+        "columns": [
+          {
+            "seqno": 0,
+            "cid": 1,
+            "name": "owner_kind"
+          },
+          {
+            "seqno": 1,
+            "cid": 2,
+            "name": "owner_id"
+          }
+        ]
+      },
+      {
+        "name": "sqlite_autoindex_stripe_customers_1",
+        "unique": 1,
+        "origin": "pk",
+        "partial": 0,
+        "columns": [
+          {
+            "seqno": 0,
+            "cid": 0,
+            "name": "stripe_customer_id"
           }
         ]
       }
