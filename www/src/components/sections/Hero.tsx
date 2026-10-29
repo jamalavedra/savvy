@@ -79,21 +79,21 @@ export function Hero() {
     <section className="pt-10 pb-20 lg:pt-16">
       <div className="page-column">
         <FadeInUp>
-          <p className="text-center font-mono text-[11px] uppercase tracking-wider text-muted">
-            Real-time AI meeting assistant
-          </p>
-          <h1 className="text-display mx-auto mt-3 max-w-2xl text-center text-balance">
+          <h1 className="text-display mx-auto max-w-2xl text-center text-balance">
             Know what to say, and which file says so.
           </h1>
           <p className="mx-auto mt-4 max-w-2xl text-center text-lead text-balance text-muted">
-            Savvy reads your files, then suggests what to say in{" "}
-            <App src="/images/logos/google-meet.svg" name="Google Meet," />{" "}
-            <App src="/images/logos/microsoft-teams.svg" name="Teams" /> and{" "}
-            <App src="/images/logos/zoom.svg" name="Zoom" /> calls. No bot joins.
+            Savvy is a real-time meeting assistant that helps you negotiate your next salary, finish
+            your interview strong, or close your next client.
           </p>
           <div className="mt-6">
             <DownloadButtons align="center" />
           </div>
+          <p className="mt-5 text-center text-small text-muted">
+            Works with <App src="/images/logos/google-meet.svg" name="Google Meet," />{" "}
+            <App src="/images/logos/microsoft-teams.svg" name="Teams" /> and{" "}
+            <App src="/images/logos/zoom.svg" name="Zoom" />. No bot joins.
+          </p>
         </FadeInUp>
 
         <FadeInUp delay={0.08}>
