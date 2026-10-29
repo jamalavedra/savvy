@@ -406,7 +406,7 @@ async function relay(
     await Promise.all([close(client), ...(upstream ? [close(upstream)] : [])]);
     finishResolve();
   };
-  let nextDelivery = 0;
+  let nextDelivery: number | undefined;
   const pump = async () => {
     if (pumping || stopping || upstream?.readyState !== WebSocket.OPEN) return;
     pumping = true;
@@ -414,6 +414,7 @@ async function relay(
       while (queue.length && !stopping) {
         const chunk = queue.shift()!;
         // Network buffering can bunch up correctly paced client frames.
+        nextDelivery ??= performance.now();
         const delay = Math.ceil(nextDelivery - performance.now());
         if (delay > 0)
           await new Promise((resolve) => setTimeout(resolve, delay));
@@ -430,7 +431,9 @@ async function relay(
         );
         try {
           nextDelivery =
-            Math.max(nextDelivery, performance.now() - 50) + chunk.length / 32;
+            // Recover late timers within the existing one-second admission burst.
+            Math.max(nextDelivery, performance.now() - MAX_AUDIO / 32) +
+            chunk.length / 32;
           await send(upstream, chunk, MAX_AUDIO);
         } catch (error) {
           upstreamWriteFailure =
