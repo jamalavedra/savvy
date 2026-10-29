@@ -2,6 +2,7 @@
 title: How Savvy decides when to speak
 description: How triggers, background scans, skip rules and grounding scores decide whether Savvy shows a card during a call.
 date: 2026-09-04
+updated: 2026-10-29
 tags: how it works, triggers, grounding
 ---
 
@@ -90,7 +91,7 @@ Savvy rejects automatic cards below 0.55. Manual Advice is exempt because you as
 
 ## Lifetimes and limits
 
-A card expires after the validity window the model proposed, clamped between one second and two minutes. Savvy caps each provider call at 30 seconds. If no recommendation CLI is signed in, Savvy never thinks during the meeting; it shows one notice and stays quiet.
+A card expires after the validity window the model proposed, clamped between one second and two minutes. Savvy caps each provider call at 30 seconds. In personal-provider mode, an unavailable recommendation CLI produces a notice instead of model requests. Managed assistance uses Savvy's hosted supplier access and does not require a CLI. See [setup and pricing](/pricing/).
 
 ## Why this much restraint
 

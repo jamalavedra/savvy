@@ -2,6 +2,7 @@
 title: The best AI note taker depends on one question: bot or no bot
 description: An honest comparison of AI note takers and meeting assistants in 2026, grouped by architecture rather than feature count: bot or bot-free, post-call or in-call, vendor model or your own.
 date: 2026-09-22
+updated: 2026-10-29
 tags: comparison, meeting-assistant, privacy
 ---
 
@@ -38,7 +39,7 @@ The in-call tools are a smaller group, and they split again by what the live hel
 
 Bots bundle a model into the seat price. You get the vendor's choice, and the data-handling terms are the vendor's.
 
-Savvy has no model of its own. It shells out to the Claude Code or Codex CLI already installed and signed in on your Mac, so recommendations bill to the plan you already pay for and run under terms you already accepted. Convenient if you have one, a setup step if you do not. [Bring your own model](/blog/bring-your-own-model-claude-code-codex/) has the cost and data-flow detail.
+With personal providers, Savvy calls Claude Code or Codex CLI installed and signed in on your Mac. Recommendations use your account and its terms. [Bring your own model](/blog/bring-your-own-model-claude-code-codex/) explains that setup. Optional paid managed assistance handles provider access without your own key or CLI, using Deepgram and Fireworks GLM-5.3 through Savvy's backend. [Compare setup and pricing](/pricing/).
 
 ## So which one
 
@@ -46,13 +47,13 @@ Savvy has no model of its own. It shells out to the Claude Code or Codex CLI alr
 
 **Pick Granola** if you want bot-free capture on Mac or Windows, you like typing your own bullets and having them cleaned up, and post-call notes are all you need.
 
-**Pick Savvy** if the hard part of your calls is what to say while the other side is still talking, the answer lives in documents you already have, and you would rather run the model on your own account than rent one. It is a single-person Mac app, free and MIT-licensed, with no team archive and no CRM.
+**Pick Savvy** if the hard part of your calls is what to say while the other side is still talking and the answer lives in documents you already have. It is a single-person Mac app, free and MIT-licensed, with personal-provider and paid managed setups. It has no shared meeting archive or CRM writeback.
 
 **Pick two.** Several people we talk to run a bot for the record and Savvy for the conversation. They do not conflict; the bot is in the call, Savvy is on the laptop.
 
 ## What to check before you commit to any of them
 
-- Where the audio goes, and under whose account. "Local-first" is not the same as offline. Savvy keeps documents, briefs and transcripts on your Mac but streams meeting audio to Deepgram or AssemblyAI under your own key. Our [privacy section](/#privacy) draws the whole flow.
+- Where the audio goes, and under whose account. "Local-first" is not the same as offline. Savvy keeps documents, briefs and transcripts on your Mac. Audio goes to your Deepgram or AssemblyAI account directly, or through Savvy to Deepgram in managed mode. Our [privacy section](/#privacy) draws the whole flow.
 - How long recordings are kept, and whether you can shorten it. Savvy deletes local audio and transcripts after 30 days.
 - Whether the tool works for the calls you actually have. Half of many people's important conversations are in a room or on a phone, where a meeting bot cannot follow.
 - What happens on the pricing page in a year. A free tier that limits minutes is a different commitment from an MIT licence.

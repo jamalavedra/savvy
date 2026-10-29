@@ -1,11 +1,14 @@
 ---
 title: Bring your own model, with the CLI you already pay for
-description: Savvy has no model of its own; it shells out to Claude Code or the Codex CLI on your Mac. What that means for cost, terms, rate limits and what leaves your Mac.
+description: How Savvy uses your signed-in Claude Code or Codex CLI in personal-provider mode, including cost, rate limits and data flow, plus the managed alternative.
 date: 2026-09-05
+updated: 2026-10-29
 tags: bring your own model, Claude Code, Codex CLI, cost
 ---
 
-Savvy calls Anthropic's Claude Code or OpenAI's Codex CLI on your Mac for recommendations. You install the CLI and sign in. Savvy hands it a prompt and reads the answer back. We built it this way so requests use your account and its terms.
+In personal-provider mode, Savvy calls Anthropic's Claude Code or OpenAI's Codex CLI on your Mac for recommendations. You install the CLI and sign in. Savvy hands it a prompt and reads the answer back. We built it this way so requests use your account and its terms.
+
+Optional paid managed assistance is a separate path. It needs no personal transcription key or CLI: audio passes through Savvy to Deepgram and selected brief evidence and meeting context through Savvy to Fireworks GLM-5.3. [Compare setup and pricing](/pricing/) and read the [privacy policy](/privacy/) for that path. The rest of this guide describes personal providers.
 
 ## How it works
 
@@ -29,7 +32,7 @@ Because Savvy calls the CLI under your account, your account's terms apply to ev
 - If it is a personal account, the provider processes them under the terms you accepted. Check whether those allow training on your inputs and whether that is acceptable for the calls you have in mind.
 - For transcription, Savvy sets Deepgram's `mip_opt_out=true` so audio is not used for model training. AssemblyAI has its own terms; read them before choosing it.
 
-Savvy does not add a data-processing agreement of its own, because no Savvy server is involved.
+In personal-provider mode, transcription and model requests go directly to your providers. Managed assistance uses Savvy's backend and suppliers instead, as described in the [privacy policy](/privacy/).
 
 ## What leaves your Mac, per request
 
@@ -58,15 +61,11 @@ Bring-your-own-model is not free of cost. It moves the cost somewhere you can se
 - **Model choice is limited to what the CLI offers.** Savvy lets you pick a model per provider in Settings, but the list is whatever Claude Code or Codex can run under your account.
 - **Sign-in state can drift.** If the CLI logs you out, Savvy reports it in Settings and stays quiet during the meeting rather than guessing.
 
-## Why we built it this way
+## Why keep personal providers as an option
 
-Three reasons.
+Personal-provider mode lets you reuse an account you already pay for and keep meeting processing under that provider's terms. Savvy adds no model markup on this path.
 
-First, we did not want to be a middleman for your meeting content. Any Savvy-hosted model would mean Savvy servers seeing excerpts of your documents. Calling a CLI on your machine keeps us out of the loop.
-
-Second, pricing. A meeting assistant with its own model has to charge a subscription to cover inference. Most people who would use Savvy already pay for a coding assistant that sits idle during meetings.
-
-Third, terms. Enterprise users have usually already negotiated data-handling terms with Anthropic or OpenAI. Reusing that account means an agreement someone has already read covers the meeting content, instead of a new one from a small vendor.
+Managed assistance serves people who prefer Savvy to handle provider access. It has a separate price and processing path. The desktop app remains MIT-licensed for both setups.
 
 ## Setting it up
 

@@ -2,6 +2,7 @@
 title: Otter.ai alternatives: pick by what you are replacing
 description: Otter does three jobs: live captions, a searchable archive, and post-call summaries. Pick an alternative by the one you use. With prices for each.
 date: 2026-09-22
+updated: 2026-10-29
 tags: comparison, meeting-assistant, privacy
 ---
 
@@ -40,15 +41,15 @@ Savvy is the second kind, and only the second kind. Before the call it reads doc
 
 Otter prices a bundle: transcription, storage, and its own model, per seat per month, with a free tier that caps minutes and per-meeting length.
 
-Savvy unbundles all three, which is better on some axes and worse on others.
+Savvy's personal-provider setup separates the app from provider access:
 
 - **The app** is free and MIT-licensed. No tier, no seats.
 - **Transcription** is your own Deepgram or AssemblyAI key, billed per audio minute by them. See [Deepgram or AssemblyAI](/blog/deepgram-vs-assemblyai-for-meeting-transcription/).
 - **The model** is whatever Claude Code or Codex CLI is signed in to on your Mac, billed on your existing plan. See [Bring your own model](/blog/bring-your-own-model-claude-code-codex/).
 
-So there are two accounts to set up before the first recommendation, and nothing to cancel later. Whether that is an upgrade depends entirely on whether you would rather manage providers or pay a seat.
+Personal setup needs a transcription key and a signed-in CLI. Optional paid managed assistance needs neither: audio passes through Savvy to Deepgram and selected brief evidence and meeting context through Savvy to Fireworks GLM-5.3. [Compare setup and pricing](/pricing/) and read the [privacy policy](/privacy/) before choosing.
 
-On data: with Otter, the vendor holds the recording, the transcript, and the summary under its terms. With Savvy, your transcription provider receives the audio under your key, your model provider sees excerpts and recent turns under your plan, and the files stay on your Mac with local audio and transcripts deleted after 30 days. Neither is "private" in the absolute sense. They put the trust in different places, and the [privacy section](/#privacy) shows exactly where ours goes.
+On data: with Otter, the vendor holds the recording, the transcript, and the summary under its terms. With Savvy's personal-provider setup, your transcription provider receives the audio under your key, your model provider sees excerpts and recent turns under your plan, and the files stay on your Mac with local audio and transcripts deleted after 30 days. Neither is "private" in the absolute sense. They put the trust in different places, and the [privacy section](/#privacy) shows exactly where ours goes.
 
 ## One thing to settle before you switch away from a bot
 
@@ -62,7 +63,7 @@ List prices in USD, per user, as published on each vendor's pricing page in Octo
 - **Fathom:** Free with unlimited recordings. Premium is $20 a month or $16 billed annually; Team is $19 a month or $15 billed annually, for two users or more. Bot-free capture is a Mac beta. Source: [fathom.ai/pricing](https://www.fathom.ai/pricing).
 - **Fireflies:** a free tier and per-seat Pro and Business plans. The pricing page did not show figures when we checked, so look there directly: [fireflies.ai/pricing](https://fireflies.ai/pricing).
 - **Granola:** Basic is free with 30 days of meeting history. Business is $14 a month. Source: [granola.ai/pricing](https://www.granola.ai/pricing).
-- **Savvy:** the app is free and MIT-licensed. With your own providers you pay Deepgram or AssemblyAI per audio minute and use the Claude Code or Codex plan you already have. Savvy managed is $79 a month for 10 meeting hours and 20 briefs, or a $29 pack of 3 hours. Source: [pricing](/pricing/).
+- **Savvy:** the app is free and MIT-licensed. With your own providers you pay Deepgram or AssemblyAI per audio minute and use the Claude Code or Codex plan you already have. Optional paid managed assistance handles provider access. See current allowances and prices on the [pricing page](/pricing/).
 
 ## Questions people ask
 

@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { access, readdir, readFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import { access, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { test } from "node:test";
 import { faqItems } from "./src/content/faq.ts";
 import { getAllPosts } from "./src/lib/blog.ts";
@@ -104,6 +107,99 @@ test("static export includes the blog and generated llms.txt", async () => {
     "mip_opt_out=true",
   ]) {
     assert.ok(llms.includes(caveat), `Missing caveat: ${caveat}`);
+  }
+});
+
+test("buyer guides are linked from home and every internal page link resolves", async () => {
+  const pages = (await readdir("out", { recursive: true })).filter((file) =>
+    file.endsWith(".html"),
+  );
+  const htmlByPath = new Map(
+    await Promise.all(pages.map(async (file) => [file, await readFile(`out/${file}`, "utf8")])),
+  );
+  const home = htmlByPath.get("index.html");
+  for (const slug of [
+    "what-real-time-meeting-assistant-means",
+    "meeting-prep",
+    "local-first-meeting-assistant-vs-meeting-bots",
+  ]) {
+    assert.ok(home.includes(`href="/blog/${slug}/"`), slug);
+  }
+  for (const [page, html] of htmlByPath) {
+    for (const [, href] of html.matchAll(/<a\b[^>]*href="([^"]+)"/g)) {
+      const url = new URL(href, `${SITE_URL}/${page.replace(/index\.html$/, "")}`);
+      if (url.origin !== SITE_URL) continue;
+      const target = url.pathname.endsWith("/")
+        ? `${url.pathname}index.html`
+        : path.extname(url.pathname)
+          ? url.pathname
+          : `${url.pathname}/index.html`;
+      const file = target.slice(1);
+      await access(`out/${file}`).catch(() => assert.fail(`${page}: broken link ${href}`));
+      if (url.hash) {
+        assert.ok(
+          htmlByPath.get(file)?.includes(`id="${decodeURIComponent(url.hash.slice(1))}"`),
+          `${page}: missing anchor ${href}`,
+        );
+      }
+    }
+  }
+});
+
+test("articles keep publication dates and expose consistent revision metadata", async () => {
+  const sitemap = await readFile("out/sitemap.xml", "utf8");
+  for (const post of getAllPosts()) {
+    const html = await readFile(`out/blog/${post.slug}/index.html`, "utf8");
+    const url = `${SITE_URL}/blog/${post.slug}/`;
+    assert.ok(html.includes(`rel="canonical" href="${url}"`), post.slug);
+    const graphs = [
+      ...html.matchAll(/<script[^>]*type="application\/ld\+json"[^>]*>(.*?)<\/script>/gs),
+    ].flatMap(([, json]) => JSON.parse(json)["@graph"] ?? []);
+    const article = graphs.find((item) => item["@type"] === "BlogPosting");
+    assert.equal(article?.mainEntityOfPage["@id"], url);
+    assert.equal(article?.datePublished, post.date);
+    assert.equal(article?.dateModified, post.updated);
+    assert.ok(html.includes(`property="article:modified_time" content="${post.updated}"`));
+    assert.ok(html.includes(`href="/pricing/"`));
+    const entry = sitemap.split("<url>").find((item) => item.includes(`<loc>${url}</loc>`));
+    assert.ok(entry?.includes(`<lastmod>${post.updated}T00:00:00.000Z</lastmod>`), post.slug);
+    if (post.updated !== post.date) {
+      assert.ok(html.includes(`Updated <time dateTime="${post.updated}"`), post.slug);
+    }
+  }
+});
+
+test("article revisions default to publication and reject invalid update dates", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "savvy-blog-"));
+  try {
+    const posts = path.join(directory, "src/content/blog");
+    await mkdir(posts, { recursive: true });
+    const modulePath = new URL("./src/lib/blog.ts", import.meta.url).href;
+    for (const [update, expected] of [
+      ["", "2026-09-01"],
+      ["updated: 2026-10-29\n", "2026-10-29"],
+      ["updated: yesterday\n", "updated must be a valid YYYY-MM-DD date"],
+      ["updated: 2026-02-30\n", "updated must be a valid YYYY-MM-DD date"],
+      ["updated: 2026-08-01\n", "updated must not precede date"],
+    ]) {
+      await writeFile(
+        path.join(posts, "example.md"),
+        `---\ntitle: Example\ndescription: Synthetic fixture\ndate: 2026-09-01\n${update}---\nBody.\n`,
+      );
+      const result = spawnSync(
+        process.execPath,
+        [
+          "--input-type=module",
+          "-e",
+          `import { getAllPosts } from ${JSON.stringify(modulePath)}; console.log(getAllPosts()[0].updated);`,
+        ],
+        { cwd: directory, encoding: "utf8" },
+      );
+      assert.equal(result.status, expected.startsWith("2026") ? 0 : 1);
+      assert.ok(`${result.stdout}${result.stderr}`.includes(expected));
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
   }
 });
 

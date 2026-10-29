@@ -1,11 +1,12 @@
 ---
 title: Deepgram or AssemblyAI: picking a transcription provider for live meetings
-description: Savvy needs one streaming transcription key and supports both providers. How the two compare on latency, streaming price, model choice and language handling for meeting audio.
+description: Choosing Deepgram or AssemblyAI for Savvy's personal-provider setup: streaming transcription, model choice, language handling and audio data flow.
 date: 2026-09-22
+updated: 2026-10-29
 tags: transcription, setup, providers
 ---
 
-Savvy does not transcribe locally. It streams meeting audio to a provider you hold the key for, and it supports two: Deepgram and AssemblyAI. Setup asks for one of them before anything is transcribed, so this is the first real decision a new user makes.
+Savvy does not transcribe locally. In personal-provider mode, it streams meeting audio to your Deepgram or AssemblyAI account. This guide compares that setup. Optional paid managed assistance uses Deepgram through Savvy's backend and needs no personal transcription key. See [setup and pricing](/pricing/) and the [privacy policy](/privacy/) for that path.
 
 Here is how we would choose, and what each option actually costs for a calendar of calls.
 

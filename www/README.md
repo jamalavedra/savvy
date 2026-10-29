@@ -50,6 +50,7 @@ required and the build fails naming the file if one is missing or the date is no
 title: Plain title a person would write
 description: 150-160 characters, this is the meta description and the lead paragraph.
 date: 2026-09-07
+updated: 2026-10-29
 tags: two, to four, tags
 ---
 ```
@@ -62,6 +63,12 @@ short sentences, no hype, no em dashes, straight quotes, nothing the root README
 does not support. The sitemap, blog index, JSON-LD and `/llms.txt` all read the
 directory, so nothing else needs editing. Reading time is words / 220, rounded up.
 Posts sort by `date` descending.
+Use the optional `updated` field for a substantive revision. Keep the original `date` as the
+publication date. The update date appears on the article, in social and structured metadata,
+and in the sitemap; it must use `YYYY-MM-DD` and must not precede publication.
+
+See [the search discovery review](SEARCH_DISCOVERY.md) for the source studies behind the guide
+links and content refresh, their evidence limits, and a proposed measurement procedure.
 
 ## Assets
 
