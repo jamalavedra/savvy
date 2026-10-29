@@ -7,9 +7,13 @@ permissions:
   contents: read
 
 jobs:
-  windows-audio-qualification:
-    runs-on: windows-2022
-    timeout-minutes: 15
+  audio-qualification:
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [windows-2022, macos-26, ubuntu-24.04]
+    runs-on: ${{ matrix.platform }}
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -26,21 +30,22 @@ jobs:
         run: pnpm --dir backend typecheck && pnpm --dir backend exec tsx --test src/sessions.test.ts src/transcription.test.ts
       - name: Full sustained load, first run
         env:
-          SAVVY_LOAD_RESULTS: ${{ github.workspace }}/target/windows-load-first.json
+          SAVVY_LOAD_RESULTS: ${{ github.workspace }}/target/load-first.json
         run: pnpm --dir backend test:load
       - name: Full sustained load, repeat
+        if: runner.os == 'Windows'
         env:
-          SAVVY_LOAD_RESULTS: ${{ github.workspace }}/target/windows-load-repeat.json
+          SAVVY_LOAD_RESULTS: ${{ github.workspace }}/target/load-repeat.json
         run: pnpm --dir backend test:load
       - name: Full backend regression suite
         run: pnpm --dir backend test
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
-          name: windows-audio-diagnostics
+          name: ${{ matrix.platform }}-audio-diagnostics
           path: |
             backend/e2e/load-results.json
-            target/windows-load-first.json
-            target/windows-load-repeat.json
+            target/load-first.json
+            target/load-repeat.json
           if-no-files-found: ignore
           retention-days: 7

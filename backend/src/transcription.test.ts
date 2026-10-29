@@ -669,6 +669,8 @@ test("catch-up after a long timer stall stays within the durable pacing allowanc
       if (!stalled && delay > 0 && delay <= 50) {
         stalled = true;
         args[1] = delay + 1100;
+      } else if (stalled && delay > 0 && delay <= 50) {
+        args[1] = Math.max(0, delay - 2);
       }
       return timeout(...args);
     },
