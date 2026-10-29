@@ -79,7 +79,20 @@ export function Hero() {
     <section className="pt-10 pb-20 lg:pt-16">
       <div className="page-column">
         <FadeInUp>
-          <h1 className="text-display mx-auto max-w-2xl text-center text-balance">
+          <div className="flex justify-center">
+            <p className="inline-flex flex-wrap items-center justify-center gap-x-3 gap-y-1 rounded-full border border-border-soft bg-background-alt px-5 py-2 text-small">
+              <span>
+                Works with <App src="/images/logos/google-meet.svg" name="Meet," />{" "}
+                <App src="/images/logos/microsoft-teams.svg" name="Teams" /> and{" "}
+                <App src="/images/logos/zoom.svg" name="Zoom" />
+              </span>
+              <span aria-hidden="true" className="hidden text-muted sm:inline">
+                •
+              </span>
+              <span className="hidden sm:inline">No bot joins</span>
+            </p>
+          </div>
+          <h1 className="text-display mx-auto mt-6 max-w-2xl text-center text-balance">
             Know what to say, and which file says so.
           </h1>
           <p className="mx-auto mt-4 max-w-2xl text-center text-lead text-balance text-muted">
@@ -89,11 +102,6 @@ export function Hero() {
           <div className="mt-6">
             <DownloadButtons align="center" />
           </div>
-          <p className="mt-5 text-center text-small text-muted">
-            Works with <App src="/images/logos/google-meet.svg" name="Google Meet," />{" "}
-            <App src="/images/logos/microsoft-teams.svg" name="Teams" /> and{" "}
-            <App src="/images/logos/zoom.svg" name="Zoom" />. No bot joins.
-          </p>
         </FadeInUp>
 
         <FadeInUp delay={0.08}>
