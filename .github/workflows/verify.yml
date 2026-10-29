@@ -22,8 +22,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --dir backend install --frozen-lockfile
       - run: New-Item -ItemType Directory -Force target
-      - name: Backend typecheck and regression tests
-        run: pnpm --dir backend typecheck && pnpm --dir backend test
+      - name: Typecheck and audio/metering regressions
+        run: pnpm --dir backend typecheck && pnpm --dir backend exec tsx --test src/sessions.test.ts src/transcription.test.ts
       - name: Full sustained load, first run
         env:
           SAVVY_LOAD_RESULTS: ${{ github.workspace }}/target/windows-load-first.json
@@ -32,6 +32,8 @@ jobs:
         env:
           SAVVY_LOAD_RESULTS: ${{ github.workspace }}/target/windows-load-repeat.json
         run: pnpm --dir backend test:load
+      - name: Full backend regression suite
+        run: pnpm --dir backend test
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:

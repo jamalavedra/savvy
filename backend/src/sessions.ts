@@ -474,7 +474,7 @@ export function onAudio(
   source: Source,
   bytes: number,
   now: bigint,
-  expected?: { version: bigint; generation: bigint },
+  expected?: { version: bigint; generation: bigint; admittedAt?: bigint },
 ): "continue" | "exhausted" {
   if (!Number.isSafeInteger(bytes) || bytes <= 0 || bytes % 2)
     throw new ApiError("invalid_request", "invalid PCM frame");
@@ -516,8 +516,9 @@ export function onAudio(
       };
       const previousEnd = live.deliveredUntilMs;
       const entry = live.sources.get(source) ?? freshSource(now);
+      const admittedAt = expected?.admittedAt ?? now;
       const debt =
-        max(entry.bytes - max(now - entry.startedMs, 0n) * 32n, 0n) +
+        max(entry.bytes - max(admittedAt - entry.startedMs, 0n) * 32n, 0n) +
         BigInt(bytes);
       if (debt > BYTES_PER_SECOND)
         throw new ApiError(
@@ -526,7 +527,8 @@ export function onAudio(
         );
       entry.bytes = debt;
       entry.connected = true;
-      entry.startedMs = now;
+      // Pacing uses admission time; coverage and billing use delivered time below.
+      entry.startedMs = admittedAt;
       entry.lastAudioMs = now;
       // One unit is 1/32 ms. Retain fractional samples across frames and gaps.
       const startUnits = max(

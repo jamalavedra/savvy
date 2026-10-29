@@ -225,6 +225,42 @@ test("abnormal audio disconnect releases the reservation and allows a same-lease
   assert.equal(h.view().state, "active");
 });
 
+test("supplier write latency cannot shift pacing or bill the pre-delivery gap", (t) => {
+  const h = fixture(t),
+    row = h.create(),
+    start = h.state.clock();
+  const generation = attachSource(h.state, row, "microphone", start);
+  checkAudio(h.state, row.id, "microphone", generation, 32_000, start);
+  h.advance(100n);
+  onAudio(h.state, 1n, ID, "microphone", 32_000, h.state.clock(), {
+    version: 1n,
+    generation,
+    admittedAt: start,
+  });
+  const source = h.state.sessions.get(row.id)!.sources.get("microphone")!;
+  assert.equal(source.lastAudioMs, start + 100n);
+  assert.equal(source.audioEndUnits, (start + 1100n) * 32n);
+  h.advance(900n);
+  checkAudio(
+    h.state,
+    row.id,
+    "microphone",
+    generation,
+    32_000,
+    h.state.clock(),
+  );
+  h.advance(100n);
+  onAudio(h.state, 1n, ID, "microphone", 32_000, h.state.clock(), {
+    version: 1n,
+    generation,
+    admittedAt: start + 1000n,
+  });
+  h.advance(1000n);
+  const stopped = lifecycle(h.state, 1n, ID, "stop", 1n, 1n);
+  assert.equal(stopped.settledMs, 2000n);
+  assert.equal(balance(h.db, 1n, h.state.clock()).meetingMsReserved, 0n);
+});
+
 test("account pacing survives reconnect and stale owners cannot mutate health or metering", (t) => {
   const h = fixture(t),
     row = h.create();

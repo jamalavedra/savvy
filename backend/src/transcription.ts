@@ -421,13 +421,14 @@ async function relay(
         if (stopping) break;
         state.requireAssistance();
         if (state.clock() >= tokenExpiry || !valid()) break;
+        const admittedAt = state.clock();
         checkAudio(
           state,
           session.id,
           source,
           generation,
           chunk.length,
-          state.clock(),
+          admittedAt,
         );
         try {
           nextDelivery =
@@ -463,7 +464,7 @@ async function relay(
           source,
           chunk.length,
           state.clock(),
-          { version: session.lease_version, generation },
+          { version: session.lease_version, generation, admittedAt },
         );
         lastDelivered = state.clock();
         deliveredBytes += chunk.length;
