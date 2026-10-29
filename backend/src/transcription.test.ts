@@ -655,8 +655,10 @@ test("catch-up after a long timer stall stays within the durable pacing allowanc
   const base = h.state.clock(),
     started = performance.now(),
     timeout = globalThis.setTimeout;
-  t.mock.method(h.state, "clock", () =>
-    base + BigInt(Math.floor(performance.now() - started)),
+  t.mock.method(
+    h.state,
+    "clock",
+    () => base + BigInt(Math.floor(performance.now() - started)),
   );
   let stalled = false;
   t.mock.method(
