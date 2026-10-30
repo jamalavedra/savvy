@@ -61,7 +61,7 @@ export default async function BlogPost({ params }: Params) {
         author: { "@type": "Organization", name: COMPANY_NAME },
         publisher: { "@type": "Organization", name: COMPANY_NAME },
         mainEntityOfPage: { "@type": "WebPage", "@id": url },
-        image: `${url}opengraph-image.png`,
+        image: `${url}opengraph-image`,
       },
       {
         "@type": "BreadcrumbList",
