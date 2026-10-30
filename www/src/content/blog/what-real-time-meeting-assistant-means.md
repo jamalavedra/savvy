@@ -46,6 +46,8 @@ Consider a renewal call where the buyer asks for 25% off a three-year commitment
 - The generic coach suggests you anchor high and ask about their timeline.
 - A document-grounded assistant says your pricing sheet caps discretionary discount at 15%, anything beyond that needs finance approval, and here is the file.
 
+{{figure}}
+
 Only the last one changes what you say. And only the last one can be wrong in a way you can immediately check, which is the property that makes live AI usable at all: a card that cites a file is a card you can dismiss in a glance when it has misread the file.
 
 ## What live guidance costs you

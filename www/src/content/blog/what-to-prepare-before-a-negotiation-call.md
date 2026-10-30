@@ -47,6 +47,8 @@ The numbers and commitments you may need to quote: the SLA figure, the discount 
 
 What you can give, on what condition, and whether it needs approval. "Extend payment terms to 60 days, if they commit to a two-year term, no approval needed." "Drop the onboarding fee, only if volume exceeds the tier, requires approval from finance." Writing the condition next to the concession stops you giving it away for nothing.
 
+{{figure}}
+
 ### Red lines
 
 Things that end the deal if crossed. Minimum price, latest start date, exclusivity you cannot grant. Keep these few and real. A red line you would cross is not a red line.

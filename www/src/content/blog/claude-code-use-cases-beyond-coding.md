@@ -19,6 +19,8 @@ Three properties matter, and they are easy to miss because the marketing talks a
 
 The consequence for anyone building a desktop app: you can ship a model-powered product without becoming a model reseller. You do not mark up tokens, you do not hold a vendor key for thousands of users, and you do not have to explain your inference costs in your pricing page, because you have none.
 
+{{figure}}
+
 ## Non-coding use cases that work well
 
 **Document interrogation over a folder.** Point the CLI at a directory and ask questions that span files. This is what everyone reaches for first, and it holds up: the model reads what it needs rather than you pre-chunking everything into a vector store.

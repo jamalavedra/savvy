@@ -57,13 +57,17 @@ function takeWhile(lines: string[], from: number, test: (line: string) => boolea
   return out;
 }
 
-export function Markdown({ body }: { body: string }) {
+export function Markdown({ body, figure }: { body: string; figure?: ReactNode }) {
   const lines = body.split(/\r?\n/).map((line) => line.trimEnd());
   const blocks: ReactNode[] = [];
   let i = 0;
   while (i < lines.length) {
     const line = lines[i] ?? "";
     if (!line.trim()) {
+      i += 1;
+    } else if (line === "{{figure}}") {
+      // The post's hand-drawn figure, placed where the author put the marker.
+      if (figure) blocks.push(<div key={i}>{figure}</div>);
       i += 1;
     } else if (line === "---") {
       blocks.push(<hr key={i} className="my-10 border-border" />);
@@ -116,6 +120,7 @@ export function Markdown({ body }: { body: string }) {
           !l.startsWith("### ") &&
           !l.startsWith(">") &&
           l !== "---" &&
+          l !== "{{figure}}" &&
           !UL.test(l) &&
           !OL.test(l),
       );

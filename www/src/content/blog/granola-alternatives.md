@@ -27,6 +27,8 @@ This is the gap we built Savvy for, and it is the one most Granola alternative l
 
 Granola's model is: you type, it listens, you get better notes afterwards. Savvy's model is: it reads your documents before the call, builds a brief, and then during the conversation shows a card when the other side asks a question, when someone touches a constraint from your brief, or when you press Advice. Each card says what to say, what to avoid, and which of your files says so.
 
+{{figure}}
+
 That difference shows up most on calls where the stakes are in the specifics: a renewal where your own pricing sheet sets the discount ceiling, a negotiation with red lines you agreed internally, a technical call where the answer is in a spec you half remember. [What to prepare before a negotiation call](/blog/what-to-prepare-before-a-negotiation-call/) is the prep side of that, and [How Savvy decides when to speak](/blog/when-savvy-speaks-up/) is the live side.
 
 The honest cost: Savvy produces guidance for one person, live. It is not a team record, and it does not replace the notes Granola gives you.

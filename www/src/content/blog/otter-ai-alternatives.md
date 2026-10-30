@@ -50,6 +50,8 @@ So there are two accounts to set up before the first recommendation, and nothing
 
 On data: with Otter, the vendor holds the recording, the transcript, and the summary under its terms. With Savvy, your transcription provider receives the audio under your key, your model provider sees excerpts and recent turns under your plan, and the files stay on your Mac with local audio and transcripts deleted after 30 days. Neither is "private" in the absolute sense. They put the trust in different places, and the [privacy section](/#privacy) shows exactly where ours goes.
 
+{{figure}}
+
 ## One thing to settle before you switch away from a bot
 
 A bot in the participant list tells everyone a recording exists. Bot-free capture does not, so the disclosure becomes your job. It is a two-sentence habit, and [Recording a meeting: consent and etiquette](/blog/meeting-recording-consent-and-etiquette/) has the wording, along with the reason it matters more in all-party consent jurisdictions.

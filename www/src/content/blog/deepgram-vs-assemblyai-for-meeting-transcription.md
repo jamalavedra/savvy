@@ -38,6 +38,8 @@ Savvy sets Deepgram's `mip_opt_out=true` on every streaming connection, so audio
 
 Everything else stays local: source documents are referenced read-only and never copied, derived chunks and indexes live in a private SQLite database, and local audio and transcripts are deleted after 30 days with cleanup at startup. Keys sit in the macOS Keychain and only ever leave as an Authorization header. The [privacy section](/#privacy) has the whole flow, and [Local-first meeting assistants vs bots that join the call](/blog/local-first-meeting-assistant-vs-meeting-bots/) explains why we draw that line where we do.
 
+{{figure}}
+
 ## How we would actually choose
 
 - **Default, English calls, no strong opinion:** Deepgram `nova-3`. It is the default because it behaves well on meeting audio out of the box.

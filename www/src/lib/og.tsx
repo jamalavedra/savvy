@@ -8,7 +8,7 @@ import type { ReactNode } from "react";
 
 export const OG_SIZE = { width: 1200, height: 630 };
 
-const C = {
+export const C = {
   bg: "#fafaf7",
   surface: "#ffffff",
   fg: "#1a1a1a",
@@ -29,11 +29,6 @@ const fonts = () => [
   { name: "Nunito", data: read("src/assets/fonts/Nunito-800.ttf"), weight: 800 as const },
   { name: "Plex Mono", data: read("src/assets/fonts/IBMPlexMono-500.ttf"), weight: 500 as const },
 ];
-
-export function mascotSrc(state: "thinking" | "listening" = "thinking") {
-  const png = read(`public/images/mascot/savvy-${state}.png`);
-  return `data:image/png;base64,${png.toString("base64")}`;
-}
 
 /** A recommendation card as it appears in the app overlay. */
 export function OgCard({
@@ -183,25 +178,5 @@ export function renderOg({
       </div>
     </div>,
     { ...OG_SIZE, fonts: fonts() },
-  );
-}
-
-export function OgMascot({ state }: { state: "thinking" | "listening" }) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "flex-end",
-        justifyContent: "center",
-        width: 380,
-        height: 380,
-        borderRadius: 190,
-        overflow: "hidden",
-        background: C.pinkLight,
-      }}
-    >
-      {/* biome-ignore lint/performance/noImgElement: Satori renders plain <img>, next/image is unavailable here. */}
-      <img src={mascotSrc(state)} alt="" width={360} height={360} />
-    </div>
   );
 }

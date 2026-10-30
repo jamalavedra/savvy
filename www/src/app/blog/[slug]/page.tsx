@@ -1,13 +1,16 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { Cover } from "@/components/blog/Cover";
 import { Markdown } from "@/components/blog/Markdown";
 import { Footer } from "@/components/layout/Footer";
 import { Rail } from "@/components/layout/Rail";
 import { TwoLineHeading } from "@/components/sections/primitives";
 import { DownloadButtons } from "@/components/ui/DownloadCTA";
+import { getArt } from "@/content/blog-art";
 import { formatDate, getAllPosts, getPost } from "@/lib/blog";
 import { COMPANY_NAME, REQUIREMENTS, SITE_URL } from "@/lib/constants";
+import { caveat } from "@/lib/fonts";
 
 type Params = { params: Promise<{ slug: string }> };
 
@@ -42,6 +45,7 @@ export default async function BlogPost({ params }: Params) {
   const { slug } = await params;
   const post = getPost(slug);
   if (!post) notFound();
+  const art = getArt(slug);
   const url = `${SITE_URL}/blog/${slug}/`;
   const jsonLd = {
     "@context": "https://schema.org",
@@ -57,6 +61,7 @@ export default async function BlogPost({ params }: Params) {
         author: { "@type": "Organization", name: COMPANY_NAME },
         publisher: { "@type": "Organization", name: COMPANY_NAME },
         mainEntityOfPage: { "@type": "WebPage", "@id": url },
+        image: `${url}opengraph-image`,
       },
       {
         "@type": "BreadcrumbList",
@@ -78,7 +83,7 @@ export default async function BlogPost({ params }: Params) {
       />
       <Rail active="/blog" />
       <main id="main" tabIndex={-1} className="overflow-x-clip">
-        <article className="py-16 lg:py-24">
+        <article className={`py-16 lg:py-24 ${caveat.variable}`}>
           <div className="page-column">
             <div className="max-w-2xl">
               <Link
@@ -94,8 +99,11 @@ export default async function BlogPost({ params }: Params) {
               </p>
               <TwoLineHeading as="h1" className="mt-3" line1={post.title} />
               <p className="mt-4 text-lead text-muted">{post.description}</p>
+              <div className="mt-10">
+                <Cover art={art} />
+              </div>
               <div className="mt-10 text-[15px] leading-[1.75]">
-                <Markdown body={post.body} />
+                <Markdown body={post.body} figure={art.figure} />
               </div>
               <p className="mt-10 flex flex-wrap gap-2">
                 {post.tags.map((tag) => (

@@ -88,6 +88,8 @@ Every card shows a percentage. Savvy computes it; the model does not guess it:
 
 Savvy rejects automatic cards below 0.55. Manual Advice is exempt because you asked for an answer. Savvy also rejects a "dossier" or "mixed" card without a source. A card with no sources and no brief is labelled "inference".
 
+{{figure}}
+
 ## Lifetimes and limits
 
 A card expires after the validity window the model proposed, clamped between one second and two minutes. Savvy caps each provider call at 30 seconds. If no recommendation CLI is signed in, Savvy never thinks during the meeting; it shows one notice and stays quiet.

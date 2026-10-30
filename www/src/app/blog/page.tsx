@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { FadeInUp } from "@/components/animations/FadeInUp";
+import { Cover } from "@/components/blog/Cover";
 import { Footer } from "@/components/layout/Footer";
 import { Rail } from "@/components/layout/Rail";
 import { TwoLineHeading } from "@/components/sections/primitives";
+import { getArt } from "@/content/blog-art";
 import { formatDate, getAllPosts } from "@/lib/blog";
 import { COMPANY_NAME, SITE_URL } from "@/lib/constants";
 
@@ -56,11 +58,14 @@ export default function BlogIndex() {
               <TwoLineHeading as="h1" line1="Blog" line2="Notes from building Savvy" />
             </FadeInUp>
             <FadeInUp delay={0.1}>
-              <ul className="mt-14 max-w-2xl divide-y divide-border border-y border-border">
+              <ul className="mt-14 grid gap-x-8 gap-y-14 md:grid-cols-2">
                 {posts.map((post) => (
                   <li key={post.slug}>
-                    <Link href={`/blog/${post.slug}/`} className="group block py-7">
-                      <p className="font-mono text-[11px] uppercase tracking-wider text-muted">
+                    <Link href={`/blog/${post.slug}/`} className="group block">
+                      <div className="transition-opacity group-hover:opacity-90">
+                        <Cover art={getArt(post.slug)} compact />
+                      </div>
+                      <p className="mt-5 font-mono text-[11px] uppercase tracking-wider text-muted">
                         <time dateTime={post.date}>{formatDate(post.date)}</time>
                         {" · "}
                         {post.readingMinutes} min read
@@ -69,16 +74,6 @@ export default function BlogIndex() {
                         {post.title}
                       </h2>
                       <p className="mt-2 text-sm leading-relaxed text-muted">{post.description}</p>
-                      <p className="mt-3 flex flex-wrap gap-2">
-                        {post.tags.map((tag) => (
-                          <span
-                            key={tag}
-                            className="rounded-full bg-background-alt px-2.5 py-0.5 text-xs text-muted"
-                          >
-                            {tag}
-                          </span>
-                        ))}
-                      </p>
                     </Link>
                   </li>
                 ))}
