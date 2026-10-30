@@ -5,7 +5,7 @@ export function Cover({ art, compact = false }: { art: PostArt; compact?: boolea
   return (
     <div
       className={`art-panel flex items-center justify-center overflow-hidden ${
-        compact ? "aspect-[16/10] min-h-[248px]" : "py-8 sm:py-12"
+        compact ? "aspect-[11/10] lg:aspect-[16/10]" : "py-8 sm:py-12"
       }`}
       style={{ background: TONES[art.tone] }}
     >
