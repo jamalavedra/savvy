@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { test, type TestContext } from "node:test";
 import { migrateService, openServiceDatabase } from "./db.js";
-import { ComposioSources, SOURCE_LIMIT } from "./composio.js";
+import { ComposioSources, PROVIDERS, SOURCE_LIMIT } from "./composio.js";
 import { ApiError } from "./errors.js";
 import type { ServiceState } from "./state.js";
 
@@ -141,6 +142,26 @@ function fixture(t: TestContext, issuer = ISSUER) {
     reusedSessions,
   };
 }
+
+test("the shared source provider catalog is well formed", () => {
+  const catalog = JSON.parse(
+    readFileSync(new URL("./source-providers.json", import.meta.url), "utf8"),
+  ) as { id: string; label: string; connectable: boolean; kinds: string[] }[];
+  assert.ok(catalog.length > 0);
+  assert.equal(
+    new Set(catalog.map((entry) => entry.id)).size,
+    catalog.length,
+    "provider ids must be unique",
+  );
+  for (const entry of catalog) {
+    assert.ok(entry.label, `${entry.id} needs a label`);
+    assert.ok(entry.kinds.length > 0, `${entry.id} needs record kinds`);
+  }
+  assert.deepEqual(
+    PROVIDERS,
+    catalog.filter((entry) => entry.connectable).map((entry) => entry.id),
+  );
+});
 
 test("sessions expose only source toolkits and no remote sandbox", async (t) => {
   const h = fixture(t);

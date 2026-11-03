@@ -8,6 +8,10 @@ copyFileSync(
   new URL("../src/provider-contracts.json", import.meta.url),
   new URL("../build/provider-contracts.json", import.meta.url),
 );
+copyFileSync(
+  new URL("../src/source-providers.json", import.meta.url),
+  new URL("../build/source-providers.json", import.meta.url),
+);
 
 copyFileSync(
   new URL("../src/service-capabilities.json", import.meta.url),

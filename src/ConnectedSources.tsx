@@ -7,18 +7,19 @@ import {
   sourceConnections,
   sourceDisconnect,
   sourceSearch,
+  SOURCE_PROVIDERS,
   type SourceConnection,
 } from "./lib/api";
 import type { ClientWorkspace, SourceRecord, SourceRefresh } from "./types";
 
-const providers = [
-  ["salesforce", "Salesforce", ["account", "opportunity", "note"]],
-  ["hubspot", "HubSpot", ["company", "deal", "note"]],
-  ["gmail", "Gmail", ["thread"]],
-  ["outlook", "Outlook", ["thread"]],
-  ["notion", "Notion", ["page"]],
-  ["googledrive", "Google Drive", ["document"]],
-] as const;
+const CONSENT_NOTICES: Record<string, string> = {
+  gmail:
+    "Google currently asks to let Composio send and permanently delete all Gmail messages and read contacts and profile data. Savvy only reads threads you select.",
+  googledrive:
+    "Google currently asks to let Composio edit and delete all Drive files. Savvy only reads documents you select.",
+  outlook:
+    "Microsoft currently asks to let Composio send and delete mail and edit calendars, contacts, and mailbox settings. Savvy only reads threads you select.",
+};
 
 export default function ConnectedSources({
   client,
@@ -32,8 +33,8 @@ export default function ConnectedSources({
   onClientChange: (client: ClientWorkspace) => void;
 }) {
   const [connections, setConnections] = useState<SourceConnection[]>([]);
-  const [provider, setProvider] = useState<string>("salesforce");
-  const [kind, setKind] = useState<string>("account");
+  const [provider, setProvider] = useState<string>(SOURCE_PROVIDERS[0].id);
+  const [kind, setKind] = useState<string>(SOURCE_PROVIDERS[0].kinds[0]);
   const [query, setQuery] = useState("");
   const [records, setRecords] = useState<SourceRecord[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -44,9 +45,8 @@ export default function ConnectedSources({
   const [error, setError] = useState<string | null>(null);
   const [connectUrl, setConnectUrl] = useState("");
   const connection = connections.find((item) => item.provider === provider);
-  const availableKinds = providers.find(
-    (item) => item[0] === provider,
-  )?.[2] ?? ["account"];
+  const availableKinds = SOURCE_PROVIDERS.find((item) => item.id === provider)
+    ?.kinds ?? ["account"];
 
   useEffect(() => {
     let mounted = true;
@@ -118,25 +118,8 @@ export default function ConnectedSources({
         Connect an app, then choose the records for this client. Savvy saves a
         local Markdown copy.
       </p>
-      {!connection?.connected && provider === "gmail" && (
-        <p>
-          Google currently asks to let Composio send and permanently delete all
-          Gmail messages and read contacts and profile data. Savvy only reads
-          threads you select.
-        </p>
-      )}
-      {!connection?.connected && provider === "googledrive" && (
-        <p>
-          Google currently asks to let Composio edit and delete all Drive files.
-          Savvy only reads documents you select.
-        </p>
-      )}
-      {!connection?.connected && provider === "outlook" && (
-        <p>
-          Microsoft currently asks to let Composio send and delete mail and edit
-          calendars, contacts, and mailbox settings. Savvy only reads threads
-          you select.
-        </p>
+      {!connection?.connected && CONSENT_NOTICES[provider] && (
+        <p>{CONSENT_NOTICES[provider]}</p>
       )}
       <div className="connected-source-controls">
         <label>
@@ -144,12 +127,16 @@ export default function ConnectedSources({
           <Select
             label="App"
             selectedValue={provider}
-            options={providers.map(([value, label]) => ({ value, label }))}
+            options={SOURCE_PROVIDERS.map(({ id: value, label }) => ({
+              value,
+              label,
+            }))}
             disabled={disabled || working}
             onSelect={(next) => {
               setProvider(next);
               setKind(
-                providers.find((item) => item[0] === next)?.[2][0] ?? "account",
+                SOURCE_PROVIDERS.find((item) => item.id === next)?.kinds[0] ??
+                  "account",
               );
               setRecords([]);
               setSearched(false);
