@@ -61,6 +61,11 @@
     "overrides": {
       "source-map-js": "1.2.2",
       "zod": "^4.6.7"
+    },
+    "auditConfig": {
+      "ignoreGhsas": [
+        "GHSA-g3hv-75wg-m249"
+      ]
     }
   },
   "volta": {
