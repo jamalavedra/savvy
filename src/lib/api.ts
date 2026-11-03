@@ -1,4 +1,5 @@
 import managedCatalog from "../../config/managed-catalog.json";
+import sourceProviderCatalog from "../../backend/src/source-providers.json";
 import { version } from "../../package.json";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -543,16 +544,16 @@ export type SourceConnection = {
   connected: boolean;
   status?: string;
 };
+export const SOURCE_PROVIDERS = sourceProviderCatalog.filter(
+  (entry) => entry.connectable,
+);
 export async function sourceConnections(): Promise<SourceConnection[]> {
   if (!window.__TAURI_INTERNALS__)
-    return [
-      "salesforce",
-      "hubspot",
-      "gmail",
-      "outlook",
-      "notion",
-      "googledrive",
-    ].map((provider) => ({ provider, accountId: null, connected: false }));
+    return SOURCE_PROVIDERS.map(({ id }) => ({
+      provider: id,
+      accountId: null,
+      connected: false,
+    }));
   const result = await invoke<{ connections: SourceConnection[] }>(
     "source_connections",
   );

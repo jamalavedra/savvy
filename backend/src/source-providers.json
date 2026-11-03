@@ -1,0 +1,44 @@
+[
+  {
+    "id": "salesforce",
+    "label": "Salesforce",
+    "connectable": true,
+    "kinds": ["account", "opportunity", "note"]
+  },
+  {
+    "id": "hubspot",
+    "label": "HubSpot",
+    "connectable": true,
+    "kinds": ["company", "deal", "note"]
+  },
+  {
+    "id": "gong",
+    "label": "Gong",
+    "connectable": false,
+    "kinds": ["call"]
+  },
+  {
+    "id": "gmail",
+    "label": "Gmail",
+    "connectable": true,
+    "kinds": ["thread"]
+  },
+  {
+    "id": "outlook",
+    "label": "Outlook",
+    "connectable": true,
+    "kinds": ["thread"]
+  },
+  {
+    "id": "notion",
+    "label": "Notion",
+    "connectable": true,
+    "kinds": ["page"]
+  },
+  {
+    "id": "googledrive",
+    "label": "Google Drive",
+    "connectable": true,
+    "kinds": ["document"]
+  }
+]

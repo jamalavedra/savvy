@@ -1,29 +1,24 @@
 import { Composio } from "@composio/core";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import type { ServiceState } from "./state.js";
 import { ApiError } from "./errors.js";
 import { reserveAttempt } from "./billing.js";
 
 export const SOURCE_LIMIT = 256 * 1024;
-export const PROVIDERS = [
-  "salesforce",
-  "hubspot",
-  "gmail",
-  "outlook",
-  "notion",
-  "googledrive",
-] as const;
-const KNOWN_PROVIDERS = [...PROVIDERS, "gong"] as const;
+// single source of truth for the provider list, shared with the desktop UI
+// (bundled at build time) and the native filename allowlist (include_str!)
+const CATALOG = JSON.parse(
+  readFileSync(new URL("./source-providers.json", import.meta.url), "utf8"),
+) as { id: string; label: string; connectable: boolean; kinds: string[] }[];
+export const PROVIDERS = CATALOG.filter((entry) => entry.connectable).map(
+  (entry) => entry.id,
+);
+const KNOWN_PROVIDERS = CATALOG.map((entry) => entry.id);
 export type Provider = (typeof KNOWN_PROVIDERS)[number];
-const KINDS: Record<Provider, readonly string[]> = {
-  salesforce: ["account", "opportunity", "note"],
-  hubspot: ["company", "deal", "note"],
-  gong: ["call"],
-  gmail: ["thread"],
-  outlook: ["thread"],
-  notion: ["page"],
-  googledrive: ["document"],
-};
+const KINDS: Record<string, readonly string[]> = Object.fromEntries(
+  CATALOG.map((entry) => [entry.id, entry.kinds]),
+);
 
 type RecordPreview = {
   provider: Provider;
@@ -115,7 +110,7 @@ function releasedProvider(value: unknown): Provider {
   return name;
 }
 function kindFor(name: Provider, value: unknown): string {
-  if (typeof value !== "string" || !KINDS[name].includes(value))
+  if (typeof value !== "string" || !KINDS[name]?.includes(value))
     throw new ApiError(
       "invalid_request",
       "unsupported record type",

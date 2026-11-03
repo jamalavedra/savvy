@@ -1911,17 +1911,23 @@ fn source_copy_available(root: &Path, relative: &Path) -> bool {
         && savvy_dossier::open_verified(&root.join(relative)).is_ok()
 }
 
+#[derive(Deserialize)]
+struct SourceProviderEntry {
+    id: String,
+}
+
+static SOURCE_PROVIDERS: std::sync::LazyLock<Vec<SourceProviderEntry>> =
+    std::sync::LazyLock::new(|| {
+        serde_json::from_str(include_str!(
+            "../../backend/src/source-providers.json"
+        ))
+        .expect("valid source provider catalog")
+    });
+
 fn source_filename(source: &SourceRecord) -> Result<PathBuf, String> {
-    if ![
-        "salesforce",
-        "hubspot",
-        "gong",
-        "gmail",
-        "outlook",
-        "notion",
-        "googledrive",
-    ]
-    .contains(&source.provider.as_str())
+    if !SOURCE_PROVIDERS
+        .iter()
+        .any(|entry| entry.id == source.provider)
         || source.account_id.is_empty()
         || source.record_id.is_empty()
         || source.record_id.len() > 512
