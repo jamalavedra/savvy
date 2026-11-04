@@ -104,6 +104,15 @@ jobs:
       - name: Check dependencies
         run: cargo deny check
 
+      # pnpm enforces minimumReleaseAge itself; Cargo needs this check.
+      - name: Enforce crate release cooldown
+        if: github.event_name == 'pull_request' && runner.os != 'Windows'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE_REF"
+          node scripts/check-crate-age.mjs FETCH_HEAD
+
       - name: Build Windows preview installer
         if: runner.os == 'Windows'
         shell: bash

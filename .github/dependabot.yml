@@ -1,0 +1,33 @@
+# Version updates wait 7 days, matching pnpm's minimumReleaseAge and
+# scripts/check-crate-age.mjs. Security updates ignore the cooldown; when one is
+# younger than 7 days, add it to minimumReleaseAgeExclude (pnpm) or EXCEPTIONS
+# (Cargo) with the advisory it fixes, and remove the entry once it ages out.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directories: ["/", "/backend", "/www"]
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      npm:
+        patterns: ["*"]
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      cargo:
+        patterns: ["*"]
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ["*"]

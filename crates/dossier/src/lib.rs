@@ -113,15 +113,14 @@ fn is_visible_entry(entry: &DirEntry) -> bool {
     if entry.depth() == 0 {
         return true;
     }
-    entry
-        .file_name()
-        .to_str()
-        .is_none_or(|name| !name.starts_with('.') && name != "node_modules")
+    let name = entry.file_name().as_encoded_bytes();
+    !name.starts_with(b".") && name != b"node_modules"
 }
 
+/// Document IDs and persisted paths are UTF-8, so non-UTF-8 names are ignored, not mangled.
 fn safe_relative_path(path: &Path) -> bool {
     path.components()
-        .all(|component| matches!(component, Component::Normal(_)))
+        .all(|component| matches!(component, Component::Normal(name) if name.to_str().is_some()))
 }
 
 pub fn document_kind(path: &Path) -> Option<DocumentKind> {
@@ -379,6 +378,15 @@ mod tests {
         assert_eq!(report.documents.len(), 1);
         assert_eq!(report.documents[0].relative_path, PathBuf::from("brief.md"));
         assert_eq!(report.ignored, vec![PathBuf::from("ignore.exe")]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn non_utf8_paths_are_ignored_instead_of_lossily_identified() {
+        use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
+        assert!(safe_relative_path(Path::new("notes/brief.md")));
+        assert!(!safe_relative_path(Path::new(OsStr::from_bytes(b"a\xff.md"))));
+        assert!(!safe_relative_path(Path::new(OsStr::from_bytes(b".p\xff/notes.md"))));
     }
 
     #[test]

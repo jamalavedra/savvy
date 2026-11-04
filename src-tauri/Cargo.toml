@@ -43,7 +43,7 @@ serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.10"
 uuid.workspace = true
-tauri-plugin-updater = "2.10.1"
+tauri-plugin-updater = "2.14.1"
 tauri-plugin-deep-link = "2"
 base64 = "0.22"
 tokio = { workspace = true, features = ["process", "io-util"] }
