@@ -121,6 +121,8 @@ struct AppState {
     app_operation: Mutex<bool>,
     settings_path: PathBuf,
     provider_health: Mutex<Vec<ProviderHealth>>,
+    // Canonical paths the user chose in a native picker; each grant is used once.
+    granted_paths: Mutex<HashSet<PathBuf>>,
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     microphone: Mutex<MicrophoneCapture>,
     #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -290,17 +292,6 @@ struct GenerationSeed {
     local: Option<Recommendation>,
     started_sequence: u64,
     cancelled: Option<(GenerationToken, u64)>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct TranscriptInput {
-    session_id: String,
-    channel: SpeakerChannel,
-    text: String,
-    start_ms: u64,
-    end_ms: u64,
-    is_final: bool,
 }
 
 fn emit_meeting_event(app: &AppHandle, event: savvy_domain::MeetingEvent) {
@@ -874,6 +865,11 @@ fn update_settings(
         .clone();
     // Funding is changed only through its guarded command, not stale settings forms.
     settings.managed_funding_preferences = previous.managed_funding_preferences.clone();
+    if settings.guidance_folder != previous.guidance_folder {
+        if let Some(folder) = &settings.guidance_folder {
+            take_path_grant(state, Path::new(folder))?;
+        }
+    }
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     if (settings.service_mode != previous.service_mode
         || settings.microphone_only != previous.microphone_only)
@@ -1757,8 +1753,7 @@ async fn add_client_folder(
     path: String,
     state: State<'_, AppState>,
 ) -> Result<ClientWorkspace, String> {
-    let folder = PathBuf::from(path);
-    let canonical = folder.canonicalize().map_err(|error| error.to_string())?;
+    let canonical = take_path_grant(&state, Path::new(&path))?;
     if !canonical.is_dir() {
         return Err("selected path is not a directory".into());
     }
@@ -3075,6 +3070,60 @@ fn read_brief_document(path: &Path) -> Result<String, String> {
     Ok(text)
 }
 
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum PathPick {
+    Folder,
+    BriefDocument,
+}
+
+/// Opens the native picker in Rust so path-taking commands can require a user choice.
+#[tauri::command]
+async fn pick_path(
+    kind: PathPick,
+    title: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Option<String>, String> {
+    let dialog = app.dialog().file().set_title(title);
+    let picked = match kind {
+        PathPick::Folder => dialog.blocking_pick_folder(),
+        PathPick::BriefDocument => dialog
+            .add_filter("Markdown", &["md", "markdown"])
+            .blocking_pick_file(),
+    };
+    let Some(picked) = picked else {
+        return Ok(None);
+    };
+    let canonical = picked
+        .into_path()
+        .and_then(|path| path.canonicalize().map_err(Into::into))
+        .map_err(|error| format!("could not read the chosen path: {error}"))?;
+    let selected = canonical
+        .to_str()
+        .ok_or("the chosen path must be valid UTF-8")?
+        .to_owned();
+    state
+        .granted_paths
+        .lock()
+        .map_err(|_| "path grant lock poisoned")?
+        .insert(canonical);
+    Ok(Some(selected))
+}
+
+fn take_path_grant(state: &AppState, path: &Path) -> Result<PathBuf, String> {
+    let canonical = path.canonicalize().map_err(|error| error.to_string())?;
+    if !state
+        .granted_paths
+        .lock()
+        .map_err(|_| "path grant lock poisoned")?
+        .remove(&canonical)
+    {
+        return Err("choose this location with the file picker".into());
+    }
+    Ok(canonical)
+}
+
 fn selected_brief_path(path: String) -> Result<PathBuf, String> {
     let path = PathBuf::from(path);
     if !path
@@ -3099,6 +3148,7 @@ fn import_brief_document(
     let client_id = client_id
         .map(|id| Uuid::parse_str(&id).map_err(|error| error.to_string()))
         .transpose()?;
+    take_path_grant(&state, Path::new(&path))?;
     let path = selected_brief_path(path)?;
     let document_content = read_brief_document(&path)?;
     let response_language = state
@@ -3170,6 +3220,9 @@ fn refresh_brief_from_document(
         .get_brief(brief_id)
         .map_err(|error| error.to_string())?
         .ok_or_else(|| "brief does not exist".to_owned())?;
+    if let Some(path) = &path {
+        take_path_grant(&state, Path::new(path))?;
+    }
     let selected_path = path.map(selected_brief_path).transpose()?;
     let document_path = selected_path
         .as_ref()
@@ -3693,41 +3746,6 @@ fn recommendation_language(language: &str) -> String {
         "pt" | "pt-BR" | "pt-PT" => "Portuguese".into(),
         code => format!("the language identified by BCP-47 code {code}"),
     }
-}
-
-#[tauri::command]
-fn append_transcript_turn(
-    input: TranscriptInput,
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<TranscriptUpdate, String> {
-    let session_id = Uuid::parse_str(&input.session_id).map_err(|error| error.to_string())?;
-    if input.text.trim().is_empty() {
-        return Err("transcript text cannot be empty".into());
-    }
-    if input.end_ms < input.start_ms {
-        return Err("transcript end must not precede its start".into());
-    }
-    let turn = TranscriptTurn {
-        id: Uuid::new_v4(),
-        session_id,
-        channel: input.channel,
-        text: input.text.trim().to_owned(),
-        language: "en".into(),
-        start_ms: input.start_ms,
-        end_ms: input.end_ms,
-        is_final: input.is_final,
-        confidence: if input.is_final { 0.92 } else { 0.7 },
-    };
-    process_transcript_turn(turn, &app, &state)
-}
-
-fn process_transcript_turn(
-    turn: TranscriptTurn,
-    app: &AppHandle,
-    state: &AppState,
-) -> Result<TranscriptUpdate, String> {
-    process_transcript_turn_inner(turn, app, state, false)
 }
 
 fn process_transcript_turn_inner(
@@ -6992,6 +7010,7 @@ pub fn run() {
                 settings: Mutex::new(settings.clone()),
                 app_operation: Mutex::new(false),
                 settings_path,
+                granted_paths: Mutex::default(),
                 provider_health: Mutex::new(provider_health),
                 #[cfg(any(target_os = "macos", target_os = "windows"))]
                 microphone: Mutex::new(microphone),
@@ -7086,9 +7105,9 @@ pub fn run() {
             brief_progress,
             import_brief_document,
             open_brief_document,
+            pick_path,
             refresh_brief_from_document,
             start_meeting,
-            append_transcript_turn,
             request_recommendation,
             get_audio_level,
             pause_meeting,
@@ -7203,6 +7222,7 @@ mod tests {
                 settings: Mutex::new(settings),
                 app_operation: Mutex::new(false),
                 settings_path: fixture.directory.join("settings.json"),
+                granted_paths: Mutex::default(),
                 provider_health: Mutex::new(Vec::new()),
                 #[cfg(any(target_os = "macos", target_os = "windows"))]
                 microphone: Mutex::new(MicrophoneCapture::new()),

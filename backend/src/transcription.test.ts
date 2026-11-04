@@ -515,6 +515,26 @@ test("a stalled transcript consumer closes the relay with bounded queued output"
   }
 });
 
+test("deeply nested supplier fields are dropped instead of crashing the relay", async (t) => {
+  const h = await fixture(t),
+    ws = h.connect();
+  await once(ws, "open");
+  const first = once(ws, "message");
+  ws.send(Buffer.alloc(640));
+  await first;
+  const nested = "[".repeat(100_000) + "]".repeat(100_000);
+  const relayed = once(ws, "message");
+  for (const upstream of h.supplierSockets.clients)
+    upstream.send(
+      `{"type":"Results","start":${nested},"channel":{"alternatives":[{"transcript":"ok","confidence":${nested}}]}}`,
+    );
+  const message = JSON.parse(String((await relayed)[0]));
+  assert.equal(message.start, null);
+  assert.equal(message.channel.alternatives[0].confidence, null);
+  assert.equal(message.channel.alternatives[0].transcript, "ok");
+  ws.terminate();
+});
+
 test("dual sources idle independently and account disable closes the remaining supplier without billing the gap", async (t) => {
   const h = await fixture(t),
     mic = h.connect(),

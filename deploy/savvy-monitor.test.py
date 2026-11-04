@@ -139,7 +139,6 @@ class MonitorTests(unittest.TestCase):
         failures = monitor.check()["failures"]
         for key in [
             "backend_unit_failed",
-            "backup_unit_failed",
             "backend_inactive",
             "origin_ready",
             "origin_readyz",
@@ -148,22 +147,6 @@ class MonitorTests(unittest.TestCase):
             "disk_low",
         ]:
             self.assertIn(key, failures)
-
-    def test_backup_drain_does_not_hide_failed_backup(self):
-        monitor.unit.side_effect = lambda name: {
-            "ActiveState": "inactive" if name == monitor.BACKEND else "activating",
-            "Result": "success",
-            "LoadState": "loaded",
-        }
-        self.assertTrue(monitor.check()["healthy"])
-        monitor.ready.assert_not_called()
-        monitor.unit.side_effect = lambda name: {
-            "ActiveState": "inactive",
-            "Result": "exit-code" if name == monitor.BACKUP else "success",
-            "LoadState": "loaded",
-        }
-        self.assertIn("backup_unit_failed", monitor.check()["failures"])
-        self.assertIn("backend_inactive", monitor.check()["failures"])
 
     def test_readiness_rejects_redirect(self):
         response = unittest.mock.MagicMock()

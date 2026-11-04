@@ -137,6 +137,7 @@ import {
   briefOutputSchema,
   contracts,
   validateAdvice,
+  validateBrief,
   adviceOutputSchema,
   adviceRequest as adviceRequestSchema,
 } from "./context.js";
@@ -1086,6 +1087,36 @@ test("provider advice bounds reject oversized text and repeated citations before
   assert.equal(result.status, 410);
   assert.equal(result.body.code, "result_unavailable");
   assert.equal(h.state.aiInFlight.size, 0);
+});
+
+test("validators reject output the desktop would reject after settlement", () => {
+  const input = adviceRequestSchema.parse(adviceRequest);
+  assert.throws(
+    () => validateAdvice({ ...advice, rationale: "  " }, input),
+    /output validation/,
+  );
+  const question = adviceRequestSchema.parse({
+    ...adviceRequest,
+    trigger: "question",
+  });
+  assert.doesNotThrow(() =>
+    validateAdvice({ ...advice, action: "skip", rationale: "" }, question),
+  );
+  const parsed = briefRequest.parse(request);
+  assert.doesNotThrow(() => validateBrief(brief, parsed));
+  const point = { title: "T", objective: "O", talkingPoints: [], keywords: [] };
+  for (const invalid of [
+    { ...brief, title: "x".repeat(8001) },
+    { ...brief, risks: Array(21).fill("risk") },
+    { ...brief, agenda: [{ ...point, keywords: Array(21).fill("k") }] },
+    {
+      ...brief,
+      concessions: [
+        { item: "😀".repeat(8001), condition: "c", requiresApproval: false },
+      ],
+    },
+  ])
+    assert.throws(() => validateBrief(invalid, parsed), /output limits/);
 });
 
 test("tiny keepalives cannot authorize paid advice but sustained audio can", async (t) => {

@@ -151,69 +151,51 @@ The `Deploy backend` GitHub workflow runs after a successful main-branch
 `Verify` run. Its Tailscale federated identity uses the repository variables
 `TS_CI_CLIENT_ID` and `TS_CI_AUDIENCE` to reach Epistoma and run
 `deploy/epistoma-main.sh` for that exact commit. The script builds a new release,
-takes a stopped-state backup, switches the release link, migrates, and checks
-readiness. If migration fails, the backup timer stays stopped for operator
-recovery; review the backup and current databases before any rollback.
+stops the backend, snapshots both databases with the running release's
+`build/backup.js`, switches the release link, migrates, and checks readiness. A
+failure before migration restores the previous release. After a successful deploy
+it keeps the 14 newest snapshots in `/var/backups/savvy` and, besides the current
+and previous release, the 3 newest production releases under `/opt/savvy/releases`.
+Named staging releases are left alone.
 
-To upgrade, stop the unit, take a backup, point `/opt/savvy/current` at the new
-release, run `node build/migrate.js` and start the unit again. Keep the previous
+The snapshot directory must exist before the first deploy:
+`sudo install -d -o savvy -g savvy -m 0700 /var/backups/savvy`.
+
+There is no nightly backup. The daily job stopped the production backend every
+night, so it was removed from Epistoma on 2 November 2026 (see the host's Ansible
+repository). The newest snapshot is therefore from the latest deploy.
+
+To upgrade by hand, stop the unit, take a backup, point `/opt/savvy/current` at the
+new release, run `node build/migrate.js` and start the unit again. Keep the previous
 release directory until the new one has passed readiness and a sign-in check.
-If scheduled backups are enabled, first stop both `savvy-backup.timer` and
-`savvy-backup.service`, letting the backup's restart callback finish before the
-maintenance stop. Re-enable the timer only after recovery checks pass.
 
-For backups, stop the backend and run
+For an ad-hoc backup, stop the backend and run
 `pnpm --dir backend backup /path/to/new-private-backup` with its environment loaded.
 The command locks both databases, uses SQLite's backup API, checks integrity and
 writes a manifest with hashes. Protect the two snapshots and the auth secret.
 Restoration steps are in `backend/README.md`.
 
-### Daily production backups
-
-After production identity, billing and installed-app drain acceptance pass, install
-the Savvy-only backup job before opening customer admission:
-
-```sh
-sudo install -d -m 0755 /usr/local/libexec
-sudo install -m 0755 deploy/savvy-backup.sh /usr/local/libexec/savvy-backup
-sudo install -d -o savvy -g savvy -m 0700 /var/backups/savvy
-sudo install -m 0644 deploy/savvy-backup.service deploy/savvy-backup.timer /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl start savvy-backup.service
-sudo systemctl status savvy-backup.service --no-pager
-```
-
-The job first requires an active production backend. It records that restart is
-needed, normally drains the backend, and runs the existing compiled backup command
-as `savvy`. `ExecStopPost` restarts the backend after success, failure or process
-termination. A failed restart keeps its root-only marker for recovery; the job
-does not start an intentionally inactive backend. Node reads the protected env
-file without sourcing it into a shell or printing credentials.
-
-Snapshots are new timestamped directories under `/var/backups/savvy`, mode 0700,
-with both SQLite files and the hash/integrity/signing-key manifest mode 0600.
-The matching stable `BETTER_AUTH_SECRET` remains in the separate protected store.
-Keep a protected off-host copy of that secret and both snapshots. On this Mac,
-use a 0700 directory outside Git with FileVault enabled and `umask 077`; SSH can
-stream the selected backup without making the VPS files publicly readable:
+Snapshots are directories under `/var/backups/savvy`, mode 0700, with both SQLite
+files and the hash/integrity/signing-key manifest mode 0600. The matching stable
+`BETTER_AUTH_SECRET` remains in the separate protected store. Keep a protected
+off-host copy of that secret and the snapshots. On this Mac, use a 0700 directory
+outside Git with FileVault enabled and `umask 077`; SSH can stream a selected
+backup without making the VPS files publicly readable:
 
 ```sh
 umask 077
-ssh jaume@epistoma 'sudo tar -C /var/backups/savvy/EXACT_TIMESTAMP -czf - auth.sqlite service.sqlite manifest.json' > savvy-backup.tar.gz
+ssh jaume@epistoma 'sudo tar -C /var/backups/savvy/EXACT_SNAPSHOT -czf - auth.sqlite service.sqlite manifest.json' > savvy-backup.tar.gz
 ```
 
-Record the actual off-host destination in the private rollout manifest. Verify
-manifest hashes, SQLite integrity and a private restore with the matching issuer,
-secret and signing identity before enabling the timer. Do not copy staging state
-to production or restore an older ledger over newer payments. To test a restore,
-copy the pair to a new private directory owned by `savvy`, then run the matching
-compiled backend with database paths pointing only to that copy and a loopback
-port that has no public tunnel route:
+Do not copy staging state to production or restore an older ledger over newer
+payments. To test a restore, copy the pair to a new private directory owned by
+`savvy`, then run the matching compiled backend with database paths pointing only
+to that copy and a loopback port that has no public tunnel route:
 
 ```sh
 sudo runuser -u savvy -- env \
-  SAVVY_AUTH_DATABASE=/var/lib/savvy-restore/EXACT_TIMESTAMP/auth.sqlite \
-  SAVVY_DB_PATH=/var/lib/savvy-restore/EXACT_TIMESTAMP/service.sqlite \
+  SAVVY_AUTH_DATABASE=/var/lib/savvy-restore/EXACT_SNAPSHOT/auth.sqlite \
+  SAVVY_DB_PATH=/var/lib/savvy-restore/EXACT_SNAPSHOT/service.sqlite \
   SAVVY_HOST=127.0.0.1 PORT=8790 \
   /opt/node-v22.23.4-linux-x64/bin/node --env-file=/etc/savvy/backend.env \
   /opt/savvy/releases/EXACT_MATCHING_SHA/backend/build/server.js
@@ -221,19 +203,6 @@ sudo runuser -u savvy -- env \
 
 Check `/ready` using `CF-Connecting-IP: 127.0.0.1`, signing key IDs, refresh rotation
 and current payments/allowances/usage/purchases. Stop the clone normally afterward.
-Keep the live DB pair unchanged during the drill. After this gate passes:
-
-```sh
-sudo systemctl enable --now savvy-backup.timer
-sudo systemctl list-timers savvy-backup.timer --all --no-pager
-```
-
-The timer runs at 03:00 UTC and catches missed runs after downtime. Each backup
-briefly interrupts the service; desktop listening must resume explicitly. Monitor
-failed backup/restart units and off-host copy freshness by configuring the Savvy
-monitor before enabling the timer. Inspect failures with `journalctl -u savvy-backup.service`; if the
-backend did not restart, recover it with `systemctl start savvy-backend.service`
-and verify readiness and reservation recovery before reopening access.
 
 Roll back using the current release controller and current financial state.
 The installed `/usr/local/libexec/savvy-release.mjs` runs the CURRENT backend's
@@ -243,7 +212,7 @@ the candidate's built `service-capabilities.json`. Missing metadata means 0.
 A bootstrap from a legacy release uses the new checkpoint's guard; later changes
 use the current guard, including when the candidate itself has no guard.
 
-With the backend stopped and the backup timer paused, run:
+With the backend stopped, run:
 
 ```sh
 sudo /opt/node-v22.23.4-linux-x64/bin/node /usr/local/libexec/savvy-release.mjs check /opt/savvy/current /opt/savvy/releases/<candidate-sha> /var/lib/savvy/service.sqlite

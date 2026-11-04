@@ -8,7 +8,6 @@ import {
   readFile,
   rm,
   writeFile,
-  chmod,
   access,
   realpath,
 } from "node:fs/promises";
@@ -28,129 +27,6 @@ test("production monitoring checks read-only metadata and failure handling", asy
   await run("python3", ["-B", join(root, "deploy/savvy-monitor.test.py")], {
     timeout: 10000,
   });
-});
-
-test("scheduled backup recovers failures without starting an inactive backend", async (t) => {
-  const script = join(root, "deploy/savvy-backup.sh");
-  for (const scenario of [
-    "inactive",
-    "success",
-    "stop-failure",
-    "backup-failure",
-    "restart-failure",
-    "killed",
-  ]) {
-    await t.test(scenario, { timeout: 10000 }, async () => {
-      const directory = await mkdtemp(join(tmpdir(), "savvy-backup-job-"));
-      let child;
-      try {
-        const bin = join(directory, "bin");
-        await mkdir(bin);
-        const env = {
-          ...process.env,
-          PATH: bin + ":" + process.env.PATH,
-          RUNTIME_DIRECTORY: directory,
-          SAVVY_TEST_DIRECTORY: directory,
-          SAVVY_TEST_FAILURE: scenario,
-        };
-        await writeFile(
-          join(directory, "backend-state"),
-          scenario === "inactive" ? "stopped" : "running",
-        );
-        for (const [name, body] of [
-          [
-            "systemctl",
-            `
-const command=process.argv[2];
-if(!process.argv.includes('savvy-backend.service')) process.exit(99);
-const state=join(directory,'backend-state');
-if(command==='is-active') process.exit(readFileSync(state,'utf8')==='running'?0:3);
-if(command==='stop') {writeFileSync(state,'stopped'); if(failure==='stop-failure') process.exit(1);}
-else if(command==='start') {if(failure==='restart-failure') process.exit(1); writeFileSync(state,'running');}
-else process.exit(99);
-`,
-          ],
-          [
-            "runuser",
-            `
-if(readFileSync(join(directory,'backend-state'),'utf8')!=='stopped') process.exit(99);
-writeFileSync(join(directory,'backup-attempted'),'yes');
-if(failure==='backup-failure') process.exit(23);
-if(failure==='killed') setInterval(()=>{},1000);
-else writeFileSync(join(directory,'backup-completed'),'yes');
-`,
-          ],
-        ]) {
-          const path = join(bin, name);
-          await writeFile(
-            path,
-            `#!${process.execPath}\nconst {readFileSync,writeFileSync}=require('node:fs');\nconst {join}=require('node:path');\nconst directory=process.env.SAVVY_TEST_DIRECTORY,failure=process.env.SAVVY_TEST_FAILURE;\n${body}`,
-          );
-          await chmod(path, 0o700);
-        }
-        if (scenario === "killed") {
-          child = spawn("sh", [script, "backup"], {
-            env,
-            detached: true,
-            stdio: "ignore",
-          });
-          const exited = once(child, "exit");
-          for (
-            let attempt = 0;
-            !(await access(join(directory, "backup-attempted")).then(
-              () => true,
-              () => false,
-            ));
-            attempt++
-          ) {
-            assert.ok(attempt < 100, "backup process must become active");
-            await new Promise((resolve) => setTimeout(resolve, 20));
-          }
-          process.kill(-child.pid, "SIGKILL");
-          assert.deepEqual(await exited, [null, "SIGKILL"]);
-        } else if (
-          ["inactive", "stop-failure", "backup-failure"].includes(scenario)
-        ) {
-          await assert.rejects(run("sh", [script, "backup"], { env }));
-        } else {
-          await run("sh", [script, "backup"], { env });
-        }
-        if (scenario === "restart-failure") {
-          await assert.rejects(run("sh", [script, "restart"], { env }));
-          assert.equal(
-            await readFile(join(directory, "backend-state"), "utf8"),
-            "stopped",
-          );
-          await access(join(directory, "restart-required"));
-          env.SAVVY_TEST_FAILURE = "";
-        }
-        await run("sh", [script, "restart"], { env });
-        assert.equal(
-          await readFile(join(directory, "backend-state"), "utf8"),
-          scenario === "inactive" ? "stopped" : "running",
-        );
-        await assert.rejects(access(join(directory, "restart-required")));
-        const completed = await access(
-          join(directory, "backup-completed"),
-        ).then(
-          () => true,
-          () => false,
-        );
-        assert.equal(
-          completed,
-          ["success", "restart-failure"].includes(scenario),
-        );
-        if (["inactive", "stop-failure"].includes(scenario))
-          await assert.rejects(access(join(directory, "backup-attempted")));
-      } finally {
-        if (child && child.exitCode === null && child.signalCode === null) {
-          process.kill(-child.pid, "SIGKILL");
-          await once(child, "exit");
-        }
-        await rm(directory, { recursive: true, force: true });
-      }
-    });
-  }
 });
 
 test(

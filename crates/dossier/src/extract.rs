@@ -244,6 +244,9 @@ fn extract_csv(path: &Path) -> Result<Vec<ExtractedSection>, ExtractionError> {
         }
     }
     if !rows.is_empty() || sections.is_empty() {
+        if rows.is_empty() {
+            row_start = 1;
+        }
         let row_end = row_start + rows.len().saturating_sub(1) as u32;
         sections.push(tabular_section("CSV", &headers, &rows, row_start, row_end));
     }
@@ -284,8 +287,9 @@ fn extract_xlsx(path: &Path) -> Result<Vec<ExtractedSection>, ExtractionError> {
                     path: path.to_path_buf(),
                     message: error.to_string(),
                 })?;
+        let first_row = range.start().map_or(1, |(row, _)| row + 1);
         for (batch, rows) in range.rows().collect::<Vec<_>>().chunks(50).enumerate() {
-            let row_start = (batch * 50 + 1) as u32;
+            let row_start = first_row + (batch * 50) as u32;
             let rendered: Vec<String> = rows
                 .iter()
                 .map(|row| {
@@ -339,7 +343,7 @@ fn extract_docx(path: &Path) -> Result<Vec<ExtractedSection>, ExtractionError> {
 fn extract_pptx(path: &Path) -> Result<Vec<ExtractedSection>, ExtractionError> {
     let mut archive = open_zip(path)?;
     let mut slides: Vec<(u32, String)> = (0..archive.len())
-        .filter_map(|index| archive.name_for_index(index).map(str::to_owned))
+        .filter_map(|index| Some(archive.name_for_index(index)?.ok()?.into_owned()))
         .filter_map(|name| slide_number(&name).map(|number| (number, name)))
         .collect();
     slides.sort_by_key(|(number, _)| *number);
@@ -366,7 +370,7 @@ fn slide_number(name: &str) -> Option<u32> {
 fn extract_epub(path: &Path) -> Result<Vec<ExtractedSection>, ExtractionError> {
     let mut archive = open_zip(path)?;
     let mut chapters: Vec<String> = (0..archive.len())
-        .filter_map(|index| archive.name_for_index(index).map(str::to_owned))
+        .filter_map(|index| Some(archive.name_for_index(index)?.ok()?.into_owned()))
         .filter(|name| {
             let lower = name.to_ascii_lowercase();
             lower.ends_with(".xhtml") || lower.ends_with(".html") || lower.ends_with(".htm")
@@ -508,6 +512,48 @@ mod tests {
         assert_eq!(sections[1].locator.row_start, Some(52));
         assert_eq!(sections[1].locator.row_end, Some(52));
         assert_eq!(sections[1].text, "name | value\nitem | 2");
+        fs::write(&path, "name,value\n").unwrap();
+        let sections = extract_document(&path, DocumentKind::Csv).unwrap();
+        assert_eq!(sections[0].locator.row_start, Some(1));
+        assert_eq!(sections[0].locator.row_end, Some(1));
+    }
+
+    #[test]
+    fn xlsx_locators_use_the_worksheet_row_numbers() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("offset.xlsx");
+        let mut archive = zip::ZipWriter::new(File::create(&path).unwrap());
+        let entries = [
+            (
+                "[Content_Types].xml",
+                r#"<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>"#,
+            ),
+            (
+                "_rels/.rels",
+                r#"<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>"#,
+            ),
+            (
+                "xl/workbook.xml",
+                r#"<?xml version="1.0"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Data" sheetId="1" r:id="rId1"/></sheets></workbook>"#,
+            ),
+            (
+                "xl/_rels/workbook.xml.rels",
+                r#"<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>"#,
+            ),
+            (
+                "xl/worksheets/sheet1.xml",
+                r#"<?xml version="1.0"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="10"><c r="A10" t="inlineStr"><is><t>late</t></is></c></row></sheetData></worksheet>"#,
+            ),
+        ];
+        for (name, body) in entries {
+            archive.start_file(name, SimpleFileOptions::default()).unwrap();
+            archive.write_all(body.as_bytes()).unwrap();
+        }
+        archive.finish().unwrap();
+        let sections = extract_document(&path, DocumentKind::Xlsx).unwrap();
+        assert_eq!(sections[0].locator.row_start, Some(10));
+        assert_eq!(sections[0].locator.row_end, Some(10));
+        assert_eq!(sections[0].text.trim(), "late");
     }
 
     #[test]

@@ -622,7 +622,7 @@ test("idle gaps bill delivered coverage and a stale fresh source cannot make tra
   h.advance(4000n);
   h.feed(1000n);
   onAudio(h.state, 1n, ID, "microphone", 16_000, h.state.clock());
-  assert.equal(lifecycle(h.state, 1n, ID, "stop", 1n, 1n).settledMs, 2500n);
+  assert.equal(lifecycle(h.state, 1n, ID, "stop", 1n, 1n).settledMs, 3000n);
   const stopped = requireSession(h.db, 1n, ID);
   const system = attachSource(h.state, stopped, "system", h.state.clock());
   detachSource(h.state, stopped.id, "system", system);
@@ -764,5 +764,40 @@ test("a restored SQLite snapshot preserves identities and unique grants while ab
     );
   } finally {
     restoredDb.close();
+  }
+});
+
+test("reservation changes touch only the session's own grants", (t) => {
+  const h = fixture(t);
+  h.db
+    .transaction(() =>
+      insertGrant(h.db, 2n, "other", "monthly", 36_000_000n, 20n, 0n, null),
+    )
+    .immediate();
+  h.db.exec(
+    "CREATE TEMP TABLE grant_writes(id INTEGER); CREATE TEMP TRIGGER count_grant_writes AFTER UPDATE ON allowance_grants BEGIN INSERT INTO grant_writes VALUES(NEW.id); END;",
+  );
+  h.create();
+  h.feed(10_000n);
+  lifecycle(h.state, 1n, ID, "stop", 1n, 1n);
+  const touched = h.db
+    .prepare<[], { account_id: bigint }>(
+      "SELECT DISTINCT g.account_id FROM grant_writes w JOIN allowance_grants g ON g.id=w.id",
+    )
+    .all()
+    .map((row) => row.account_id);
+  assert.deepEqual(touched, [1n]);
+});
+
+test("pause and stop right after a one-second frame bill the forwarded second", (t) => {
+  for (const action of ["pause", "stop"] as const) {
+    const h = fixture(t);
+    h.create();
+    assert.equal(
+      onAudio(h.state, 1n, ID, "microphone", 32_000, h.state.clock()),
+      "continue",
+    );
+    h.advance(100n);
+    assert.equal(lifecycle(h.state, 1n, ID, action, 1n, 1n).settledMs, 1000n);
   }
 });

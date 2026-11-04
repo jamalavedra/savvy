@@ -84,25 +84,28 @@ export function configuration(env: NodeJS.ProcessEnv = process.env) {
     throw new Error("Invalid backend listen address");
   if (config.fixtures && !isLoopback(config.bind))
     throw new Error("Fixtures require a loopback listener");
-  for (const raw of [
-    config.issuer,
-    config.aiBaseUrl,
-    config.deepgramUrl,
-    config.stripeBaseUrl,
-    config.checkoutReturnUrl,
-  ]) {
+  const http = ["https:", "http:"];
+  for (const [raw, protocols, base] of [
+    [config.issuer, http, false],
+    [config.aiBaseUrl, http, true],
+    [config.deepgramUrl, ["wss:", "ws:"], false],
+    [config.stripeBaseUrl, http, true],
+    [config.checkoutReturnUrl, http, false],
+  ] as const) {
     const url = new URL(raw);
     const local = isLoopback(url.hostname);
     if (
       url.username ||
       url.password ||
       url.hash ||
-      !["https:", "wss:", "http:", "ws:"].includes(url.protocol) ||
+      // API bases get paths appended by string concatenation.
+      (base && url.search) ||
+      !(protocols as readonly string[]).includes(url.protocol) ||
       (["http:", "ws:"].includes(url.protocol) && !local) ||
       (config.fixtures && !local)
     )
       throw new Error(
-        "Service URLs must be secure; fixtures require loopback upstreams",
+        `Invalid service URL ${url.origin}: use ${protocols[0]} (plain only on loopback); fixtures require loopback upstreams`,
       );
   }
   return config;

@@ -27,6 +27,7 @@ import {
 export async function readBody(
   req: IncomingMessage,
   limit = 1_048_576,
+  deadlineMs?: number,
 ): Promise<Buffer> {
   const length = req.headers["content-length"];
   if (length && (!/^\d+$/.test(length) || Number(length) > limit))
@@ -36,17 +37,53 @@ export async function readBody(
     );
   const chunks: Buffer[] = [];
   let size = 0;
-  for await (const chunk of req.iterator({ destroyOnReturn: false })) {
-    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    size += bytes.length;
-    if (size > limit)
-      throw new ApiError(
-        "context_too_large",
-        "request body exceeds the service limit",
-      );
-    chunks.push(bytes);
+  const timer =
+    deadlineMs === undefined
+      ? undefined
+      : setTimeout(
+          () =>
+            req.destroy(
+              new ApiError("invalid_request", "request body timed out"),
+            ),
+          deadlineMs,
+        );
+  try {
+    for await (const chunk of req.iterator({ destroyOnReturn: false })) {
+      const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      size += bytes.length;
+      if (size > limit)
+        throw new ApiError(
+          "context_too_large",
+          "request body exceeds the service limit",
+        );
+      chunks.push(bytes);
+    }
+  } finally {
+    clearTimeout(timer);
   }
   return Buffer.concat(chunks, size);
+}
+
+// Webhook bodies are read before the signature can be checked, so unauthenticated
+// callers must not be able to hold many of them open at once.
+const MAX_WEBHOOK_READS = 16;
+let webhookReads = 0;
+async function readWebhookBody(req: IncomingMessage, header: unknown) {
+  if (
+    typeof header !== "string" ||
+    header.length > 2048 ||
+    !/(^|,)t=\d{1,20}(,|$)/.test(header) ||
+    !/(^|,)v1=[0-9a-fA-F]{64}(,|$)/.test(header)
+  )
+    throw new ApiError("invalid_request", "invalid webhook signature");
+  if (webhookReads >= MAX_WEBHOOK_READS)
+    throw new ApiError("rate_limited", "too many webhook deliveries", 1000n);
+  webhookReads++;
+  try {
+    return { header, body: await readBody(req, 1_048_576, 10_000) };
+  } finally {
+    webhookReads--;
+  }
 }
 
 export async function readObject(
@@ -350,15 +387,11 @@ export async function managedRequest(
       return;
     }
     if (path === "/v1/billing/webhook" && req.method === "POST") {
-      const header = req.headers["stripe-signature"];
-      send(
-        res,
-        await webhook(
-          state,
-          typeof header === "string" ? header : "",
-          await readBody(req),
-        ),
+      const { header, body } = await readWebhookBody(
+        req,
+        req.headers["stripe-signature"],
       );
+      send(res, await webhook(state, header, body));
       return;
     }
     if (path === "/v1/billing/checkout" && req.method === "POST") {

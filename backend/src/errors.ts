@@ -52,3 +52,30 @@ export function json(value: unknown): string {
     return number;
   });
 }
+
+/** Reads a supplier response body, cancelling it and throwing `tooLarge` past `limit` bytes. */
+export async function readLimited(
+  response: Response,
+  limit: number,
+  tooLarge: ApiError,
+): Promise<Buffer> {
+  const reader = response.body?.getReader();
+  if (!reader) return Buffer.alloc(0);
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > limit) {
+        await reader.cancel().catch(() => {});
+        throw tooLarge;
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks, size);
+}

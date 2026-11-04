@@ -4,7 +4,7 @@ import {
   refreshOrganizationForAccount,
 } from "./org-stripe-events.js";
 import type { ServiceState } from "./state.js";
-import { ApiError } from "./errors.js";
+import { ApiError, readLimited } from "./errors.js";
 import {
   reserveAttempt,
   insertGrant,
@@ -96,9 +96,14 @@ async function request(
       await response.body?.cancel();
       throw new ApiError("provider_unavailable", "billing lookup failed");
     }
+    const invalid = new ApiError(
+      "provider_unavailable",
+      "invalid billing response",
+    );
     let value: StripeObject;
     try {
-      value = await response.json();
+      const body = await readLimited(response, 1_048_576, invalid);
+      value = JSON.parse(body.toString("utf8"));
       if (!value || typeof value !== "object" || Array.isArray(value))
         throw new Error("object required");
     } catch {

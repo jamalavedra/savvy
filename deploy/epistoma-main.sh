@@ -56,12 +56,9 @@ switch_release() {
 }
 funding_preflight "$release"
 
-sudo install -m 0755 deploy/savvy-backup.sh /usr/local/libexec/savvy-backup
 sudo install -m 0644 deploy/savvy-backend.service /etc/systemd/system/
 sudo systemctl daemon-reload
 
-sudo systemctl stop savvy-backup.timer
-timer_stopped=true
 migration_started=false
 restore_on_error() {
   status=$?
@@ -70,19 +67,23 @@ restore_on_error() {
       sudo systemctl start savvy-backend.service
     else
       echo 'Funding guard refused automatic rollback; backend stays stopped.' >&2
-      migration_started=true
     fi
-  fi
-  if [[ "$timer_stopped" == true && ( $status -eq 0 || "$migration_started" == false ) ]]; then
-    sudo systemctl start savvy-backup.timer
   fi
   rm -rf "$package" "$pnpm_bin"
 }
 trap restore_on_error EXIT
-sudo systemctl stop savvy-backup.service
-sudo systemctl start savvy-backup.service
 sudo systemctl is-active --quiet savvy-backend.service
 sudo systemctl stop savvy-backend.service
+
+# There is no nightly backup (it stopped the backend daily), so every deploy
+# snapshots both databases while the backend is down anyway.
+snapshot="/var/backups/savvy/$(date -u +%Y%m%dT%H%M%SZ)-pre-${sha:0:12}"
+sudo -u savvy env \
+  SAVVY_AUTH_DATABASE=/var/lib/savvy/auth.sqlite \
+  SAVVY_DB_PATH=/var/lib/savvy/service.sqlite \
+  SAVVY_HOST=127.0.0.1 PORT=8788 \
+  sh -c 'cd "$1/backend" && exec /opt/node-v22.23.4-linux-x64/bin/node --env-file=/etc/savvy/backend.env build/backup.js "$2"' sh "$previous" "$snapshot"
+
 switch_release "$release"
 migration_started=true
 sudo -u savvy env \
@@ -93,7 +94,20 @@ sudo systemctl start savvy-backend.service
 curl --fail --retry 24 --retry-delay 5 --retry-all-errors \
   -H 'CF-Connecting-IP: 127.0.0.1' http://127.0.0.1:8788/ready > /dev/null
 test "$(readlink -f /opt/savvy/current)" = "$release"
-sudo systemctl start savvy-backup.timer
-sudo systemctl is-active --quiet savvy-backup.timer
-timer_stopped=false
-echo "Deployed Savvy backend $sha; previous release: $previous"
+
+# Disk on this shared host is scarce: keep the 14 newest snapshots this script or the
+# former nightly job wrote and, besides the running, previous and staging releases,
+# the 3 newest production releases. NUL-separated so odd names cannot split.
+prune_oldest() {
+  local keep="$1" root="$2" pattern="$3"
+  shift 3
+  sudo find "$root" -mindepth 1 -maxdepth 1 -type d -regextype egrep \
+    -regex "$root/$pattern" -printf '%T@\t%p\0' |
+    sort -z -rn | cut -z -f2- |
+    { grep -zvxF "${@/#/-e}" || true; } |
+    tail -z -n "+$((keep + 1))" | xargs -0 -r sudo rm -rf --
+}
+staging="$(readlink -f /opt/savvy/staging || true)"
+prune_oldest 13 /var/backups/savvy '[0-9]{8}T[0-9]{6}Z(-pre-[0-9a-f]{12})?' "$snapshot"
+prune_oldest 3 /opt/savvy/releases '[0-9a-f]{40}' "$release" "$previous" "${staging:-$release}"
+echo "Deployed Savvy backend $sha; previous release: $previous; snapshot: $snapshot"
