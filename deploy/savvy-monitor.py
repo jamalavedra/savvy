@@ -15,7 +15,6 @@ DATABASE = pathlib.Path("/var/lib/savvy/service.sqlite")
 LOCAL_ORIGIN = "http://127.0.0.1:8788"
 PUBLIC_ORIGIN = "https://api.savvycopilot.com"
 BACKEND = "savvy-backend.service"
-BACKUP = "savvy-backup.service"
 
 
 def command(*args):
@@ -82,34 +81,24 @@ def database_counts(path, now):
 def check():
     result = {"checked_at_ms": int(time.time() * 1000)}
     failures = []
-    backup_running = False
-    for name, key in [(BACKEND, "backend"), (BACKUP, "backup")]:
-        try:
-            status = unit(name)
-            result[key + "_active"] = status.get("ActiveState") == "active"
-            if key == "backup":
-                backup_running = status.get("ActiveState") in (
-                    "activating",
-                    "deactivating",
-                    "active",
-                )
-            if status.get("LoadState") != "loaded" or status.get("Result") != "success":
-                failures.append(key + "_unit_failed")
-        except Exception:
-            failures.append(key + "_unit_unreadable")
-    result["scheduled_backup_running"] = backup_running
-    if not backup_running:
-        if not result.get("backend_active"):
-            failures.append("backend_inactive")
-        for origin, label in [(LOCAL_ORIGIN, "origin"), (PUBLIC_ORIGIN, "public")]:
-            for path, expected in [("/ready", 200), ("/readyz", 204)]:
-                key = label + path.replace("/", "_")
-                try:
-                    result[key] = ready(origin, path, expected)
-                except Exception:
-                    result[key] = False
-                if not result[key]:
-                    failures.append(key)
+    try:
+        status = unit(BACKEND)
+        result["backend_active"] = status.get("ActiveState") == "active"
+        if status.get("LoadState") != "loaded" or status.get("Result") != "success":
+            failures.append("backend_unit_failed")
+    except Exception:
+        failures.append("backend_unit_unreadable")
+    if not result.get("backend_active"):
+        failures.append("backend_inactive")
+    for origin, label in [(LOCAL_ORIGIN, "origin"), (PUBLIC_ORIGIN, "public")]:
+        for path, expected in [("/ready", 200), ("/readyz", 204)]:
+            key = label + path.replace("/", "_")
+            try:
+                result[key] = ready(origin, path, expected)
+            except Exception:
+                result[key] = False
+            if not result[key]:
+                failures.append(key)
     try:
         result.update(database_counts(DATABASE, result["checked_at_ms"]))
         # Failed operations include cancellations, so report that count without paging.
