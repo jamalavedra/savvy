@@ -2,7 +2,6 @@ import managedCatalog from "../../config/managed-catalog.json";
 import sourceProviderCatalog from "../../backend/src/source-providers.json";
 import { version } from "../../package.json";
 import { invoke } from "@tauri-apps/api/core";
-import { open } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import type {
   AppPaths,
@@ -16,7 +15,6 @@ import type {
   NegotiationBrief,
   PreparationSnapshot,
   ProviderHealth,
-  TranscriptUpdate,
   TranscriptTurn,
   TranscriptionKeyStatus,
   ClientDocument,
@@ -500,14 +498,18 @@ export async function deleteMeeting(sessionId: string): Promise<void> {
   await invoke("delete_meeting", { sessionId });
 }
 
+// The native side records the choice; path-taking commands reject anything else.
+function pickPath(
+  kind: "folder" | "briefDocument",
+  title: string,
+): Promise<string | null> {
+  return invoke<string | null>("pick_path", { kind, title });
+}
+
 export async function chooseClientFolder(): Promise<ClientWorkspace | null> {
   if (!window.__TAURI_INTERNALS__) return demoClient;
-  const selected = await open({
-    directory: true,
-    multiple: false,
-    title: "Choose a client dossier",
-  });
-  if (typeof selected !== "string") return null;
+  const selected = await pickPath("folder", "Choose a client dossier");
+  if (selected === null) return null;
   return invoke<ClientWorkspace>("add_client_folder", { path: selected });
 }
 
@@ -626,12 +628,7 @@ export async function removeBrief(clientId: string | null): Promise<void> {
 
 export async function chooseGuidanceFolder(): Promise<string | null> {
   if (!window.__TAURI_INTERNALS__) return "/Guidance";
-  const selected = await open({
-    directory: true,
-    multiple: false,
-    title: "Choose a reusable guidance library",
-  });
-  return typeof selected === "string" ? selected : null;
+  return pickPath("folder", "Choose a reusable guidance library");
 }
 
 export async function generateBriefDraft(
@@ -724,12 +721,8 @@ export async function importBriefDocument(
       approvedAt: null,
     };
   }
-  const selected = await open({
-    multiple: false,
-    title: "Choose a brief document",
-    filters: [{ name: "Markdown", extensions: ["md", "markdown"] }],
-  });
-  if (typeof selected !== "string") return null;
+  const selected = await pickPath("briefDocument", "Choose a brief document");
+  if (selected === null) return null;
   return invoke<NegotiationBrief>("import_brief_document", {
     clientId,
     path: selected,
@@ -749,12 +742,8 @@ export async function replaceBriefDocument(
       approvedAt: null,
     };
   }
-  const selected = await open({
-    multiple: false,
-    title: "Choose a brief document",
-    filters: [{ name: "Markdown", extensions: ["md", "markdown"] }],
-  });
-  if (typeof selected !== "string") return null;
+  const selected = await pickPath("briefDocument", "Choose a brief document");
+  if (selected === null) return null;
   return invoke<NegotiationBrief>("refresh_brief_from_document", {
     briefId,
     path: selected,
@@ -882,44 +871,6 @@ export async function requestRecommendation(sessionId: string): Promise<void> {
     return;
   }
   return invoke<void>("request_recommendation", { sessionId });
-}
-
-export async function appendTranscriptTurn(
-  sessionId: string,
-  text: string,
-  startMs: number,
-  endMs: number,
-): Promise<TranscriptUpdate> {
-  if (!window.__TAURI_INTERNALS__) {
-    return {
-      turn: {
-        id: crypto.randomUUID(),
-        sessionId,
-        channel: "other",
-        text,
-        language: "en",
-        startMs,
-        endMs,
-        isFinal: true,
-        confidence: 0.92,
-      },
-      recommendation: {
-        ...browserDemo.latestRecommendation!,
-        id: crypto.randomUUID(),
-        trigger: text.includes("?") ? "question" : "objection",
-      },
-    };
-  }
-  return invoke<TranscriptUpdate>("append_transcript_turn", {
-    input: {
-      sessionId,
-      channel: "other",
-      text,
-      startMs,
-      endMs,
-      isFinal: true,
-    },
-  });
 }
 
 export async function stopMeeting(sessionId: string): Promise<MeetingSession> {

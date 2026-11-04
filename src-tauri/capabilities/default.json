@@ -12,7 +12,6 @@
     "core:window:allow-set-focus",
     "core:window:allow-set-position",
     "core:window:allow-show",
-    "dialog:allow-open",
     "macos-permissions:allow-check-microphone-permission",
     "macos-permissions:allow-check-screen-recording-permission",
     "macos-permissions:allow-request-microphone-permission",

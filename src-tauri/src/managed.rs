@@ -2155,6 +2155,7 @@ mod issuer_tests {
                 app_operation: Mutex::new(false),
                 settings_path: directory.join("settings.json"),
                 provider_health: Mutex::new(Vec::new()),
+                granted_paths: Mutex::default(),
                 #[cfg(any(target_os = "macos", target_os = "windows"))]
                 microphone: Mutex::new(crate::MicrophoneCapture::new()),
                 #[cfg(any(target_os = "macos", target_os = "windows"))]
