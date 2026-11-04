@@ -268,6 +268,10 @@ test("fixture configuration refuses public or deceptive endpoints and issuer cha
     { SAVVY_STRIPE_BASE_URL: "http://127.0.0.1@evil.test" },
     { SAVVY_STRIPE_BASE_URL: "https://stripe.com" },
     { SAVVY_OIDC_ISSUER: "http://127.0.0.1:8787" },
+    { SAVVY_ANTHROPIC_BASE_URL: "ws://127.0.0.1:9000" },
+    { SAVVY_STRIPE_BASE_URL: "http://127.0.0.1:9000/?v=1" },
+    { SAVVY_DEEPGRAM_URL: "http://127.0.0.1:9000" },
+    { SAVVY_CHECKOUT_RETURN_URL: "ws://127.0.0.1:9000" },
   ])
     assert.throws(() => configuration({ ...env, ...patch }));
   assert.throws(

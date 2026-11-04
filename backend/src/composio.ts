@@ -2,7 +2,7 @@ import { Composio } from "@composio/core";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import type { ServiceState } from "./state.js";
-import { ApiError } from "./errors.js";
+import { ApiError, readLimited } from "./errors.js";
 import { reserveAttempt } from "./billing.js";
 
 export const SOURCE_LIMIT = 256 * 1024;
@@ -447,27 +447,14 @@ export class ComposioSources {
           "provider_unavailable",
           "connected document download failed",
         );
-      const reader = response.body.getReader();
-      const chunks: Uint8Array[] = [];
-      let size = 0;
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          size += value.byteLength;
-          if (size > SOURCE_LIMIT) {
-            await reader.cancel().catch(() => {});
-            throw new ApiError(
-              "context_too_large",
-              "record exceeds the 256 KiB import limit",
-            );
-          }
-          chunks.push(value);
-        }
-      } finally {
-        reader.releaseLock();
-      }
-      const bytes = Buffer.concat(chunks, size);
+      const bytes = await readLimited(
+        response,
+        SOURCE_LIMIT,
+        new ApiError(
+          "context_too_large",
+          "record exceeds the 256 KiB import limit",
+        ),
+      );
       return { text: new TextDecoder("utf-8", { fatal: true }).decode(bytes) };
     }
     if (typeof result.data === "string")

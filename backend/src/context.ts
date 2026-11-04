@@ -259,9 +259,50 @@ export function validateBrief(
       "reasoning provider returned invalid JSON",
     );
   const brief = parsed.data;
+  // Mirrors GeneratedBrief::validate_size so the desktop never rejects a settled brief.
+  const lists = [
+    brief.priorities,
+    brief.desiredOutcomes,
+    brief.questionsToAsk,
+    brief.redLines,
+    brief.prohibitedClaims,
+    brief.unauthorizedCommitments,
+    brief.risks,
+  ];
+  const nested = [
+    brief.agenda,
+    brief.factsToUse,
+    brief.concessions,
+    ...brief.agenda.flatMap((s) => [s.talkingPoints, s.keywords]),
+    ...brief.factsToUse.map((f) => f.sourceIds),
+  ];
+  const texts = [
+    brief.title,
+    brief.objective,
+    brief.responseLanguage,
+    brief.ourPosition,
+    brief.clientPosition,
+    ...lists.flat(),
+    ...brief.agenda.flatMap((s) => [
+      s.title,
+      s.objective,
+      ...s.talkingPoints,
+      ...s.keywords,
+    ]),
+    ...brief.factsToUse.map((f) => f.statement),
+    ...brief.concessions.flatMap((c) => [c.item, c.condition]),
+  ];
+  if (
+    [...lists, ...nested].some((items) => items.length > 20) ||
+    texts.some(
+      (text) =>
+        Buffer.byteLength(text) > 32_000 || Array.from(text).length > 8000,
+    ) ||
+    brief.factsToUse.some((f) => f.sourceIds.some((id) => id.length > 36))
+  )
+    throw new ApiError("result_unavailable", "brief exceeds output limits");
   if (
     Buffer.byteLength(JSON.stringify(brief)) > 65_536 ||
-    brief.agenda.length > 20 ||
     !brief.title.trim() ||
     !brief.objective.trim() ||
     !brief.agenda.length ||
@@ -339,6 +380,7 @@ export function validateAdvice(
     words(advice.rationale) >= 35 ||
     (advice.action === "show" &&
       (!advice.say.trim() ||
+        !advice.rationale.trim() ||
         words(advice.say) >= 60 ||
         (!advice.evidenceIds.length && !advice.turnIds.length)))
   )

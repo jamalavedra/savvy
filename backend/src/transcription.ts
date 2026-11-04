@@ -702,17 +702,23 @@ async function relay(
       }
       if (value?.type !== "Results") return;
       const alternative = value.channel?.alternatives?.[0];
+      // Only primitives are forwarded, so supplier nesting cannot reach JSON.stringify.
+      const num = (v: unknown) => (Number.isFinite(v) ? (v as number) : null);
+      const bool = (v: unknown) => (typeof v === "boolean" ? v : null);
       const filtered = JSON.stringify({
         type: "Results",
-        start: value.start ?? null,
-        duration: value.duration ?? null,
-        is_final: value.is_final ?? null,
-        speech_final: value.speech_final ?? null,
+        start: num(value.start),
+        duration: num(value.duration),
+        is_final: bool(value.is_final),
+        speech_final: bool(value.speech_final),
         channel: {
           alternatives: [
             {
-              transcript: alternative?.transcript ?? null,
-              confidence: alternative?.confidence ?? null,
+              transcript:
+                typeof alternative?.transcript === "string"
+                  ? alternative.transcript
+                  : null,
+              confidence: num(alternative?.confidence),
             },
           ],
         },

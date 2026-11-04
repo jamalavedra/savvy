@@ -130,8 +130,8 @@ function setReservation(
   if (desired > 0n) assertFunding(db, session.account_id, funding, now);
   const scope = scopeFilter(funding);
   db.prepare(
-    "UPDATE allowance_grants SET meeting_ms_reserved=meeting_ms_reserved-COALESCE((SELECT amount_ms FROM session_reservations WHERE session_id=? AND grant_id=allowance_grants.id),0)",
-  ).run(session.id);
+    "UPDATE allowance_grants SET meeting_ms_reserved=meeting_ms_reserved-(SELECT amount_ms FROM session_reservations WHERE session_id=? AND grant_id=allowance_grants.id) WHERE id IN (SELECT grant_id FROM session_reservations WHERE session_id=?)",
+  ).run(session.id, session.id);
   db.prepare("DELETE FROM session_reservations WHERE session_id=?").run(
     session.id,
   );
@@ -692,10 +692,8 @@ export function lifecycle(
           "session_ended",
           "meeting ended; start a new meeting",
         );
-      const end = min(
-        state.sessions.get(session.id)?.deliveredUntilMs ?? 0n,
-        now,
-      );
+      // Audio already forwarded is billed in full, as when the last source disconnects.
+      const end = state.sessions.get(session.id)?.deliveredUntilMs ?? 0n;
       finishInterval(db, account, id, action, end > 0n ? end : now);
       if (action === "resume") {
         state.requireAssistance();
@@ -843,10 +841,8 @@ export function pauseSession(state: ServiceState, account: bigint, id: string) {
           "session_ended",
           "this meeting already ended; start a new meeting",
         );
-      const end = min(
-        state.sessions.get(session.id)?.deliveredUntilMs ?? 0n,
-        now,
-      );
+      // Audio already forwarded is billed in full, as when the last source disconnects.
+      const end = state.sessions.get(session.id)?.deliveredUntilMs ?? 0n;
       finishInterval(state.db, account, id, "paused", end > 0n ? end : now);
       state.db
         .prepare(

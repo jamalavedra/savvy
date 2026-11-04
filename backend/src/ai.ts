@@ -1,5 +1,5 @@
 import type { ServiceState } from "./state.js";
-import { ApiError } from "./errors.js";
+import { ApiError, readLimited } from "./errors.js";
 import { pauseSession } from "./sessions.js";
 
 export function requestBody(
@@ -86,36 +86,17 @@ export async function post(
         "reasoning provider rejected the request",
       );
     }
-    const reader = response.body?.getReader();
-    if (!reader)
-      throw new ApiError(
+    const raw = await readLimited(
+      response,
+      1_048_576,
+      new ApiError(
         "provider_unavailable",
         "invalid reasoning provider response",
-      );
-    let size = 0;
-    const chunks: Uint8Array[] = [];
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        size += value.length;
-        if (size > 1_048_576) {
-          await reader.cancel();
-          throw new ApiError(
-            "provider_unavailable",
-            "invalid reasoning provider response",
-          );
-        }
-        chunks.push(value);
-      }
-    } finally {
-      reader.releaseLock();
-    }
+      ),
+    );
     let value: unknown;
     try {
-      value = JSON.parse(
-        new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks)),
-      );
+      value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(raw));
     } catch {
       throw new ApiError(
         "provider_unavailable",
