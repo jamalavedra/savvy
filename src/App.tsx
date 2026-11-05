@@ -4459,6 +4459,7 @@ function ShortcutEditor({
   const controlRef = useRef<HTMLSpanElement>(null);
   const pressedKeys = useRef(new Set<string>());
   const pendingShortcut = useRef<string | null>(null);
+  const saveShortcut = useEffectEvent((shortcut: string) => onChange(shortcut));
 
   const mounted = useRef(false);
   const suspended = useRef(false);
@@ -4519,7 +4520,7 @@ function ShortcutEditor({
       if (pressedKeys.current.size > 0 || !pendingShortcut.current) return;
       const shortcut = pendingShortcut.current;
       resetCapture();
-      void onChange(shortcut)
+      void saveShortcut(shortcut)
         .finally(restore)
         .catch(() => undefined);
     }
@@ -4535,9 +4536,8 @@ function ShortcutEditor({
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
       window.removeEventListener("mousedown", handleClickOutside);
-      restore();
     };
-  }, [onChange, recording, restore]);
+  }, [recording, restore]);
 
   return (
     <span className="shortcut-control" ref={controlRef}>

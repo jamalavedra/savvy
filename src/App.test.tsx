@@ -1725,6 +1725,42 @@ describe("App", () => {
     },
   );
 
+  it("keeps the shortcut suspended across re-renders and restores it once after save", async () => {
+    vi.mocked(listen).mockResolvedValue(vi.fn());
+    const capture = vi
+      .spyOn(api, "setShortcutRecording")
+      .mockResolvedValue(undefined);
+    let settle!: () => void;
+    vi.spyOn(api, "updateAppSettings").mockImplementation(
+      (settings) =>
+        new Promise((done) => {
+          settle = () => done(settings as never);
+        }),
+    );
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "General" }));
+    const chip = () =>
+      screen.getByRole("button", { name: "Change start listening shortcut" });
+    await act(async () => {
+      fireEvent.click(chip());
+    });
+    await waitFor(() => expect(chip()).toHaveTextContent("Press keys…"));
+    const restores = () => capture.mock.calls.filter(([active]) => !active);
+
+    await act(async () => {
+      fireEvent(window, new Event("focus"));
+    });
+    expect(chip()).toHaveTextContent("Press keys…");
+    expect(restores()).toHaveLength(0);
+
+    fireEvent.keyDown(window, { key: "K", code: "KeyK", metaKey: true });
+    fireEvent.keyUp(window, { key: "K", code: "KeyK", metaKey: true });
+    await waitFor(() => expect(chip()).not.toHaveTextContent("Press keys…"));
+    expect(restores()).toHaveLength(0);
+    await act(async () => settle());
+    await waitFor(() => expect(restores()).toHaveLength(1));
+  });
+
   it("groups the general settings into labelled sections", async () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "General" }));
