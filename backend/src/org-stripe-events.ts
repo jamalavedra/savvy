@@ -11,6 +11,7 @@ import {
   findCheckout,
   organizationCustomer,
   recordOrganizationCheckout,
+  rejectQuantityChange,
   subscriptionDetails,
   type Checkout,
 } from "./org-stripe.js";
@@ -38,6 +39,7 @@ interface QuantityOperation {
   id: bigint;
   quantity: bigint;
   retire_seat_ids: string;
+  previous_retire_seat_ids: string;
   stripe_subscription_id: string;
   stripe_item_id: string;
   price_id: string;
@@ -214,7 +216,7 @@ async function synchronizeSubscription(
     .get(org);
   if (existing && existing.stripe_subscription_id !== id)
     return { current, intent, details, historical: true };
-  const operation = state.db
+  let operation = state.db
     .prepare<[bigint], QuantityOperation>(
       "SELECT * FROM organization_quantity_changes WHERE organization_id=? AND state IN ('pending','unknown')",
     )
@@ -229,11 +231,23 @@ async function synchronizeSubscription(
     details.quantity !== Number(operation.quantity) &&
     state.clock() - operation.created_at_ms < 23n * 3_600_000n
   ) {
-    await post(state, `subscriptions/${id}`, operation.stripe_idempotency_key, [
-      ["items[0][id]", operation.stripe_item_id],
-      ["items[0][quantity]", operation.quantity.toString()],
-      ["proration_behavior", "none"],
-    ]);
+    try {
+      await post(
+        state,
+        `subscriptions/${id}`,
+        operation.stripe_idempotency_key,
+        [
+          ["items[0][id]", operation.stripe_item_id],
+          ["items[0][quantity]", operation.quantity.toString()],
+          ["proration_behavior", "none"],
+        ],
+      );
+    } catch (error) {
+      if (!(error instanceof ApiError && error.code === "purchase_rejected"))
+        throw error;
+      rejectQuantityChange(state, org, operation);
+      operation = undefined;
+    }
     current = await get(state, `subscriptions/${id}`);
     details = subscriptionDetails(current, customer, intent.price_id, id);
     ended =

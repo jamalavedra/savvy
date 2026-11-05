@@ -479,6 +479,30 @@ function retireIds(value: string): string[] {
     throw new Error("Invalid persisted seat retirement plan");
   return ids;
 }
+/**
+ * Settles a quantity change Stripe definitively rejected: the change is failed
+ * and the seat plan from before the change is restored.
+ */
+export function rejectQuantityChange(
+  state: ServiceState,
+  org: bigint,
+  operation: { id: bigint; previous_retire_seat_ids: string },
+) {
+  state.db
+    .transaction(() => {
+      applyRetirementPlan(
+        state,
+        org,
+        retireIds(operation.previous_retire_seat_ids),
+      );
+      state.db
+        .prepare(
+          "UPDATE organization_quantity_changes SET state='failed' WHERE id=?",
+        )
+        .run(operation.id);
+    })
+    .immediate();
+}
 export function applyRetirementPlan(
   state: ServiceState,
   org: bigint,
@@ -718,20 +742,7 @@ export async function updateSeatQuantity(
           );
         } catch (error) {
           if (error instanceof ApiError && error.code === "purchase_rejected")
-            state.db
-              .transaction(() => {
-                applyRetirementPlan(
-                  state,
-                  org,
-                  retireIds(operation!.previous_retire_seat_ids),
-                );
-                state.db
-                  .prepare(
-                    "UPDATE organization_quantity_changes SET state='failed' WHERE id=?",
-                  )
-                  .run(operation!.id);
-              })
-              .immediate();
+            rejectQuantityChange(state, org, operation);
           throw error;
         }
         subscriptionDetails(

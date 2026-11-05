@@ -19,6 +19,7 @@ import {
   organizationPortal,
   updateSeatQuantity,
 } from "./org-stripe.js";
+import { refreshOrganizationLocked } from "./org-stripe-events.js";
 
 async function fixture(t: TestContext) {
   const calls: {
@@ -624,6 +625,50 @@ test("a stale quantity change settles from Stripe's quantity and frees the next 
       { request_key: "fresh", state: "applied" },
     ],
   );
+  assert.equal(h.state.billingInFlight.size, 0);
+});
+
+test("a rejected background retry of a quantity change fails it and restores the previous seat plan", async (t) => {
+  const h = await fixture(t);
+  paidTeam(h);
+  h.db
+    .prepare(
+      "INSERT INTO organization_checkouts(organization_id,request_key,quantity,price_id,return_url,stripe_idempotency_key,stripe_session_id,stripe_subscription_id,stripe_item_id,state,created_at_ms,updated_at_ms) VALUES(?,'team',2,'price_monthly','https://savvy.test/team','team-key','cs_team','sub_team','si_team','complete',0,0)",
+    )
+    .run(h.org);
+  h.quantityFailure(503);
+  const body = { quantity: 1, retireSeatIds: ["2"], requestKey: "rejected" };
+  await assert.rejects(updateSeatQuantity(h.state, 1n, h.org, body), {
+    code: "provider_unavailable",
+  });
+  const seats = () =>
+    h.db
+      .prepare<[], { id: bigint; status: string }>(
+        "SELECT id,status FROM seats ORDER BY id",
+      )
+      .all()
+      .map((s) => `${s.id}:${s.status}`);
+  assert.deepEqual(seats(), ["1:active", "2:retiring"]);
+  h.quantityFailure(400);
+  const release = acquireBilling(h.state, `org:${h.org}`);
+  try {
+    await refreshOrganizationLocked(h.state, h.org);
+  } finally {
+    release();
+  }
+  assert.deepEqual(
+    h.db
+      .prepare("SELECT request_key,state FROM organization_quantity_changes")
+      .all(),
+    [{ request_key: "rejected", state: "failed" }],
+  );
+  assert.deepEqual(seats(), ["1:active", "2:active"]);
+  h.quantityFailure(0);
+  await updateSeatQuantity(h.state, 1n, h.org, {
+    ...body,
+    requestKey: "fresh",
+  });
+  assert.deepEqual(seats(), ["1:active", "2:retiring"]);
   assert.equal(h.state.billingInFlight.size, 0);
 });
 
