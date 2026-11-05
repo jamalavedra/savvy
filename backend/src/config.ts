@@ -9,6 +9,11 @@ export function isLoopback(host: string) {
   );
 }
 
+/** Migration needs only this path, not the provider and payment keys. */
+export function serviceDatabasePath(env: NodeJS.ProcessEnv = process.env) {
+  return env.SAVVY_DB_PATH ?? "savvy-service.sqlite";
+}
+
 export function configuration(env: NodeJS.ProcessEnv = process.env) {
   const required = (name: string) => {
     const value = env[name];
@@ -48,7 +53,7 @@ export function configuration(env: NodeJS.ProcessEnv = process.env) {
   const config = {
     issuer,
     audience: env.SAVVY_OIDC_AUDIENCE ?? "https://api.savvycopilot.com",
-    serviceDatabase: env.SAVVY_DB_PATH ?? "savvy-service.sqlite",
+    serviceDatabase: serviceDatabasePath(env),
     bind: env.SAVVY_HOST ?? "127.0.0.1",
     port: Number(env.PORT ?? 8788),
     aiProvider: fireworks ? ("fireworks" as const) : ("anthropic" as const),

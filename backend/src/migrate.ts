@@ -1,5 +1,7 @@
 import { getMigrations } from "better-auth/db/migration";
 import { createAuth } from "./auth.js";
+import { serviceDatabasePath } from "./config.js";
+import { openServiceDatabase } from "./db.js";
 export async function migrate(instance: ReturnType<typeof createAuth>) {
   const { clientId } = instance;
   const migration = await getMigrations(instance.options);
@@ -47,7 +49,13 @@ export async function migrate(instance: ReturnType<typeof createAuth>) {
     });
 }
 if (/\/migrate\.(ts|js)$/.test(process.argv[1] ?? "")) {
-  const instance = createAuth();
-  await migrate(instance);
-  instance.db.close();
+  if (process.argv[2] === "service") {
+    // One transaction that refuses rather than half-applies, so deploy can run it
+    // while rolling back to the previous release is still safe.
+    openServiceDatabase(serviceDatabasePath()).close();
+  } else {
+    const instance = createAuth();
+    await migrate(instance);
+    instance.db.close();
+  }
 }
