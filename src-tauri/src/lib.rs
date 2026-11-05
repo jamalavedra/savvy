@@ -3513,8 +3513,9 @@ fn start_meeting_inner(
         log::error!("live transcription unavailable: {error}");
         if managed_mode(state) {
             let id = session.id.to_string();
+            let command = managed::next_command();
             tauri::async_runtime::spawn_blocking(move || {
-                managed::session_action_ordered(&id, "pause", managed::next_command())
+                managed::session_action_ordered(&id, "pause", command)
             });
             pause_managed_assistance(app.clone(), session.id);
         }
@@ -5245,9 +5246,13 @@ async fn resume_meeting(session_id: String, app: AppHandle) -> Result<MeetingSes
                 // No application or capture lock is held during network requests.
                 if let Err(error) = managed::resume_session(&session_id) {
                     if error.contains("session_ended") {
-                        run_app_operation(&app, |app, state| {
-                            stop_live_meeting(app, state, parsed)
-                        })?;
+                        let state = app.state::<AppState>();
+                        let stop = || stop_live_meeting(&app, &state, parsed);
+                        if let Some(Err(stop_error)) =
+                            wait_for_app_operation(&state.app_operation, stop)
+                        {
+                            return Err(stop_error);
+                        }
                         return Err(managed_stream_message(&error, "meeting"));
                     }
                     return Err(error);
@@ -8145,9 +8150,10 @@ mod tests {
         assert!(work.next().is_none());
         exit.disarm();
         assert!(work.enqueue(pending(3), "codex".into()));
+        drop(work);
         drop(exit);
         assert!(
-            work.running,
+            WORK.lock().unwrap().running,
             "disarmed guard must not release a newer worker"
         );
     }
