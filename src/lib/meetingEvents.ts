@@ -13,7 +13,6 @@ export type GenerationCursor = {
   generationId: number;
   sequence: number;
   terminalGenerationId: number;
-  trigger: RecommendationTrigger | null;
 };
 
 type StaleCursor = Pick<
@@ -68,7 +67,6 @@ export function reduceMeetingEvent(
         generationId: sameSession ? current.generationId : 0,
         sequence: event.sequence,
         terminalGenerationId: sameSession ? current.terminalGenerationId : 0,
-        trigger: sameSession ? current.trigger : null,
       },
       turn: event.turn,
       newSession: !sameSession,
@@ -83,7 +81,6 @@ export function reduceMeetingEvent(
         generationId: event.generationId,
         sequence: Math.max(current.sequence, event.sequence),
         terminalGenerationId: sameSession ? current.terminalGenerationId : 0,
-        trigger: event.trigger,
       },
       thinking: {
         trigger: event.trigger,
@@ -114,7 +111,6 @@ export function reduceMeetingEvent(
         current.terminalGenerationId,
         event.generationId,
       ),
-      trigger: null,
     },
     recommendation:
       event.type === "recommendationCompleted" ? event.recommendation : null,

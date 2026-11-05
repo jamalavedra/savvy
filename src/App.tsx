@@ -291,7 +291,6 @@ function App() {
     generationId: 0,
     sequence: 0,
     terminalGenerationId: 0,
-    trigger: null,
   });
   const handleStartRequest = useEffectEvent(() => {
     if (onboarding !== "done") {
@@ -306,7 +305,6 @@ function App() {
     if (dashboard?.activeSession) void endActiveMeeting();
     else void startActiveMeeting();
   });
-  const handleStopRequest = useEffectEvent(() => void endActiveMeeting());
   function applyRecommendation(recommendation: Recommendation) {
     setDashboard((current) =>
       current ? { ...current, latestRecommendation: recommendation } : current,
@@ -493,7 +491,6 @@ function App() {
                 generationId: 0,
                 sequence: 0,
                 terminalGenerationId: 0,
-                trigger: null,
               };
               setTranscriptTurns([]);
               setThinking(null);
@@ -536,7 +533,6 @@ function App() {
             ? []
             : [
                 listen("savvy://start-listening", handleStartRequest),
-                listen("savvy://stop-listening", handleStopRequest),
                 listen("savvy://open-settings", () => setView("general")),
               ]),
         ]),
@@ -1023,7 +1019,6 @@ function App() {
   async function forceRecommendation() {
     const session = dashboard?.activeSession;
     if (!session) return;
-    generationRef.current = { ...generationRef.current, trigger: "manual" };
     setThinking({
       trigger: "manual",
       generationId: generationRef.current.generationId + 1,
@@ -1036,7 +1031,6 @@ function App() {
     try {
       await requestRecommendation(session.id);
     } catch (reason) {
-      generationRef.current = { ...generationRef.current, trigger: null };
       setThinking(null);
       setError(reason instanceof Error ? reason.message : String(reason));
     }

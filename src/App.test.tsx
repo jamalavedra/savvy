@@ -1070,7 +1070,6 @@ describe("App", () => {
       generationId: 1,
       sequence: 3,
       terminalGenerationId: 1,
-      trigger: null,
     };
     const started = (
       trigger: "question" | "opportunity" | "manual",
