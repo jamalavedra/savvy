@@ -1090,15 +1090,26 @@ mod tests {
 
     #[tokio::test]
     async fn rejected_api_key_is_a_terminal_error_not_a_reconnect() {
-        use tokio::io::AsyncWriteExt;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let server = tokio::spawn(async move {
             let (mut socket, _) = listener.accept().await.unwrap();
+            // Windows resets a socket closed with unread data, which would hide the 401.
+            let mut request = Vec::new();
+            let mut chunk = [0_u8; 1024];
+            while !request.windows(4).any(|end| end == b"\r\n\r\n") {
+                let read = socket.read(&mut chunk).await.unwrap();
+                if read == 0 {
+                    break;
+                }
+                request.extend_from_slice(&chunk[..read]);
+            }
             socket
                 .write_all(b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n")
                 .await
                 .unwrap();
+            socket.shutdown().await.unwrap();
         });
         let (_frames, frames) = flume::bounded(1);
         let (_stop, stop) = tokio::sync::watch::channel(false);
