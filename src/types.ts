@@ -124,7 +124,7 @@ export type Recommendation = {
   contextPackHash: string;
   provider: string | null;
   model: string | null;
-  lifecycle: "local" | "completed" | "failed";
+  lifecycle: "local" | "completed";
 };
 
 export type MeetingSession = {
