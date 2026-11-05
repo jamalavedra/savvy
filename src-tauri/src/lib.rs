@@ -41,6 +41,7 @@ use savvy_storage::Storage;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 use savvy_transcription::{
     speaker_channel, stream_transcription, LiveTranscript, ReconciledTranscript, StreamingProvider,
+    TranscriptionError,
 };
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 use serde::de::DeserializeOwned;
@@ -4930,6 +4931,19 @@ fn spawn_transcription_stream(
             let label = match source {
                 AudioSource::Microphone => "microphone",
                 AudioSource::System => "system audio",
+            };
+            let error = match error {
+                TranscriptionError::Rejected(reason) => {
+                    log::error!("{label} transcription stopped: {reason}");
+                    let _ = app.emit(
+                        "meeting://provider-error",
+                        format!(
+                            "Live {label} transcription stopped: {reason}. Check the transcription API key in Settings."
+                        ),
+                    );
+                    break;
+                }
+                TranscriptionError::Failed(reason) => reason,
             };
             log::warn!("{label} transcription disconnected: {error}");
             let _ = app.emit(
