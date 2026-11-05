@@ -5341,6 +5341,24 @@ fn stop_active_meeting(app: &AppHandle) {
     }
 }
 
+/// A meeting left Recording or Paused by a previous run has no live state in this process,
+/// so it is closed as Interrupted. Pause, resume, and stop only act on the live meeting,
+/// which keeps per-launch hosted command ids from ever being sent for an old session.
+fn interrupt_previous_session(storage: &Storage) -> Result<Option<Uuid>, String> {
+    let Some(mut session) = storage
+        .latest_active_session()
+        .map_err(|error| error.to_string())?
+    else {
+        return Ok(None);
+    };
+    session.state = MeetingState::Interrupted;
+    session.ended_at = Some(Utc::now());
+    storage
+        .save_session(&session)
+        .map_err(|error| error.to_string())?;
+    Ok(Some(session.id))
+}
+
 fn persist_stopped_meeting(
     live: &mut Option<LiveMeeting>,
     session: &MeetingSession,
@@ -7048,11 +7066,7 @@ pub fn run() {
                 }
             }
             let storage = Storage::open(&app_data.join("savvy-v2.sqlite"))?;
-            if let Some(mut session) = storage.latest_active_session()? {
-                session.state = MeetingState::Interrupted;
-                session.ended_at = Some(Utc::now());
-                storage.save_session(&session)?;
-            }
+            interrupt_previous_session(&storage)?;
             match cleanup_expired_meetings(&storage, &recordings, Utc::now()) {
                 Ok(count) if count > 0 => log::info!("removed {count} expired meetings"),
                 Err(error) => log::warn!("expired meeting cleanup failed: {error}"),
@@ -8481,6 +8495,28 @@ mod tests {
         let ran = std::cell::Cell::new(false);
         assert!(wait_for_app_operation(&gate, || ran.set(true)).is_none());
         assert!(!ran.get(), "a relaunch or exit already stops the meeting");
+    }
+
+    #[test]
+    fn paused_session_from_a_previous_run_is_interrupted_at_startup() {
+        let directory = std::env::temp_dir().join(format!("savvy-startup-{}", Uuid::new_v4()));
+        fs::create_dir(&directory).unwrap();
+        let storage = Storage::open(&directory.join("history.sqlite")).unwrap();
+        let mut session = scan_meeting(&[]).session;
+        session.state = MeetingState::Paused;
+        storage.save_session(&session).unwrap();
+        assert_eq!(
+            interrupt_previous_session(&storage).unwrap(),
+            Some(session.id)
+        );
+        let saved = storage.get_session(session.id).unwrap().unwrap();
+        assert_eq!(saved.state, MeetingState::Interrupted);
+        assert!(saved.ended_at.is_some());
+        // Nothing is left for resume_meeting to find, so no hosted command can target it.
+        assert!(storage.latest_active_session().unwrap().is_none());
+        assert_eq!(interrupt_previous_session(&storage).unwrap(), None);
+        drop(storage);
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
