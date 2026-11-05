@@ -694,6 +694,40 @@ describe("App", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("keeps a stopped meeting stopped when an older dashboard read resolves later", async () => {
+    vi.mocked(listen).mockResolvedValue(vi.fn());
+    const idle = await api.getDashboard();
+    const session = await api.startMeeting(null, null);
+    const live = { ...idle, activeSession: session };
+    resetBrowserDemoState();
+    const read = vi.spyOn(api, "getDashboard").mockResolvedValue(live);
+    vi.spyOn(api, "stopMeeting").mockResolvedValue({
+      ...session,
+      state: "completed",
+    });
+    render(<App />);
+    await screen.findByRole("button", { name: "Stop meeting" });
+    const initialReads = read.mock.calls.length;
+
+    let resolveStale!: (snapshot: typeof live) => void;
+    read.mockImplementationOnce(
+      () =>
+        new Promise((done) => {
+          resolveStale = done;
+        }),
+    );
+    fireEvent(window, new Event("focus"));
+    await waitFor(() => expect(read).toHaveBeenCalledTimes(initialReads + 1));
+    fireEvent.click(screen.getByRole("button", { name: "Stop meeting" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Stop meeting" })[0]);
+    await screen.findByText("Meeting history");
+    await act(async () => resolveStale(live));
+
+    expect(
+      screen.queryByRole("button", { name: "Stop meeting" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("pins the brief at readiness even if preparation refreshes before start", async () => {
     const snapshot = await api.getDashboard();
     const client = snapshot.clients[0];
@@ -1813,6 +1847,28 @@ describe("App", () => {
     expect(restores()).toHaveLength(0);
     await act(async () => settle());
     await waitFor(() => expect(restores()).toHaveLength(1));
+  });
+
+  it("restores the shortcut once when capture is cancelled with Escape", async () => {
+    vi.mocked(listen).mockResolvedValue(vi.fn());
+    const capture = vi
+      .spyOn(api, "setShortcutRecording")
+      .mockResolvedValue(undefined);
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "General" }));
+    const chip = () =>
+      screen.getByRole("button", { name: "Change start listening shortcut" });
+    await act(async () => {
+      fireEvent.click(chip());
+    });
+    await waitFor(() => expect(chip()).toHaveTextContent("Press keys…"));
+
+    fireEvent.keyDown(window, { key: "Escape", code: "Escape" });
+
+    await waitFor(() => expect(chip()).not.toHaveTextContent("Press keys…"));
+    await waitFor(() =>
+      expect(capture.mock.calls.filter(([active]) => !active)).toHaveLength(1),
+    );
   });
 
   it("groups the general settings into labelled sections", async () => {

@@ -416,9 +416,10 @@ function App() {
 
   useEffect(() => {
     let cancelled = false;
+    const read = ++dashboardRead.current;
     getDashboard()
       .then((snapshot) => {
-        if (cancelled) return;
+        if (cancelled || read !== dashboardRead.current) return;
         setDashboard(snapshot);
         setDashboardError(null);
         setActiveClientId(snapshot.clients[0]?.id ?? null);
@@ -496,6 +497,7 @@ function App() {
               setThinking(null);
               setError(null);
             }
+            dashboardRead.current += 1;
             setDashboard((current) =>
               current
                 ? {
@@ -958,6 +960,7 @@ function App() {
           current ? { ...current, brief: meetingBrief } : current,
         );
       }
+      dashboardRead.current += 1;
       setDashboard((current) =>
         current
           ? {
@@ -983,6 +986,7 @@ function App() {
     try {
       await stopMeeting(session.id);
       setView("meetings");
+      dashboardRead.current += 1;
       setDashboard((current) =>
         current
           ? { ...current, activeSession: null, latestRecommendation: null }
@@ -1006,6 +1010,7 @@ function App() {
           ? await resumeMeeting(session.id)
           : await pauseMeeting(session.id);
       if (updated.state === "paused") setThinking(null);
+      dashboardRead.current += 1;
       setDashboard((current) =>
         current ? { ...current, activeSession: updated } : current,
       );
