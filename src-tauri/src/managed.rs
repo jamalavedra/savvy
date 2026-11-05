@@ -1353,22 +1353,6 @@ fn cache_access_token(access_token: String, expires_in_seconds: u64) -> Result<(
     Ok(())
 }
 
-/// The issuer refused the refresh token, so the account is signed out whether or not the
-/// user asked. Leave the same state as `sign_out`: no identity, no session bindings, and a
-/// new generation so in-flight work bound to the refused credential is rejected.
-fn forget_refused_credential() -> Result<(), String> {
-    AUTH_GENERATION.fetch_add(1, Ordering::SeqCst);
-    delete_refresh_token()?;
-    clear_account_state();
-    if let Ok(mut identity) = ACCOUNT_IDENTITY.lock() {
-        *identity = None;
-    }
-    if let Ok(mut cached) = ACCESS_TOKEN.lock() {
-        *cached = None;
-    }
-    Ok(())
-}
-
 fn access_token() -> Result<String, String> {
     let _refresh_guard = REFRESH_LOCK
         .lock()
@@ -1397,7 +1381,9 @@ fn access_token() -> Result<String, String> {
         let body: serde_json::Value =
             bounded_json(response, MAX_AUTH_RESPONSE_BYTES).unwrap_or_default();
         if status.as_u16() == 400 && body["error"] == "invalid_grant" {
-            forget_refused_credential()?;
+            // Keep identity and brief recovery: same-account sign-in must resume mid-meeting
+            // and reuse paid brief keys. A different account clears them via changed_identity.
+            delete_refresh_token()?;
             return Err(sign_in_required_error());
         }
         return Err(typed_error(
@@ -2786,28 +2772,26 @@ mod issuer_tests {
             stored_refresh_token().unwrap().as_deref(),
             Some("refresh-one")
         );
-        // A refused credential is an involuntary sign-out and must leave sign-out's state:
-        // no identity, no session bindings, and a new generation for in-flight work.
-        let identity = ("https://issuer.example".to_owned(), "person-a".to_owned());
-        *ACCOUNT_IDENTITY.lock().unwrap() = Some(identity.clone());
-        let generation = AUTH_GENERATION.load(Ordering::SeqCst);
-        SESSION_FUNDING.lock().unwrap().insert(
-            "stale-session".into(),
-            FundingBinding {
-                choice: FundingChoice::Personal {},
-                identity: Some(identity),
-                generation,
-            },
-        );
         responses
             .lock()
             .unwrap()
             .push_back((400, serde_json::json!({"error":"invalid_grant"})));
+        let identity_before = ACCOUNT_IDENTITY.lock().unwrap().clone();
+        BRIEF_RETRY
+            .lock()
+            .unwrap()
+            .insert("pending-brief".into(), "paid-key".into());
         assert!(access_token().unwrap_err().contains("sign_in_required"));
         assert!(stored_refresh_token().unwrap().is_none());
-        assert!(ACCOUNT_IDENTITY.lock().unwrap().is_none());
-        assert!(SESSION_FUNDING.lock().unwrap().is_empty());
-        assert_ne!(AUTH_GENERATION.load(Ordering::SeqCst), generation);
+        assert_eq!(*ACCOUNT_IDENTITY.lock().unwrap(), identity_before);
+        assert_eq!(
+            BRIEF_RETRY
+                .lock()
+                .unwrap()
+                .remove("pending-brief")
+                .as_deref(),
+            Some("paid-key")
+        );
         for error in ["access_denied", "expired_token"] {
             let flow = start_device_authorization().unwrap();
             responses
