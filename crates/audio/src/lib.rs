@@ -68,8 +68,25 @@ pub trait AudioCapture: Send {
     fn is_running(&self) -> bool;
 }
 
+/// The microphone stream and whether it is delivering frames. A paused stream keeps its
+/// device open and its recording file, so `resume` continues the same meeting.
+enum MicrophoneStream {
+    Idle,
+    Running(cpal::Stream),
+    Paused(cpal::Stream),
+}
+
+impl MicrophoneStream {
+    fn is_open(&self) -> bool {
+        match self {
+            Self::Idle => false,
+            Self::Running(_) | Self::Paused(_) => true,
+        }
+    }
+}
+
 pub struct MicrophoneCapture {
-    stream: Option<cpal::Stream>,
+    stream: MicrophoneStream,
     selected_device: Option<String>,
     selected_channel: Option<u16>,
     sender: Sender<AudioFrame>,
@@ -155,7 +172,7 @@ impl MicrophoneCapture {
     pub fn new() -> Self {
         let (sender, receiver) = flume::bounded(64);
         Self {
-            stream: None,
+            stream: MicrophoneStream::Idle,
             selected_device: None,
             selected_channel: None,
             sender,
@@ -190,7 +207,7 @@ impl MicrophoneCapture {
         selected_device: Option<String>,
         selected_channel: Option<u16>,
     ) -> Result<(), AudioError> {
-        if self.stream.is_some() {
+        if self.stream.is_open() {
             return Err(AudioError::Capture(
                 "stop listening before changing the microphone".into(),
             ));
@@ -201,7 +218,7 @@ impl MicrophoneCapture {
     }
 
     pub fn record_to(&mut self, path: PathBuf) -> Result<(), AudioError> {
-        if self.stream.is_some() {
+        if self.stream.is_open() {
             return Err(AudioError::Capture(
                 "stop listening before changing the recording path".into(),
             ));
@@ -594,7 +611,7 @@ fn select_channel(
 
 impl AudioCapture for MicrophoneCapture {
     fn start(&mut self) -> Result<(), AudioError> {
-        if self.stream.is_some() {
+        if self.stream.is_open() {
             self.level()?;
             return Ok(());
         }
@@ -617,37 +634,58 @@ impl AudioCapture for MicrophoneCapture {
             }
             return Err(AudioError::Capture(error.to_string()));
         }
-        self.stream = Some(stream);
+        self.stream = MicrophoneStream::Running(stream);
         self.recording_sender = recording_sender;
         self.recording_thread = recording_thread;
         Ok(())
     }
 
     fn pause(&mut self) -> Result<(), AudioError> {
-        self.stream
-            .as_ref()
-            .ok_or_else(|| AudioError::Capture("microphone is not running".into()))?
-            .pause()
-            .map_err(|error| AudioError::Capture(error.to_string()))?;
+        let stream = match std::mem::replace(&mut self.stream, MicrophoneStream::Idle) {
+            MicrophoneStream::Idle => {
+                return Err(AudioError::Capture("microphone is not running".into()));
+            }
+            MicrophoneStream::Running(stream) | MicrophoneStream::Paused(stream) => stream,
+        };
+        self.stream = match stream.pause() {
+            Ok(()) => MicrophoneStream::Paused(stream),
+            Err(error) => {
+                self.stream = MicrophoneStream::Running(stream);
+                return Err(AudioError::Capture(error.to_string()));
+            }
+        };
         self.level.store(0, Ordering::Relaxed);
         Ok(())
     }
 
     fn resume(&mut self) -> Result<(), AudioError> {
         self.level()?;
-        self.stream
-            .as_ref()
-            .ok_or_else(|| AudioError::Capture("microphone is not running".into()))?
-            .play()
-            .map_err(|error| AudioError::Capture(error.to_string()))
+        let stream = match std::mem::replace(&mut self.stream, MicrophoneStream::Idle) {
+            MicrophoneStream::Idle => {
+                return Err(AudioError::Capture("microphone is not running".into()));
+            }
+            MicrophoneStream::Running(stream) | MicrophoneStream::Paused(stream) => stream,
+        };
+        match stream.play() {
+            Ok(()) => {
+                self.stream = MicrophoneStream::Running(stream);
+                Ok(())
+            }
+            Err(error) => {
+                self.stream = MicrophoneStream::Paused(stream);
+                Err(AudioError::Capture(error.to_string()))
+            }
+        }
     }
 
     fn stop(&mut self) -> Result<(), AudioError> {
-        let pause_error = self
-            .stream
-            .take()
-            .and_then(|stream| stream.pause().err())
-            .map(|error| AudioError::Capture(error.to_string()));
+        let pause_error = match std::mem::replace(&mut self.stream, MicrophoneStream::Idle) {
+            MicrophoneStream::Idle => None,
+            MicrophoneStream::Running(stream) | MicrophoneStream::Paused(stream) => stream
+                .pause()
+                .err()
+                .map(|error| AudioError::Capture(error.to_string())),
+        };
         drop(self.recording_sender.take());
         let write_result = if let Some(handle) = self.recording_thread.take() {
             handle
@@ -663,7 +701,10 @@ impl AudioCapture for MicrophoneCapture {
     }
 
     fn is_running(&self) -> bool {
-        self.stream.is_some()
+        match self.stream {
+            MicrophoneStream::Running(_) => true,
+            MicrophoneStream::Idle | MicrophoneStream::Paused(_) => false,
+        }
     }
 }
 
@@ -963,6 +1004,20 @@ mod tests {
             "late error",
         ));
         assert_eq!(capture.level().unwrap(), 0.0);
+    }
+
+    #[test]
+    fn idle_microphone_is_not_running_and_refuses_pause_and_resume() {
+        let mut capture = MicrophoneCapture::new();
+        assert!(!capture.is_running());
+        assert!(capture.pause().is_err());
+        assert!(capture.resume().is_err());
+        assert!(
+            !capture.is_running(),
+            "a refused resume must not report running"
+        );
+        capture.stop().unwrap();
+        assert!(!capture.is_running());
     }
 
     #[test]
