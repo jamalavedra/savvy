@@ -140,6 +140,11 @@ const MIN_RECOMMENDATION_DISPLAY_MS = 15_000;
 const MAX_RECOMMENDATION_DISPLAY_MS = 30_000;
 // Provider calls are capped at 30 s backend-side; this only catches a lost terminal event.
 const THINKING_WATCHDOG_MS = 35_000;
+
+/** Without Tauri there are no meeting events, so a command's reply is the only update. */
+function liveCommandResult() {
+  return window.__TAURI_INTERNALS__ ? "commandResult" : "session";
+}
 const THINKING_LABELS: Partial<Record<RecommendationTrigger, string>> = {
   question: "Answering their question",
   risk: "Checking a red line",
@@ -470,9 +475,24 @@ function App() {
         ]),
       )
       .then((listeners) => {
-        if (cancelled) listeners.forEach((listener) => listener());
-        else unlisten = listeners;
-      });
+        if (cancelled) {
+          listeners.forEach((listener) => listener());
+          return;
+        }
+        unlisten = listeners;
+        // Read after listening, so no transition between read and listen is lost.
+        return getDashboard().then((snapshot) => {
+          if (cancelled) return;
+          dispatchMeeting({
+            type: "seed",
+            session: snapshot.activeSession,
+            recommendation: snapshot.latestRecommendation,
+          });
+        });
+      })
+      .catch((reason: unknown) =>
+        setError(reason instanceof Error ? reason.message : String(reason)),
+      );
     return () => {
       cancelled = true;
       unlisten.forEach((listener) => listener());
@@ -887,7 +907,7 @@ function App() {
         staleSourcePaths,
         ...(funding ? ([funding] as const) : []),
       );
-      dispatchMeeting({ type: "session", session });
+      dispatchMeeting({ type: liveCommandResult(), session });
       setReadinessOpen(false);
       if (meetingBrief) {
         setPreparation((current) =>
@@ -929,7 +949,7 @@ function App() {
         session.state === "paused"
           ? await resumeMeeting(session.id)
           : await pauseMeeting(session.id);
-      dispatchMeeting({ type: "session", session: updated });
+      dispatchMeeting({ type: liveCommandResult(), session: updated });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {

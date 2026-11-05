@@ -807,6 +807,38 @@ describe("App", () => {
     expect(stop).toHaveBeenCalledTimes(1);
   });
 
+  it("recovers a running meeting after a reload so the tray still stops it", async () => {
+    const { snapshot, session } = await stubTauri();
+    vi.mocked(api.getDashboard).mockResolvedValue({
+      ...snapshot,
+      activeSession: session,
+    });
+    const stop = vi
+      .spyOn(api, "stopMeeting")
+      .mockResolvedValue({ ...session, state: "completed" });
+    const read = vi.mocked(api.getDashboard);
+    render(<App />);
+    await screen.findByRole("button", { name: "General" });
+    await waitFor(() => expect(read).toHaveBeenCalledTimes(2));
+    await emitTauri("savvy://start-listening", null);
+    await waitFor(() => expect(stop).toHaveBeenCalledWith(session.id));
+  });
+
+  it("lets Stop run again after a stop fails", async () => {
+    const { session } = await stubTauri();
+    const stop = vi
+      .spyOn(api, "stopMeeting")
+      .mockRejectedValueOnce(new Error("stop failed"))
+      .mockResolvedValue({ ...session, state: "completed" });
+    render(<App />);
+    await screen.findByRole("button", { name: "General" });
+    await emitTauri("meeting://session", session);
+    await emitTauri("savvy://start-listening", null);
+    expect(await screen.findByText("stop failed")).toBeVisible();
+    await emitTauri("savvy://start-listening", null);
+    await waitFor(() => expect(stop).toHaveBeenCalledTimes(2));
+  });
+
   it("drops a late event from the previous meeting without touching the current one", async () => {
     const { session } = await stubTauri({ showLiveTranscript: true });
     const next = { ...session, id: "next-meeting" };

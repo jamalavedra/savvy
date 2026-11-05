@@ -153,6 +153,12 @@ export type MeetingState = {
 
 export type MeetingAction =
   | { type: "session"; session: MeetingSession }
+  | { type: "commandResult"; session: MeetingSession }
+  | {
+      type: "seed";
+      session: MeetingSession | null;
+      recommendation: Recommendation | null;
+    }
   | { type: "stopped"; sessionId: string }
   | { type: "event"; event: MeetingEvent }
   | { type: "recommendationRequested" }
@@ -187,6 +193,16 @@ export function reduceMeeting(
   switch (action.type) {
     case "session":
       return reduceSession(state, action.session);
+    case "commandResult":
+      // Rust emits meeting://session before a command returns, and the reply
+      // travels on another channel, so a live reply only introduces a meeting
+      // the events have not; it never overrides a newer state for the same one.
+      if (isLive(action.session) && state.session?.id === action.session.id) {
+        return state;
+      }
+      return reduceSession(state, action.session);
+    case "seed":
+      return seedSession(state, action.session, action.recommendation);
     case "stopped":
       if (state.session?.id !== action.sessionId) return state;
       return { ...state, stopped: true, thinking: null };
@@ -214,7 +230,10 @@ function reduceSession(state: MeetingState, session: MeetingSession) {
   }
   const current = state.cursor.sessionId === session.id;
   if (session.state === "completed" || session.state === "interrupted") {
-    if (!current) return state;
+    // With nothing shown, remember the ending so a later seed cannot revive it.
+    if (!current) {
+      return state.session ? state : { ...state, endedSessionId: session.id };
+    }
     return { ...idleMeeting, endedSessionId: session.id };
   }
   const thinking = session.state === "paused" ? null : state.thinking;
@@ -224,6 +243,37 @@ function reduceSession(state: MeetingState, session: MeetingSession) {
     session,
     endedSessionId: state.session?.id ?? state.endedSessionId,
     cursor: { ...idleMeeting.cursor, sessionId: session.id },
+  };
+}
+
+function isLive(session: MeetingSession) {
+  return session.state === "recording" || session.state === "paused";
+}
+
+/**
+ * A window that reloads mid-meeting gets no session event until the next
+ * pause, resume or stop, so it reads the running meeting once at mount. The
+ * read only fills an empty slot: anything the events already established wins.
+ */
+function seedSession(
+  state: MeetingState,
+  session: MeetingSession | null,
+  recommendation: Recommendation | null,
+) {
+  if (
+    !session ||
+    !isLive(session) ||
+    state.session ||
+    session.id === state.endedSessionId ||
+    (state.cursor.sessionId !== "" && state.cursor.sessionId !== session.id)
+  ) {
+    return state;
+  }
+  return {
+    ...state,
+    session,
+    cursor: { ...state.cursor, sessionId: session.id },
+    recommendation: state.recommendation ?? recommendation,
   };
 }
 

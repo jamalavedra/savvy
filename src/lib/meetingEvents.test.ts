@@ -107,6 +107,22 @@ describe("reduceMeeting", () => {
       expect(state.stopped).toBe(false);
     });
 
+    it("idle → recording from a mount-time read, keeping turns that came first", () => {
+      const card = { id: "card", sessionId: "a" } as Recommendation;
+      const state = run([
+        { type: "event", event: transcript("a", 1, "Early") },
+        { type: "seed", session: session("a"), recommendation: card },
+      ]);
+      expect(state.session?.id).toBe("a");
+      expect(state.turns.map((item) => item.text)).toEqual(["Early"]);
+      expect(state.recommendation).toBe(card);
+    });
+
+    it("idle → recording from a start reply when no event arrived", () => {
+      const state = run([{ type: "commandResult", session: session("a") }]);
+      expect(state.session?.id).toBe("a");
+    });
+
     it("recording → paused clears thinking, from Rust and from the command alike", () => {
       const thinking = run([{ type: "event", event: started("a", 1) }], live());
       expect(thinking.thinking?.generationId).toBe(1);
@@ -340,6 +356,44 @@ describe("reduceMeeting", () => {
       expect(
         run([{ type: "session", session: session("b", "completed") }], current),
       ).toBe(current);
+    });
+
+    it("never lets a mount-time read revive a meeting the events ended", () => {
+      const ended = run([
+        { type: "session", session: session("a", "completed") },
+        { type: "seed", session: session("a"), recommendation: null },
+      ]);
+      expect(ended.session).toBeNull();
+      expect(ended.endedSessionId).toBe("a");
+    });
+
+    it("never lets a mount-time read replace what the events established", () => {
+      const paused = run([
+        { type: "session", session: session("a", "paused") },
+      ]);
+      expect(
+        run(
+          [{ type: "seed", session: session("a"), recommendation: null }],
+          paused,
+        ),
+      ).toBe(paused);
+      const other = run([{ type: "event", event: transcript("b", 1) }]);
+      expect(
+        run(
+          [{ type: "seed", session: session("a"), recommendation: null }],
+          other,
+        ),
+      ).toBe(other);
+    });
+
+    it("keeps a newer event over a command reply for the same meeting", () => {
+      const paused = run([
+        { type: "session", session: session("a") },
+        { type: "session", session: session("a", "paused") },
+      ]);
+      expect(
+        run([{ type: "commandResult", session: session("a") }], paused),
+      ).toBe(paused);
     });
 
     it("ignores a preparing session", () => {
