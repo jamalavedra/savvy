@@ -99,6 +99,10 @@ export function transition<T extends Lifecycle>(
   for (const state of from)
     if (state !== to && !allowed[state]?.includes(to))
       throw new Error(`Illegal ${table} transition ${state} -> ${to}`);
+  if (clause.set && new RegExp(`\\b${column}\\s*=`).test(clause.set))
+    throw new Error(
+      `${table}.${column} is written only through its transition`,
+    );
   const set = clause.set ? `,${clause.set}` : "";
   const placeholders = from.map(() => "?").join(",");
   return (

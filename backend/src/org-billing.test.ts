@@ -170,6 +170,16 @@ test("paid quantity creates one period per seat, grants only assigned holders an
   );
 });
 
+test("a paid seat invoice settles a team checkout an async payment failure already failed", (t) => {
+  const h = fixture(t);
+  h.db.prepare("UPDATE organization_checkouts SET state='failed'").run();
+  h.pay();
+  assert.deepEqual(
+    h.db.prepare("SELECT state FROM organization_checkouts").get(),
+    { state: "complete" },
+  );
+});
+
 test("future invoices cannot change current capacity; duplicate windows and malformed invoices cannot grant", (t) => {
   const h = fixture(t);
   h.pay();

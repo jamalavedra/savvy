@@ -139,8 +139,21 @@ test("every lifecycle names known states and its terminal states have no way out
 
 test("no state write for a lifecycle table bypasses the transition helper", () => {
   const tables = Object.keys(LIFECYCLES).join("|");
+  const write = `(?:(?!WHERE)[^"\`])*?\\b(?:state|status)\\s*=`;
   const raw = new RegExp(
-    `UPDATE\\s+(${tables})\\s+SET\\s+(?:(?!WHERE)[^"'\`])*?\\b(state|status)\\s*=`,
+    `(?:UPDATE\\s+(?:${tables})\\b\\s+SET|INTO\\s+(?:${tables})\\b[^"\`]*?DO\\s+UPDATE\\s+SET)${write}`,
+  );
+  // SQL value literals may hold quotes and keywords; blank them before scanning.
+  const scan = (text: string) => raw.exec(text.replace(/'[^'\n]*'/g, "''"));
+  for (const sample of [
+    "UPDATE checkouts SET product='x',state='failed' WHERE 1",
+    "INSERT INTO checkouts(a) VALUES(1) ON CONFLICT(a) DO UPDATE SET state='x'",
+    "UPDATE billing_events SET checked_at_ms=0, status = 'ignored'",
+  ])
+    assert.ok(scan(sample), sample);
+  assert.equal(
+    scan("UPDATE checkouts SET search_cursor=NULL WHERE state='x'"),
+    null,
   );
   const sources = readdirSync(new URL(".", import.meta.url))
     .filter(
@@ -154,11 +167,7 @@ test("no state write for a lifecycle table bypasses the transition helper", () =
   assert.ok(sources.includes("stripe.ts"));
   for (const name of sources) {
     const text = readFileSync(new URL(name, import.meta.url), "utf8");
-    assert.equal(
-      raw.exec(text)?.[0],
-      undefined,
-      `${name} writes state directly`,
-    );
+    assert.equal(scan(text)?.[0], undefined, `${name} writes state directly`);
   }
 });
 
@@ -228,5 +237,19 @@ test("a team checkout already awaiting payment does not regress when a stale ope
       )
       .get(row.id)!.state,
     "expired",
+  );
+});
+
+test("the state column cannot ride along in a transition's extra assignments", (t) => {
+  const db = openServiceDatabase(":memory:");
+  t.after(() => db.close());
+  assert.throws(
+    () =>
+      transition(db, "checkouts", ["pending"], "failed", {
+        set: "search_cursor=NULL, state='complete'",
+        where: "1",
+        params: [],
+      }),
+    /checkouts\.state is written only through its transition/,
   );
 });

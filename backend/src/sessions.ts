@@ -665,7 +665,8 @@ export function sessionView(
     settledMs: session.settled_ms,
     meetingMsAvailable: remaining,
     warning,
-    pauseReason: session.pause_reason,
+    // An older release can resume a session without clearing the column.
+    pauseReason: session.state === "paused" ? session.pause_reason : null,
   };
 }
 export function lifecycle(

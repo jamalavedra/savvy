@@ -91,6 +91,13 @@ test("two simultaneous sources cost 75 seconds across pause/resume and lifecycle
   const resumed = lifecycle(h.state, 1n, ID, "resume", 2n, 3n);
   assert.equal(resumed.settledMs, 65_000n);
   assert.equal(resumed.pauseReason, null);
+  // An older release resumes without clearing the column; only a paused session reports it.
+  h.db
+    .prepare(
+      "UPDATE managed_sessions SET pause_reason='user' WHERE state='active'",
+    )
+    .run();
+  assert.equal(h.view().pauseReason, null);
   const controller = new AbortController();
   h.state.cancellations.set(
     1n,
