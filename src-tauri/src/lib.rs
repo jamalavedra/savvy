@@ -1,8 +1,10 @@
 mod brief_document;
 mod brief_job;
+mod gate;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod provider_output;
 use brief_job::BriefJob;
+use gate::AppGate;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod audio_check;
 use chrono::{DateTime, Utc};
@@ -118,8 +120,9 @@ struct AppState {
     storage: Mutex<Storage>,
     live_meeting: Mutex<Option<LiveMeeting>>,
     settings: Mutex<AppSettings>,
-    // Serializes capture/settings changes; true blocks new work during restart.
-    app_operation: Mutex<bool>,
+    app_gate: AppGate,
+    // Pause, resume and stop of the live meeting. Never held across network calls.
+    meeting_control: Mutex<()>,
     settings_path: PathBuf,
     provider_health: Mutex<Vec<ProviderHealth>>,
     // Canonical paths the user chose in a native picker; each grant is used once.
@@ -684,10 +687,7 @@ async fn audio_check_start(
         if !tauri_plugin_macos_permissions::check_microphone_permission().await {
             return Err("Allow Savvy microphone access in System Settings > Privacy & Security > Microphone, then quit and reopen Savvy before checking audio again.".into());
         }
-        let operation = state.app_operation.lock().map_err(|_| "operation lock")?;
-        if *operation {
-            return Err("Savvy is restarting.".into());
-        }
+        let _operation = state.app_gate.try_begin()?;
         if state
             .live_meeting
             .lock()
@@ -762,7 +762,7 @@ async fn managed_sign_in_cancel() -> Result<(), String> {
 /// and history are untouched, and cancellation happens in the billing portal.
 #[tauri::command]
 fn managed_sign_out(state: State<'_, AppState>) -> Result<(), String> {
-    let _operation = state.app_operation.lock().map_err(|_| "operation lock")?;
+    let _operation = state.app_gate.try_begin()?;
     if state
         .live_meeting
         .lock()
@@ -2297,16 +2297,11 @@ fn refresh_connected_sources_inner(
 }
 
 fn with_context_removal<T>(
-    app_operation: &Mutex<bool>,
+    gate: &AppGate,
     client_id: Option<Uuid>,
     operation: impl FnOnce() -> Result<T, String>,
 ) -> Result<T, String> {
-    let app_guard = app_operation
-        .try_lock()
-        .map_err(|_| "an application operation is already in progress")?;
-    if *app_guard {
-        return Err("Savvy is reopening; try again after it opens".into());
-    }
+    let _app_operation = gate.try_begin()?;
     // Keep registration blocked until deletion finishes, not just the idle check.
     // ponytail: this serializes registrations across scopes during deletion; use
     // per-scope locks if deletion latency starts delaying unrelated clients.
@@ -2329,7 +2324,7 @@ fn remove_brief(client_id: Option<String>, state: State<'_, AppState>) -> Result
         .map(|value| Uuid::parse_str(&value))
         .transpose()
         .map_err(|error| error.to_string())?;
-    with_context_removal(&state.app_operation, client_id, || {
+    with_context_removal(&state.app_gate, client_id, || {
         if state
             .live_meeting
             .lock()
@@ -2352,7 +2347,7 @@ fn remove_brief(client_id: Option<String>, state: State<'_, AppState>) -> Result
 #[tauri::command]
 fn remove_client_context(client_id: String, state: State<'_, AppState>) -> Result<(), String> {
     let client_id = Uuid::parse_str(&client_id).map_err(|error| error.to_string())?;
-    with_context_removal(&state.app_operation, Some(client_id), || {
+    with_context_removal(&state.app_gate, Some(client_id), || {
         if state
             .live_meeting
             .lock()
@@ -3298,6 +3293,11 @@ async fn start_meeting(
         if managed_mode(state) != managed {
             return Err("service mode changed while authorizing".into());
         }
+        // A stop still finishing its tail (overlay, transcript file) must not overlap a start.
+        let _control = state
+            .meeting_control
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         start_meeting_inner(
             client_id,
             brief_id,
@@ -3322,13 +3322,7 @@ fn run_app_operation<T>(
     operation: impl FnOnce(&AppHandle, &AppState) -> Result<T, String>,
 ) -> Result<T, String> {
     let state = app.state::<AppState>();
-    let operation_guard = state
-        .app_operation
-        .try_lock()
-        .map_err(|_| "an application operation is already in progress")?;
-    if *operation_guard {
-        return Err("Savvy is reopening; try again after it opens".into());
-    }
+    let _operation = state.app_gate.try_begin()?;
     operation(app, &state)
 }
 
@@ -3337,6 +3331,30 @@ async fn run_app_command<T: Send + 'static>(
     operation: impl FnOnce(&AppHandle, &AppState) -> Result<T, String> + Send + 'static,
 ) -> Result<T, String> {
     tauri::async_runtime::spawn_blocking(move || run_app_operation(&app, operation))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+/// Runs a pause, resume or stop of the live meeting. Waits for the previous meeting
+/// command, never for an application operation, so a long rescan or network call
+/// cannot leave a meeting recording when the user asks it to pause or stop.
+fn run_meeting_operation<T>(
+    app: &AppHandle,
+    operation: impl FnOnce(&AppHandle, &AppState) -> Result<T, String>,
+) -> Result<T, String> {
+    let state = app.state::<AppState>();
+    let _control = state
+        .meeting_control
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    operation(app, &state)
+}
+
+async fn run_meeting_command<T: Send + 'static>(
+    app: AppHandle,
+    operation: impl FnOnce(&AppHandle, &AppState) -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(move || run_meeting_operation(&app, operation))
         .await
         .map_err(|error| error.to_string())?
 }
@@ -4783,7 +4801,7 @@ fn finish_managed_failure(app: AppHandle, id: Uuid, message: &str) {
         tauri::async_runtime::spawn_blocking(move || {
             let state = app.state::<AppState>();
             let stop = || stop_live_meeting(&app, &state, id);
-            match wait_for_app_operation(&state.app_operation, stop) {
+            match wait_for_meeting_control(&state.meeting_control, &state.app_gate, stop) {
                 Some(Ok(_)) => {}
                 Some(Err(error)) => {
                     log::warn!("hosted session ended but the local meeting did not stop: {error}");
@@ -4800,12 +4818,16 @@ fn finish_managed_failure(app: AppHandle, id: Uuid, message: &str) {
     }
 }
 
-/// Waits for the application gate, then runs `operation` unless Savvy is quitting or
-/// relaunching, which stops the meeting on its own. Unlike `run_app_operation` this
-/// never fails because another operation currently holds the gate.
-fn wait_for_app_operation<T>(gate: &Mutex<bool>, operation: impl FnOnce() -> T) -> Option<T> {
-    let operation_guard = gate.lock().unwrap_or_else(|error| error.into_inner());
-    if *operation_guard {
+/// Waits for the previous meeting command, then runs `operation` unless Savvy is quitting
+/// or relaunching, which stops the meeting on its own. An application operation holding
+/// the gate (a rescan, a source refresh) never delays or fails it.
+fn wait_for_meeting_control<T>(
+    control: &Mutex<()>,
+    gate: &AppGate,
+    operation: impl FnOnce() -> T,
+) -> Option<T> {
+    let _control = control.lock().unwrap_or_else(|error| error.into_inner());
+    if gate.is_closing() {
         return None;
     }
     Some(operation())
@@ -4815,9 +4837,10 @@ fn wait_for_app_operation<T>(gate: &Mutex<bool>, operation: impl FnOnce() -> T) 
 fn pause_managed_assistance(app: AppHandle, id: Uuid) {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
-        let Ok(_operation) = state.app_operation.lock() else {
-            return;
-        };
+        let _control = state
+            .meeting_control
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let recording = state.live_meeting.lock().ok().is_some_and(|live| {
             live.as_ref().is_some_and(|live| {
                 live.session.id == id && live.session.state == MeetingState::Recording
@@ -5197,7 +5220,7 @@ fn managed_mode_from(app: &AppHandle) -> bool {
 async fn pause_meeting(session_id: String, app: AppHandle) -> Result<MeetingSession, String> {
     let managed = managed_mode_from(&app);
     let hosted_id = session_id.clone();
-    let session = run_app_command(app, move |app, state| {
+    let session = run_meeting_command(app, move |app, state| {
         set_meeting_listening(session_id, false, app, state)
     })
     .await?;
@@ -5230,7 +5253,7 @@ async fn resume_meeting(session_id: String, app: AppHandle) -> Result<MeetingSes
     tauri::async_runtime::spawn_blocking(move || {
         run_resume_operation(|| {
             let parsed = Uuid::parse_str(&session_id).map_err(|error| error.to_string())?;
-            let managed = run_app_operation(&app, |_, state| {
+            let managed = run_meeting_operation(&app, |_, state| {
                 let live = state
                     .live_meeting
                     .lock()
@@ -5249,7 +5272,7 @@ async fn resume_meeting(session_id: String, app: AppHandle) -> Result<MeetingSes
                         let state = app.state::<AppState>();
                         let stop = || stop_live_meeting(&app, &state, parsed);
                         if let Some(Err(stop_error)) =
-                            wait_for_app_operation(&state.app_operation, stop)
+                            wait_for_meeting_control(&state.meeting_control, &state.app_gate, stop)
                         {
                             return Err(stop_error);
                         }
@@ -5262,12 +5285,12 @@ async fn resume_meeting(session_id: String, app: AppHandle) -> Result<MeetingSes
                     return Err(error);
                 }
             }
-            let result = run_app_operation(&app, |app, state| {
+            let result = run_meeting_operation(&app, |app, state| {
                 if managed_mode(state) != managed {
                     return Err("service mode changed while authorizing".into());
                 }
                 let session = set_meeting_listening(session_id.clone(), true, app, state)?;
-                // Install workers before releasing either the application or resume
+                // Install workers before releasing either the meeting-control or resume
                 // lock. A deferred restart could attach after a later pause/resume.
                 #[cfg(any(target_os = "macos", target_os = "windows"))]
                 {
@@ -5306,7 +5329,7 @@ async fn resume_meeting(session_id: String, app: AppHandle) -> Result<MeetingSes
 #[tauri::command]
 async fn stop_meeting(session_id: String, app: AppHandle) -> Result<MeetingSession, String> {
     let session_id = Uuid::parse_str(&session_id).map_err(|error| error.to_string())?;
-    run_app_command(app, move |app, state| {
+    run_meeting_command(app, move |app, state| {
         stop_live_meeting(app, state, session_id)
     })
     .await
@@ -5325,11 +5348,11 @@ pub(crate) fn quit(app: &AppHandle) {
 
 fn stop_active_meeting(app: &AppHandle) {
     let state = app.state::<AppState>();
-    let mut operation = state
-        .app_operation
+    state.app_gate.begin_exit();
+    let _control = state
+        .meeting_control
         .lock()
         .unwrap_or_else(|error| error.into_inner());
-    *operation = true;
     let session_id = state
         .live_meeting
         .lock()
@@ -6878,29 +6901,22 @@ fn update_check_outcome(
 
 fn prepare_to_relaunch(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<AppState>();
-    let mut operation = state
-        .app_operation
-        .try_lock()
-        .map_err(|_| "Wait for the current meeting operation to finish.")?;
-    if *operation {
-        return Err("Savvy is already updating or reopening.".into());
-    }
-    if state
+    // Enter Relaunching first so no meeting can start between the check and the restart.
+    state.app_gate.begin_relaunch()?;
+    let meeting_active = state
         .live_meeting
         .lock()
         .map_err(|_| "meeting lock poisoned")?
-        .is_some()
-    {
+        .is_some();
+    if meeting_active {
+        state.app_gate.cancel_relaunch();
         return Err("Stop the meeting before updating or reopening Savvy.".into());
     }
-    *operation = true;
     Ok(())
 }
 
 fn cancel_relaunch(app: &AppHandle) {
-    if let Ok(mut operation) = app.state::<AppState>().app_operation.lock() {
-        *operation = false;
-    }
+    app.state::<AppState>().app_gate.cancel_relaunch();
 }
 
 fn finish_relaunch(app: &AppHandle) -> Result<(), String> {
@@ -7098,7 +7114,8 @@ pub fn run() {
                 storage: Mutex::new(storage),
                 live_meeting: Mutex::new(None),
                 settings: Mutex::new(settings.clone()),
-                app_operation: Mutex::new(false),
+                app_gate: AppGate::new(),
+                meeting_control: Mutex::new(()),
                 settings_path,
                 granted_paths: Mutex::default(),
                 provider_health: Mutex::new(provider_health),
@@ -7310,7 +7327,8 @@ mod tests {
                 ),
                 live_meeting: Mutex::new(None),
                 settings: Mutex::new(settings),
-                app_operation: Mutex::new(false),
+                app_gate: AppGate::new(),
+                meeting_control: Mutex::new(()),
                 settings_path: fixture.directory.join("settings.json"),
                 granted_paths: Mutex::default(),
                 provider_health: Mutex::new(Vec::new()),
@@ -7809,11 +7827,11 @@ mod tests {
 
     #[test]
     fn context_removal_rejects_active_work_and_holds_both_lifecycle_guards() {
-        let operation = Mutex::new(false);
+        let operation = AppGate::new();
         let scope = Some(Uuid::new_v4());
         let mut removed = false;
         {
-            let _starting_meeting = operation.lock().unwrap();
+            let _starting_meeting = operation.try_begin().unwrap();
             assert!(with_context_removal(&operation, scope, || {
                 removed = true;
                 Ok(())
@@ -7821,9 +7839,9 @@ mod tests {
             .is_err());
         }
         assert!(!removed);
-        *operation.lock().unwrap() = true;
+        operation.begin_relaunch().unwrap();
         assert!(with_context_removal(&operation, scope, || Ok(())).is_err());
-        *operation.lock().unwrap() = false;
+        operation.cancel_relaunch();
         BRIEF_SCOPES
             .lock()
             .unwrap()
@@ -7838,7 +7856,7 @@ mod tests {
         drop(generation);
         with_context_removal(&operation, scope, || {
             assert!(
-                operation.try_lock().is_err(),
+                operation.try_begin().is_err(),
                 "meeting start must remain excluded"
             );
             assert!(
@@ -7850,7 +7868,7 @@ mod tests {
         })
         .unwrap();
         assert!(removed);
-        assert!(operation.try_lock().is_ok());
+        assert!(operation.try_begin().is_ok());
         assert!(BRIEF_SCOPES.try_lock().is_ok());
     }
 
@@ -8476,26 +8494,35 @@ mod tests {
     }
 
     #[test]
-    fn hosted_session_end_waits_for_the_gate_instead_of_giving_up() {
-        let gate = std::sync::Arc::new(Mutex::new(false));
+    fn hosted_session_end_waits_for_meeting_control_not_the_app_gate() {
+        let gate = AppGate::new();
+        let control = std::sync::Arc::new(Mutex::new(()));
+        // A long application operation (source refresh, rescan) holds the gate: the stop
+        // still runs instead of failing with "already in progress".
+        let refresh = gate.try_begin().unwrap();
+        assert_eq!(
+            wait_for_meeting_control(&control, &gate, || "stopped"),
+            Some("stopped")
+        );
+        drop(refresh);
+        // A pause still finishing delays the stop until it is done.
         let (held_tx, held_rx) = std::sync::mpsc::channel();
-        let holder_gate = gate.clone();
+        let holder_control = control.clone();
         let holder = std::thread::spawn(move || {
-            let _operation = holder_gate.lock().unwrap();
+            let _pause = holder_control.lock().unwrap();
             held_tx.send(()).unwrap();
             std::thread::sleep(std::time::Duration::from_millis(200));
         });
         held_rx.recv().unwrap();
-        let stopped = wait_for_app_operation(&gate, || "stopped");
         assert_eq!(
-            stopped,
+            wait_for_meeting_control(&control, &gate, || "stopped"),
             Some("stopped"),
-            "stop must run once the gate is released"
+            "stop must run once the previous meeting command is released"
         );
         holder.join().unwrap();
-        *gate.lock().unwrap() = true;
+        gate.begin_exit();
         let ran = std::cell::Cell::new(false);
-        assert!(wait_for_app_operation(&gate, || ran.set(true)).is_none());
+        assert!(wait_for_meeting_control(&control, &gate, || ran.set(true)).is_none());
         assert!(!ran.get(), "a relaunch or exit already stops the meeting");
     }
 
