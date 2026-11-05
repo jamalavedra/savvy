@@ -1172,6 +1172,20 @@ function App() {
                 Retry context selection
               </Button>
             )}
+            {contextSelection.error && (
+              <Button
+                variant="plain"
+                type="button"
+                aria-label="Dismiss context selection"
+                title="Dismiss"
+                onClick={() => {
+                  setContextSelection(null);
+                  setPreparationRevision((value) => value + 1);
+                }}
+              >
+                <X />
+              </Button>
+            )}
           </Alert>
         )}
         {error && (

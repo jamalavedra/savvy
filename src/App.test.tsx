@@ -535,6 +535,34 @@ describe("App", () => {
     expect(start).not.toHaveBeenCalled();
   });
 
+  it("lets the rep dismiss a failed context selection and keep the saved one", async () => {
+    const save = vi
+      .spyOn(api, "setClientDocumentSelection")
+      .mockRejectedValueOnce(new Error("Selection could not be saved"));
+    render(<App />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Show documents" }),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Select none" }));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Selection could not be saved",
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Dismiss context selection" }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Prepare brief" }),
+      ).toBeEnabled(),
+    );
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("checkbox", { name: /msa-2024-signed\.pdf/ }),
+    ).toBeChecked();
+    expect(save).toHaveBeenCalledTimes(1);
+  });
+
   it("ignores a stale preparation read after confirming a new document selection", async () => {
     const dashboard = await api.getDashboard();
     const snapshot = await api.getPreparationSnapshot(dashboard.clients[0].id);
