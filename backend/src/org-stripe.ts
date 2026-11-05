@@ -162,7 +162,7 @@ export function recordOrganizationCheckout(
         );
       state.db
         .prepare(
-          "UPDATE organization_checkouts SET stripe_session_id=?,stripe_subscription_id=COALESCE(?,stripe_subscription_id),state=CASE WHEN state='complete' THEN state ELSE ? END,updated_at_ms=? WHERE id=?",
+          "UPDATE organization_checkouts SET stripe_session_id=?,stripe_subscription_id=COALESCE(?,stripe_subscription_id),state=CASE WHEN state IN ('complete','failed','expired') THEN state ELSE ? END,updated_at_ms=? WHERE id=?",
         )
         .run(id, subscription, status, state.clock(), row.id);
       if (subscription && paid)
@@ -180,7 +180,9 @@ export function recordOrganizationCheckout(
     })
     .immediate();
   return {
-    status: row.state === "complete" ? "complete" : status,
+    status: ["complete", "failed", "expired"].includes(row.state)
+      ? row.state
+      : status,
     attemptId: row.request_key,
   };
 }

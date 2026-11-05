@@ -1535,6 +1535,83 @@ test("organization invoice before checkout notification fulfills through signed 
   );
 });
 
+test("team checkout failure and expiry are terminal through replayed completions", async (t) => {
+  const h = await organizationFixture(t);
+  delete h.checkout.subscription;
+  h.checkout.payment_status = "unpaid";
+  const states = () =>
+    h.db
+      .prepare(
+        "SELECT request_key,state FROM organization_checkouts ORDER BY id",
+      )
+      .all();
+  assert.equal(
+    (
+      await h.deliver(
+        event(
+          "evt_org_failed",
+          "checkout.session.async_payment_failed",
+          "cs_org",
+        ),
+      )
+    ).status,
+    200,
+  );
+  assert.deepEqual(states(), [{ request_key: "org-buy", state: "failed" }]);
+  assert.equal(
+    (
+      await h.deliver(
+        event("evt_org_replay", "checkout.session.completed", "cs_org"),
+      )
+    ).status,
+    200,
+  );
+  assert.deepEqual(states(), [{ request_key: "org-buy", state: "failed" }]);
+  const retry: StripeObject = {
+    id: "cs_org_retry",
+    customer: "cus_org",
+    metadata: { savvy_org: h.org.toString(), savvy_key: "org-retry" },
+    payment_status: "unpaid",
+    status: "open",
+    mode: "subscription",
+    line_items: { data: [{ price: "price_monthly", quantity: 5 }] },
+    url: "https://checkout.stripe.com/c/org",
+  };
+  h.objects.set("POST /v1/checkout/sessions", retry);
+  h.objects.set("/v1/checkout/sessions/cs_org_retry", retry);
+  assert.equal(
+    (
+      await organizationCheckout(h.state, 1n, h.org, {
+        quantity: 5,
+        requestKey: "org-retry",
+      })
+    ).status,
+    "pending",
+  );
+  retry.status = "expired";
+  assert.equal(
+    (
+      await h.deliver(
+        event("evt_org_expired", "checkout.session.expired", "cs_org_retry"),
+      )
+    ).status,
+    200,
+  );
+  Object.assign(retry, { status: "complete", payment_status: "paid" });
+  assert.equal(
+    (
+      await h.deliver(
+        event("evt_org_late", "checkout.session.completed", "cs_org_retry"),
+      )
+    ).status,
+    200,
+  );
+  assert.deepEqual(states(), [
+    { request_key: "org-buy", state: "failed" },
+    { request_key: "org-retry", state: "expired" },
+  ]);
+});
+
 test("future organization invoices stay pending and gap filling preserves paid holders until the new period", async (t) => {
   const h = await organizationFixture(t);
   await processEvent(
