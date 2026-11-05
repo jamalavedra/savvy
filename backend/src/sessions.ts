@@ -13,7 +13,7 @@ import {
   type FundingRow,
 } from "./funding.js";
 import { resolveFundingContext } from "./org.js";
-import { transition } from "./transition.js";
+import { transition, type PauseReason } from "./transition.js";
 
 export const RESERVATION_MS = 30_000n;
 export const CHECKPOINT_MS = 5_000n;
@@ -21,13 +21,6 @@ export const AUDIO_IDLE_MS = 5_000n;
 export const LEASE_MS = RESERVATION_MS;
 export const BYTES_PER_SECOND = 32_000n;
 export type Source = "microphone" | "system";
-export const PAUSE_REASONS = [
-  "user",
-  "exhausted",
-  "provider_failure",
-  "disconnected",
-] as const;
-export type PauseReason = (typeof PAUSE_REASONS)[number];
 export function parseSource(value: string): Source {
   if (value !== "microphone" && value !== "system")
     throw new ApiError(

@@ -79,7 +79,12 @@ CREATE TABLE IF NOT EXISTS audio_pacing (
             interruption TEXT,
             created_at_ms INTEGER NOT NULL,
             updated_at_ms INTEGER NOT NULL,
-            UNIQUE (account_id, local_session_id)
+            funding_scope TEXT NOT NULL DEFAULT 'personal',
+            funding_assignment_id INTEGER REFERENCES seat_assignments(id),
+            lifecycle_command INTEGER NOT NULL DEFAULT 0,
+            pause_reason TEXT CHECK(pause_reason IN ('user','exhausted','provider_failure','disconnected')),
+            UNIQUE (account_id, local_session_id),
+            CHECK(state IN ('active','paused','stopped'))
         );
         CREATE TABLE IF NOT EXISTS session_reservations (
             session_id INTEGER NOT NULL REFERENCES managed_sessions(id),
@@ -100,13 +105,19 @@ CREATE TABLE IF NOT EXISTS audio_pacing (
             cost_microdollars INTEGER,
             deadline_ms INTEGER,
             created_at_ms INTEGER NOT NULL,
-            UNIQUE (account_id, request_key)
+            funding_scope TEXT NOT NULL DEFAULT 'personal',
+            funding_assignment_id INTEGER REFERENCES seat_assignments(id),
+            UNIQUE (account_id, request_key),
+            CHECK(state IN ('pending','succeeded','failed'))
         );
         CREATE TABLE IF NOT EXISTS catalog_prices (price_id TEXT PRIMARY KEY, product TEXT NOT NULL, offer_json TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS checkouts (
             account_id INTEGER NOT NULL REFERENCES accounts(id),
             request_key TEXT NOT NULL, product TEXT NOT NULL, state TEXT NOT NULL, stripe_id TEXT UNIQUE,
-            PRIMARY KEY(account_id,request_key)
+            created_at_ms INTEGER NOT NULL DEFAULT 0, price_id TEXT, return_url TEXT, subscription_id TEXT,
+            search_cursor TEXT, checked_at_ms INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY(account_id,request_key),
+            CHECK(state IN ('pending','payment_pending','complete','failed','expired'))
         );
         CREATE TABLE IF NOT EXISTS subscription_periods (
             subscription_id TEXT NOT NULL, starts_ms INTEGER NOT NULL, ends_ms INTEGER NOT NULL, invoice_id TEXT NOT NULL UNIQUE,
@@ -122,7 +133,9 @@ CREATE TABLE IF NOT EXISTS audio_pacing (
             event_type TEXT NOT NULL,
             status TEXT NOT NULL,
             related_ids TEXT,
-            created_at_ms INTEGER NOT NULL
+            created_at_ms INTEGER NOT NULL,
+            checked_at_ms INTEGER NOT NULL DEFAULT 0,
+            CHECK(status IN ('pending','processed','ignored','rejected'))
         );
 
 CREATE TABLE IF NOT EXISTS organizations (
@@ -186,7 +199,8 @@ CREATE TABLE IF NOT EXISTS organization_checkouts (
     stripe_idempotency_key TEXT NOT NULL UNIQUE, stripe_session_id TEXT UNIQUE,
     stripe_subscription_id TEXT, stripe_item_id TEXT, state TEXT NOT NULL, search_cursor TEXT,
     created_at_ms INTEGER NOT NULL, updated_at_ms INTEGER NOT NULL,
-    UNIQUE(organization_id,request_key)
+    UNIQUE(organization_id,request_key),
+    CHECK(state IN ('pending','unknown','payment_pending','complete','failed','expired'))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS organization_one_pending_checkout
     ON organization_checkouts(organization_id) WHERE state IN ('pending','payment_pending','unknown');
@@ -196,7 +210,8 @@ CREATE TABLE IF NOT EXISTS organization_quantity_changes (
     stripe_subscription_id TEXT NOT NULL, stripe_item_id TEXT NOT NULL, price_id TEXT NOT NULL,
     retire_seat_ids TEXT NOT NULL, previous_retire_seat_ids TEXT NOT NULL DEFAULT '[]', stripe_idempotency_key TEXT NOT NULL UNIQUE,
     state TEXT NOT NULL, created_at_ms INTEGER NOT NULL,
-    UNIQUE(organization_id,request_key)
+    UNIQUE(organization_id,request_key),
+    CHECK(state IN ('pending','unknown','applied','failed'))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS organization_one_pending_quantity_change
     ON organization_quantity_changes(organization_id) WHERE state IN ('pending','unknown');

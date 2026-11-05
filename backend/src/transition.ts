@@ -59,6 +59,15 @@ export const LIFECYCLES = {
   },
 } as const;
 
+/** Why a managed session is paused; NULL while it is not. */
+export const PAUSE_REASONS = [
+  "user",
+  "exhausted",
+  "provider_failure",
+  "disconnected",
+] as const;
+export type PauseReason = (typeof PAUSE_REASONS)[number];
+
 export type Lifecycle = keyof typeof LIFECYCLES;
 export type StateOf<T extends Lifecycle> =
   keyof (typeof LIFECYCLES)[T]["edges"] & string;

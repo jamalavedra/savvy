@@ -141,7 +141,10 @@ fixtures. Stripe-hosted return pages trigger refresh and never prove payment.
 2. Write `/etc/savvy/backend.env` with a new random `BETTER_AUTH_SECRET` of at least
    32 characters. Store a copy of the secret outside the host.
 3. Run the auth migration once as the `savvy` user with the environment loaded.
-   Service schema migrations are additive and run at backend startup.
+   Service schema migrations run at backend startup in one transaction. Besides
+   adding columns, they rebuild the lifecycle tables once to add CHECK constraints
+   on their state columns and refuse to run, changing nothing, if a row holds an
+   unexpected value.
 4. Start the unit. Check `GET /ready` and `GET /readyz`, sign in from a desktop
    build that points at this origin, and read the account before opening purchases.
 
