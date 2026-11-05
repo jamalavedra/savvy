@@ -121,7 +121,8 @@ struct AppState {
     live_meeting: Mutex<Option<LiveMeeting>>,
     settings: Mutex<AppSettings>,
     app_gate: AppGate,
-    // Pause, resume and stop of the live meeting. Never held across network calls.
+    // Pause, resume and stop of the live meeting. Start also holds it through its context
+    // check, a network call, but only while no meeting exists for the others to wait on.
     meeting_control: Mutex<()>,
     settings_path: PathBuf,
     provider_health: Mutex<Vec<ProviderHealth>>,
