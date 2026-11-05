@@ -3773,6 +3773,7 @@ fn start_meeting_inner(
             capture,
             phase: LivePhase::Paused,
         };
+        let claim = claim_managed_session(service_mode, session_id);
         // Hold the meeting lock from install to Recording, so transcript callbacks never
         // see a meeting without its stream and a concurrent start sees this one.
         let mut guard = state
@@ -3796,6 +3797,7 @@ fn start_meeting_inner(
                         .map_err(|error| error.to_string())
                 },
                 |sources| {
+                    claim?;
                     TranscriptionStream::start(app, &settings, service_mode, sources, session_id)
                 },
             )
@@ -4695,6 +4697,26 @@ fn system_audio_help() -> &'static str {
     }
 }
 
+/// Claims the hosted session authorized for this meeting. The claim can wait on a token
+/// refresh, so callers make it before taking the meeting or storage lock and hand the
+/// result to the stream opener.
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn claim_managed_session(mode: ServiceMode, session_id: Uuid) -> Result<(), String> {
+    match mode {
+        ServiceMode::Byok => Ok(()),
+        ServiceMode::Managed => {
+            let (session, _service_url, _access_token) =
+                managed::take_prepared(&session_id.to_string())?;
+            log::info!(
+                "managed transcription starting lease={} remaining_ms={}",
+                session.lease_version,
+                session.meeting_ms_available
+            );
+            Ok(())
+        }
+    }
+}
+
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 impl TranscriptionStream {
     /// Opens one stream per audio source and the assembler for `session_id`. Managed mode
@@ -4725,31 +4747,22 @@ impl TranscriptionStream {
         let (stop, stop_receiver) = tokio::sync::watch::channel(false);
         let (transcript_sender, transcript_receiver) = tokio::sync::mpsc::channel(64);
         let tasks = match mode {
-            ServiceMode::Managed => {
-                let (session, _service_url, _access_token) =
-                    managed::take_prepared(&session_id.to_string())?;
-                log::info!(
-                    "managed transcription starting lease={} remaining_ms={}",
-                    session.lease_version,
-                    session.meeting_ms_available
-                );
-                frames
-                    .into_iter()
-                    .map(|(source, frames)| {
-                        spawn_managed_stream(
-                            app.clone(),
-                            ManagedStream {
-                                session_id,
-                                language: settings.transcription_language.clone(),
-                            },
-                            frames,
-                            stop_receiver.clone(),
-                            transcript_sender.clone(),
-                            source,
-                        )
-                    })
-                    .collect()
-            }
+            ServiceMode::Managed => frames
+                .into_iter()
+                .map(|(source, frames)| {
+                    spawn_managed_stream(
+                        app.clone(),
+                        ManagedStream {
+                            session_id,
+                            language: settings.transcription_language.clone(),
+                        },
+                        frames,
+                        stop_receiver.clone(),
+                        transcript_sender.clone(),
+                        source,
+                    )
+                })
+                .collect(),
             ServiceMode::Byok => {
                 let provider = match settings.transcription_provider.as_str() {
                     "deepgram" => StreamingProvider::Deepgram,
@@ -5312,6 +5325,17 @@ fn resume_live_meeting(
         .lock()
         .map_err(|_| "settings lock poisoned")?
         .clone();
+    let not_active = || "meeting is not active in this process".to_owned();
+    // A meeting keeps its mode for life, so it can be read before the claim.
+    let mode = state
+        .live_meeting
+        .lock()
+        .map_err(|_| "meeting lock poisoned")?
+        .as_ref()
+        .filter(|live| live.session.id == session_id)
+        .map(|live| live.mode)
+        .ok_or_else(not_active)?;
+    let claim = claim_managed_session(mode, session_id);
     let mut guard = state
         .live_meeting
         .lock()
@@ -5319,8 +5343,7 @@ fn resume_live_meeting(
     let live = guard
         .as_mut()
         .filter(|live| live.session.id == session_id)
-        .ok_or_else(|| "meeting is not active in this process".to_owned())?;
-    let mode = live.mode;
+        .ok_or_else(not_active)?;
     let outcome = {
         let storage = state.storage.lock().map_err(|_| "storage lock poisoned")?;
         resume_live_phase(
@@ -5332,7 +5355,10 @@ fn resume_live_meeting(
                     .save_session(session)
                     .map_err(|error| error.to_string())
             },
-            |sources| TranscriptionStream::start(app, &settings, mode, sources, session_id),
+            |sources| {
+                claim?;
+                TranscriptionStream::start(app, &settings, mode, sources, session_id)
+            },
         )
     };
     let session = live.session.clone();

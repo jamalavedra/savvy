@@ -200,15 +200,23 @@ mod tests {
     fn exit_waits_for_the_running_operation() {
         let gate = std::sync::Arc::new(AppGate::new());
         let (held_tx, held_rx) = std::sync::mpsc::channel();
+        let finished = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let holder_gate = gate.clone();
+        let holder_finished = finished.clone();
         let holder = std::thread::spawn(move || {
-            let _operation = holder_gate.try_begin().unwrap();
+            let operation = holder_gate.try_begin().unwrap();
             held_tx.send(()).unwrap();
             std::thread::sleep(std::time::Duration::from_millis(200));
+            holder_finished.store(true, std::sync::atomic::Ordering::SeqCst);
+            drop(operation);
         });
         held_rx.recv().unwrap();
         assert_eq!(state(&gate), GateState::Busy);
         gate.begin_exit();
+        assert!(
+            finished.load(std::sync::atomic::Ordering::SeqCst),
+            "exit returned while the operation was still running"
+        );
         assert_eq!(state(&gate), GateState::Exiting);
         holder.join().unwrap();
         assert_eq!(
