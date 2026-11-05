@@ -1,4 +1,5 @@
 import type { ServiceState } from "./state.js";
+import { transition } from "./transition.js";
 import { reserveAttempt } from "./billing.js";
 import { ApiError } from "./errors.js";
 import { recoverPrice } from "./catalog.js";
@@ -140,11 +141,13 @@ export function failStaleQuantityChange(
       "UPDATE organization_subscriptions SET quantity_next=?,external_change=1,updated_at_ms=? WHERE organization_id=?",
     )
     .run(quantity, state.clock(), org);
-  state.db
-    .prepare(
-      "UPDATE organization_quantity_changes SET state='failed' WHERE id=?",
-    )
-    .run(operation);
+  transition(
+    state.db,
+    "organization_quantity_changes",
+    ["pending", "unknown"],
+    "failed",
+    { where: "id=?", params: [operation] },
+  );
 }
 function operationRetirement(
   state: ServiceState,
@@ -273,16 +276,27 @@ async function synchronizeSubscription(
         );
       if (ended) {
         applyRetirementPlan(state, org, []);
-        state.db
-          .prepare(
-            "UPDATE organization_quantity_changes SET state='failed' WHERE organization_id=? AND stripe_subscription_id=? AND state IN ('pending','unknown')",
-          )
-          .run(org, id);
-        state.db
-          .prepare(
-            "UPDATE organization_checkouts SET state='failed',updated_at_ms=? WHERE organization_id=? AND stripe_subscription_id=? AND state<>'complete'",
-          )
-          .run(now, org, id);
+        transition(
+          state.db,
+          "organization_quantity_changes",
+          ["pending", "unknown"],
+          "failed",
+          {
+            where: "organization_id=? AND stripe_subscription_id=?",
+            params: [org, id],
+          },
+        );
+        transition(
+          state.db,
+          "organization_checkouts",
+          ["pending", "unknown", "payment_pending"],
+          "failed",
+          {
+            set: "updated_at_ms=?",
+            where: "organization_id=? AND stripe_subscription_id=?",
+            params: [now, org, id],
+          },
+        );
       } else if (
         operation &&
         operation.stripe_subscription_id === id &&
@@ -293,11 +307,13 @@ async function synchronizeSubscription(
           org,
           operationRetirement(state, org, operation),
         );
-        state.db
-          .prepare(
-            "UPDATE organization_quantity_changes SET state='applied' WHERE id=?",
-          )
-          .run(operation.id);
+        transition(
+          state.db,
+          "organization_quantity_changes",
+          ["pending", "unknown"],
+          "applied",
+          { where: "id=?", params: [operation.id] },
+        );
       } else if (
         operation &&
         operation.stripe_subscription_id === id &&
@@ -450,11 +466,13 @@ export async function processOrganizationEvent(
         kind === "checkout.session.async_payment_failed" &&
         session.payment_status !== "paid"
       )
-        state.db
-          .prepare(
-            "UPDATE organization_checkouts SET state='failed' WHERE id=? AND state<>'complete'",
-          )
-          .run(row.id);
+        transition(
+          state.db,
+          "organization_checkouts",
+          ["pending", "unknown", "payment_pending"],
+          "failed",
+          { where: "id=?", params: [row.id] },
+        );
       if (session.subscription != null && session.status === "complete") {
         let canonical = await get(
           state,

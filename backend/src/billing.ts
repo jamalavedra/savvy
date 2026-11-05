@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Db } from "./db.js";
+import { transition } from "./transition.js";
 import { CATALOG } from "./catalog.js";
 import { ApiError } from "./errors.js";
 
@@ -279,9 +280,10 @@ export function settleBriefSuccess(
     db.prepare(
       "UPDATE allowance_grants SET briefs_reserved=briefs_reserved-1,briefs_used=briefs_used+1 WHERE id=?",
     ).run(grant);
-  db.prepare(
-    "UPDATE provider_requests SET state='succeeded' WHERE account_id=? AND request_key=?",
-  ).run(account, key);
+  transition(db, "provider_requests", ["pending"], "succeeded", {
+    where: "account_id=? AND request_key=?",
+    params: [account, key],
+  });
 }
 
 export function releaseBrief(
@@ -310,9 +312,10 @@ export function releaseBrief(
     db.prepare(
       "UPDATE allowance_grants SET briefs_reserved=briefs_reserved-1 WHERE id=?",
     ).run(grant);
-  db.prepare(
-    "UPDATE provider_requests SET state='failed' WHERE account_id=? AND request_key=? AND state='pending'",
-  ).run(account, key);
+  transition(db, "provider_requests", ["pending"], "failed", {
+    where: "account_id=? AND request_key=?",
+    params: [account, key],
+  });
 }
 
 export interface Grant {

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { ServiceState } from "./state.js";
+import { transition } from "./transition.js";
 import { ApiError } from "./errors.js";
 import {
   requestState,
@@ -335,12 +336,14 @@ export function completeRequest(
     session.lease_expires_ms <= now
   )
     throw new ApiError("result_unavailable", "stale recommendation");
-  const changed = state.db
-    .prepare(
-      "UPDATE provider_requests SET state='succeeded' WHERE account_id=? AND request_key=? AND state='pending'",
-    )
-    .run(account, key).changes;
-  if (changed !== 1)
+  const changed = transition(
+    state.db,
+    "provider_requests",
+    ["pending"],
+    "succeeded",
+    { where: "account_id=? AND request_key=?", params: [account, key] },
+  );
+  if (!changed)
     throw new ApiError(
       "result_unavailable",
       "recommendation canceled before completion",

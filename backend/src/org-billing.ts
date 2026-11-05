@@ -1,4 +1,5 @@
 import type { ServiceState } from "./state.js";
+import { transition } from "./transition.js";
 import { ApiError } from "./errors.js";
 import type { Offer } from "./catalog.js";
 import { MS_PER_HOUR, releaseBrief } from "./billing.js";
@@ -268,9 +269,18 @@ export function fulfillSeatInvoice(
   db.prepare(
     "UPDATE organization_subscriptions SET paid_through_ms=max(COALESCE(paid_through_ms,0),?),updated_at_ms=? WHERE organization_id=? AND stripe_subscription_id=?",
   ).run(ends, now, org, subscription);
-  db.prepare(
-    "UPDATE organization_checkouts SET state='complete',updated_at_ms=? WHERE organization_id=? AND stripe_subscription_id=?",
-  ).run(now, org, subscription);
+  // A paid invoice is proof the purchase succeeded, whatever the checkout recorded.
+  transition(
+    db,
+    "organization_checkouts",
+    ["pending", "unknown", "payment_pending", "failed"],
+    "complete",
+    {
+      set: "updated_at_ms=?",
+      where: "organization_id=? AND stripe_subscription_id=?",
+      params: [now, org, subscription],
+    },
+  );
   return cleanup;
 }
 
@@ -357,9 +367,11 @@ export function applyOrganizationReversal(
       "seat_revoked",
       end,
     );
-    db.prepare(
-      "UPDATE managed_sessions SET state='stopped',lease_version=lease_version+1,lease_expires_ms=NULL,updated_at_ms=? WHERE id=?",
-    ).run(now, session.id);
+    transition(db, "managed_sessions", ["active", "paused"], "stopped", {
+      set: "lease_version=lease_version+1,lease_expires_ms=NULL,updated_at_ms=?",
+      where: "id=?",
+      params: [now, session.id],
+    });
     for (const [key, entry] of state.cancellations.get(session.account_id) ??
       [])
       if (entry.sessionId === session.id) release(session.account_id, key);

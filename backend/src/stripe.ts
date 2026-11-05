@@ -4,6 +4,8 @@ import {
   refreshOrganizationForAccount,
 } from "./org-stripe-events.js";
 import type { ServiceState } from "./state.js";
+import { transition } from "./transition.js";
+import type { Db } from "./db.js";
 import { ApiError, readLimited } from "./errors.js";
 import {
   reserveAttempt,
@@ -322,11 +324,16 @@ export async function checkout(
         return await post(state, path, providerKey, form);
       } catch (error) {
         if (error instanceof ApiError && error.code === "purchase_rejected")
-          state.db
-            .prepare(
-              "UPDATE checkouts SET state='failed' WHERE account_id=? AND request_key=?",
-            )
-            .run(account, key);
+          transition(
+            state.db,
+            "checkouts",
+            ["pending", "payment_pending"],
+            "failed",
+            {
+              where: "account_id=? AND request_key=?",
+              params: [account, key],
+            },
+          );
         throw error;
       }
     };
@@ -373,11 +380,16 @@ export async function checkout(
           attemptId: key,
         };
       if (session.status === "expired") {
-        state.db
-          .prepare(
-            "UPDATE checkouts SET state='expired' WHERE account_id=? AND request_key=?",
-          )
-          .run(account, key);
+        transition(
+          state.db,
+          "checkouts",
+          ["pending", "payment_pending"],
+          "expired",
+          {
+            where: "account_id=? AND request_key=?",
+            params: [account, key],
+          },
+        );
         throw new ApiError(
           "result_unavailable",
           "checkout expired; start a new purchase",
@@ -564,14 +576,20 @@ export async function processEvent(state: ServiceState, event: StripeObject) {
         /* No valid identity to record. */
       }
       if (id)
-        state.db
-          .prepare(
-            "UPDATE billing_events SET status='rejected' WHERE stripe_event_id=?",
-          )
-          .run(id);
+        transition(state.db, "billing_events", ["pending"], "rejected", {
+          where: "stripe_event_id=?",
+          params: [id],
+        });
     }
     throw error;
   }
+}
+
+function settleEvent(db: Db, id: string, status: "processed" | "ignored") {
+  transition(db, "billing_events", ["pending"], status, {
+    where: "stripe_event_id=?",
+    params: [id],
+  });
 }
 
 async function processEventInner(
@@ -614,10 +632,7 @@ async function processEventInner(
               ? `disputes/${objectId}`
               : "";
   if (!path) {
-    if (record)
-      db.prepare(
-        "UPDATE billing_events SET status='processed' WHERE stripe_event_id=?",
-      ).run(eventId);
+    if (record) settleEvent(db, eventId, "processed");
     return;
   }
   let object = await fetchEventObject(state, path, kind);
@@ -627,18 +642,12 @@ async function processEventInner(
     if (owner !== undefined)
       throw new ApiError("invalid_request", "billing payer mismatch");
     await processOrganizationEvent(state, payer.owner_id, kind, objectId);
-    if (record)
-      db.prepare(
-        "UPDATE billing_events SET status='processed' WHERE stripe_event_id=?",
-      ).run(eventId);
+    if (record) settleEvent(db, eventId, "processed");
     return;
   }
   const account = payer?.owner_kind === "account" ? payer.owner_id : undefined;
   if (account === undefined) {
-    if (record)
-      db.prepare(
-        "UPDATE billing_events SET status='ignored' WHERE stripe_event_id=?",
-      ).run(eventId);
+    if (record) settleEvent(db, eventId, "ignored");
     return;
   }
   if (owner !== undefined && owner !== account)
@@ -755,10 +764,23 @@ async function processEventInner(
               : object.status === "complete" &&
                   (product === "monthly" || !checkoutSettled)
                 ? "payment_pending"
-                : object.status;
-          db.prepare(
-            "UPDATE checkouts SET state=?,stripe_id=? WHERE account_id=? AND request_key=? AND (state IN ('pending','payment_pending') OR ?='complete')",
-          ).run(status, objectId, account, key, status);
+                : object.status === "complete"
+                  ? "complete"
+                  : "expired";
+          // Proof of payment settles a checkout that failed earlier.
+          transition(
+            db,
+            "checkouts",
+            status === "complete"
+              ? ["pending", "payment_pending", "failed"]
+              : ["pending", "payment_pending"],
+            status,
+            {
+              set: "stripe_id=?",
+              where: "account_id=? AND request_key=?",
+              params: [objectId, account, key],
+            },
+          );
         }
       } else if (kind.startsWith("invoice.") && object.status === "paid") {
         const lines = field(object, "lines", "data");
@@ -822,9 +844,11 @@ async function processEventInner(
           object.status === "canceled" ||
           object.status === "incomplete_expired"
         )
-          db.prepare(
-            "UPDATE checkouts SET state='failed' WHERE account_id=? AND subscription_id=? AND product='monthly' AND state='payment_pending' AND NOT EXISTS(SELECT 1 FROM subscription_periods p WHERE p.subscription_id=checkouts.subscription_id)",
-          ).run(account, objectId);
+          transition(db, "checkouts", ["payment_pending"], "failed", {
+            where:
+              "account_id=? AND subscription_id=? AND product='monthly' AND NOT EXISTS(SELECT 1 FROM subscription_periods p WHERE p.subscription_id=checkouts.subscription_id)",
+            params: [account, objectId],
+          });
       } else if (
         (kind === "charge.refunded" &&
           typeof object.amount_refunded === "number" &&
@@ -865,16 +889,15 @@ async function processEventInner(
           now,
         );
       }
-      db.prepare(
-        "UPDATE checkouts SET state='complete' WHERE product='monthly' AND state IN ('payment_pending','failed') AND EXISTS(SELECT 1 FROM subscription_periods p WHERE p.subscription_id=checkouts.subscription_id)",
-      ).run();
+      transition(db, "checkouts", ["payment_pending", "failed"], "complete", {
+        where:
+          "product='monthly' AND EXISTS(SELECT 1 FROM subscription_periods p WHERE p.subscription_id=checkouts.subscription_id)",
+        params: [],
+      });
       db.prepare(
         "UPDATE allowance_grants SET revoked=COALESCE((SELECT refunded OR disputed FROM reversals WHERE origin=allowance_grants.origin),revoked) WHERE origin IN (SELECT origin FROM reversals)",
       ).run();
-      if (record)
-        db.prepare(
-          "UPDATE billing_events SET status='processed' WHERE stripe_event_id=?",
-        ).run(eventId);
+      if (record) settleEvent(db, eventId, "processed");
     }).immediate();
   } finally {
     release?.();
@@ -1105,11 +1128,16 @@ export async function reconcilePurchases(state: ServiceState) {
         .run(state.clock(), account, key);
       const customer = row.stripe_customer_id;
       if (customer === null) {
-        state.db
-          .prepare(
-            "UPDATE checkouts SET state='failed' WHERE account_id=? AND request_key=? AND created_at_ms<=?",
-          )
-          .run(account, key, state.clock() - 23n * 3_600_000n);
+        transition(
+          state.db,
+          "checkouts",
+          ["pending", "payment_pending"],
+          "failed",
+          {
+            where: "account_id=? AND request_key=? AND created_at_ms<=?",
+            params: [account, key, state.clock() - 23n * 3_600_000n],
+          },
+        );
         continue;
       }
       let known = row.stripe_id;
@@ -1163,11 +1191,17 @@ export async function reconcilePurchases(state: ServiceState) {
           )
           .run(next, account, key);
         if (known === null && !list.has_more)
-          state.db
-            .prepare(
-              "UPDATE checkouts SET state='failed' WHERE account_id=? AND request_key=? AND stripe_id IS NULL AND created_at_ms<=?",
-            )
-            .run(account, key, state.clock() - 23n * 3_600_000n);
+          transition(
+            state.db,
+            "checkouts",
+            ["pending", "payment_pending"],
+            "failed",
+            {
+              where:
+                "account_id=? AND request_key=? AND stripe_id IS NULL AND created_at_ms<=?",
+              params: [account, key, state.clock() - 23n * 3_600_000n],
+            },
+          );
       }
       if (known === null) continue;
       state.db
