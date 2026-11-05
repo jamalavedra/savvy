@@ -2160,14 +2160,6 @@ mod issuer_tests {
                 provider_health: Mutex::new(Vec::new()),
                 granted_paths: Mutex::default(),
                 #[cfg(any(target_os = "macos", target_os = "windows"))]
-                microphone: Mutex::new(crate::MicrophoneCapture::new()),
-                #[cfg(any(target_os = "macos", target_os = "windows"))]
-                system_audio: Mutex::new(crate::SystemAudioCapture::new()),
-                #[cfg(any(target_os = "macos", target_os = "windows"))]
-                transcription_stop: Mutex::new(None),
-                #[cfg(any(target_os = "macos", target_os = "windows"))]
-                transcription_assembly: Mutex::new(None),
-                #[cfg(any(target_os = "macos", target_os = "windows"))]
                 codex_server: Mutex::new(None),
                 #[cfg(any(target_os = "macos", target_os = "windows"))]
                 claude_child: Mutex::new(None),
