@@ -639,6 +639,33 @@ describe("App", () => {
     expect(start).not.toHaveBeenCalled();
   });
 
+  it("ignores a stale dashboard read that resolves after a newer one", async () => {
+    vi.mocked(listen).mockResolvedValue(vi.fn());
+    const idle = await api.getDashboard();
+    const live = { ...idle, activeSession: await api.startMeeting(null, null) };
+    resetBrowserDemoState();
+    const read = vi.spyOn(api, "getDashboard").mockResolvedValue(idle);
+    render(<App />);
+    await screen.findByRole("button", { name: "General" });
+    const initialReads = read.mock.calls.length;
+
+    let resolveStale!: (snapshot: typeof idle) => void;
+    read.mockImplementationOnce(
+      () =>
+        new Promise((done) => {
+          resolveStale = done;
+        }),
+    );
+    fireEvent(window, new Event("focus"));
+    fireEvent(window, new Event("focus"));
+    await waitFor(() => expect(read).toHaveBeenCalledTimes(initialReads + 2));
+    await act(async () => resolveStale(live));
+
+    expect(
+      screen.queryByRole("button", { name: "Stop meeting" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("pins the brief at readiness even if preparation refreshes before start", async () => {
     const snapshot = await api.getDashboard();
     const client = snapshot.clients[0];

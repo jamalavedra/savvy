@@ -352,9 +352,12 @@ function App() {
     return () => window.clearTimeout(timer);
   }, [thinking]);
 
+  const dashboardRead = useRef(0);
   async function refreshDashboard() {
+    const read = ++dashboardRead.current;
     try {
       const snapshot = await getDashboard();
+      if (read !== dashboardRead.current) return;
       setDashboard(snapshot);
       setActiveClientId((current) =>
         current === null ||
