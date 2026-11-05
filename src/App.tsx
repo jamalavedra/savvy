@@ -274,6 +274,7 @@ function App() {
   const [onboarding, setOnboarding] = useState<"new" | "done" | null>(null);
   const [version, setVersion] = useState(appVersion);
   const [meeting, setMeeting] = useState(idleMeeting);
+  const [meetingBusy, setMeetingBusy] = useState(false);
   const meetingRef = useRef(idleMeeting);
   const dispatchMeeting = useCallback(
     (action: MeetingAction) => {
@@ -750,6 +751,7 @@ function App() {
   function startActiveMeeting() {
     if (
       meeting.session ||
+      meetingBusy ||
       busy ||
       contextSelection ||
       contextSelectionInFlight.current
@@ -793,6 +795,7 @@ function App() {
   async function beginActiveMeeting() {
     if (
       meeting.session ||
+      meetingBusy ||
       busy ||
       contextSelection ||
       contextSelectionInFlight.current
@@ -800,7 +803,7 @@ function App() {
       return;
     }
     const brief = readinessBrief;
-    setBusy(true);
+    setMeetingBusy(true);
     setError(null);
     try {
       const funding =
@@ -897,14 +900,14 @@ function App() {
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
-      setBusy(false);
+      setMeetingBusy(false);
     }
   }
 
   async function endActiveMeeting() {
     const session = meeting.session;
-    if (!session) return;
-    setBusy(true);
+    if (!session || meetingBusy) return;
+    setMeetingBusy(true);
     setError(null);
     try {
       const completed = await stopMeeting(session.id);
@@ -912,14 +915,14 @@ function App() {
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
-      setBusy(false);
+      setMeetingBusy(false);
     }
   }
 
   async function toggleMeetingPause() {
     const session = meeting.session;
-    if (!session) return;
-    setBusy(true);
+    if (!session || meetingBusy) return;
+    setMeetingBusy(true);
     setError(null);
     try {
       const updated =
@@ -930,13 +933,13 @@ function App() {
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
-      setBusy(false);
+      setMeetingBusy(false);
     }
   }
 
   async function forceRecommendation() {
     const session = meeting.session;
-    if (!session) return;
+    if (!session || meetingBusy) return;
     dispatchMeeting({ type: "recommendationRequested" });
     setError(null);
     try {
@@ -984,7 +987,7 @@ function App() {
           onRequestRecommendation={forceRecommendation}
           onStop={endActiveMeeting}
           stopped={meeting.stopped}
-          busy={busy}
+          busy={meetingBusy}
           error={error}
           style={appSettings?.overlayStyle ?? "live"}
           position={appSettings?.overlayPosition ?? "bottom"}
@@ -1148,7 +1151,7 @@ function App() {
             <MeetingReadiness
               settings={appSettings}
               clientName={activeClient?.name ?? "General meeting"}
-              busy={busy}
+              busy={busy || meetingBusy}
               onBack={() => {
                 setReadinessOpen(false);
                 requestAnimationFrame(() =>

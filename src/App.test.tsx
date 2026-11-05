@@ -786,6 +786,27 @@ describe("App", () => {
     expect(screen.getByText("Meeting history")).toBeVisible();
   });
 
+  it("ignores a second stop, including from the tray, while one is in flight", async () => {
+    const { session } = await stubTauri();
+    let resolveStop!: (value: typeof session) => void;
+    const stop = vi.spyOn(api, "stopMeeting").mockImplementation(
+      () =>
+        new Promise((done) => {
+          resolveStop = done;
+        }),
+    );
+    render(<App />);
+    await screen.findByRole("button", { name: "General" });
+    await emitTauri("meeting://session", session);
+    await emitTauri("savvy://start-listening", null);
+    await emitTauri("savvy://start-listening", null);
+    expect(stop).toHaveBeenCalledTimes(1);
+    await act(async () => resolveStop({ ...session, state: "completed" }));
+    expect(await screen.findByText("Meeting history")).toBeVisible();
+    await emitTauri("savvy://start-listening", null);
+    expect(stop).toHaveBeenCalledTimes(1);
+  });
+
   it("drops a late event from the previous meeting without touching the current one", async () => {
     const { session } = await stubTauri({ showLiveTranscript: true });
     const next = { ...session, id: "next-meeting" };
