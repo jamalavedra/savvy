@@ -4660,6 +4660,10 @@ fn request_recommendation(
             .as_mut()
             .filter(|live| live.session.id == session_id)
             .ok_or_else(|| "meeting is not active".to_owned())?;
+        match live.phase {
+            LivePhase::Recording(_) | LivePhase::Paused => {}
+            LivePhase::Stopping => return Err("meeting is stopping".into()),
+        }
         if live.coordinator.active_trigger() == Some(Trigger::Manual) {
             return Ok(());
         }
