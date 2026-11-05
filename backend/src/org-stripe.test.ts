@@ -542,7 +542,7 @@ test("an expired quantity idempotency key cannot change Stripe again or attach t
   h.quantityFailure(0);
   h.advance(24n * 3_600_000n);
   await assert.rejects(updateSeatQuantity(h.state, 1n, h.org, body), {
-    code: "payment_pending",
+    code: "result_unavailable",
   });
   assert.equal(
     h.calls.filter(
@@ -562,6 +562,69 @@ test("an expired quantity idempotency key cannot change Stripe again or attach t
     h.calls.some((c) => c.path === "/v1/subscriptions/sub_replacement"),
     false,
   );
+});
+
+test("a stale quantity change settles from Stripe's quantity and frees the next change", async (t) => {
+  const h = await fixture(t);
+  paidTeam(h);
+  h.quantityFailure(503);
+  const body = { quantity: 1, retireSeatIds: ["2"], requestKey: "stale" };
+  await assert.rejects(updateSeatQuantity(h.state, 1n, h.org, body), {
+    code: "provider_unavailable",
+  });
+  const seats = () =>
+    h.db
+      .prepare<[], { id: bigint; status: string }>(
+        "SELECT id,status FROM seats ORDER BY id",
+      )
+      .all()
+      .map((s) => `${s.id}:${s.status}`);
+  assert.deepEqual(seats(), ["1:active", "2:retiring"]);
+  h.quantityFailure(0);
+  h.advance(23n * 3_600_000n);
+  await assert.rejects(updateSeatQuantity(h.state, 1n, h.org, body), {
+    code: "result_unavailable",
+  });
+  assert.equal(
+    h.calls.filter(
+      (c) => c.path === "/v1/subscriptions/sub_team" && c.method === "POST",
+    ).length,
+    1,
+  );
+  assert.deepEqual(
+    h.db
+      .prepare(
+        "SELECT request_key,state FROM organization_quantity_changes ORDER BY id",
+      )
+      .all(),
+    [{ request_key: "stale", state: "failed" }],
+  );
+  assert.deepEqual(seats(), ["1:active", "2:active"]);
+  assert.deepEqual(
+    h.db
+      .prepare(
+        "SELECT quantity_next,external_change FROM organization_subscriptions",
+      )
+      .get(),
+    { quantity_next: 2n, external_change: 1n },
+  );
+  await updateSeatQuantity(h.state, 1n, h.org, {
+    ...body,
+    requestKey: "fresh",
+  });
+  assert.deepEqual(seats(), ["1:active", "2:retiring"]);
+  assert.deepEqual(
+    h.db
+      .prepare(
+        "SELECT request_key,state FROM organization_quantity_changes ORDER BY id",
+      )
+      .all(),
+    [
+      { request_key: "stale", state: "failed" },
+      { request_key: "fresh", state: "applied" },
+    ],
+  );
+  assert.equal(h.state.billingInFlight.size, 0);
 });
 
 test("a canceled subscription's remaining paid window blocks another team purchase", async (t) => {

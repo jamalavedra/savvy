@@ -1,4 +1,7 @@
-import { refreshOrganizationLocked } from "./org-stripe-events.js";
+import {
+  failStaleQuantityChange,
+  refreshOrganizationLocked,
+} from "./org-stripe-events.js";
 import { randomUUID } from "node:crypto";
 import type { ServiceState } from "./state.js";
 import { ApiError } from "./errors.js";
@@ -683,11 +686,18 @@ export async function updateSeatQuantity(
           "organization subscription item changed",
         );
       if (details.quantity !== Number(operation.quantity)) {
-        if (state.clock() - operation.created_at_ms >= 23n * 3_600_000n)
+        if (state.clock() - operation.created_at_ms >= 23n * 3_600_000n) {
+          const quantity = details.quantity;
+          state.db
+            .transaction(() =>
+              failStaleQuantityChange(state, org, operation!.id, quantity),
+            )
+            .immediate();
           throw new ApiError(
-            "payment_pending",
-            "the old quantity-change outcome must be reconciled before another update",
+            "result_unavailable",
+            "this quantity change was rejected; create a new attempt",
           );
+        }
         state.db
           .prepare(
             "UPDATE organization_quantity_changes SET state='unknown' WHERE id=?",

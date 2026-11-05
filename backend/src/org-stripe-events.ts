@@ -121,6 +121,29 @@ function externalRetirement(
     .slice(0, Math.max(0, seats.length - quantity))
     .map((s) => s.id.toString());
 }
+/**
+ * Settles a quantity change whose Stripe idempotency key can no longer be
+ * retried. Stripe's current quantity is the truth: the change is failed, seat
+ * retirement is rebuilt from that quantity and the owner is asked to review.
+ */
+export function failStaleQuantityChange(
+  state: ServiceState,
+  org: bigint,
+  operation: bigint,
+  quantity: number,
+) {
+  applyRetirementPlan(state, org, externalRetirement(state, org, quantity));
+  state.db
+    .prepare(
+      "UPDATE organization_subscriptions SET quantity_next=?,external_change=1,updated_at_ms=? WHERE organization_id=?",
+    )
+    .run(quantity, state.clock(), org);
+  state.db
+    .prepare(
+      "UPDATE organization_quantity_changes SET state='failed' WHERE id=?",
+    )
+    .run(operation);
+}
 function operationRetirement(
   state: ServiceState,
   org: bigint,
@@ -261,6 +284,12 @@ async function synchronizeSubscription(
             "UPDATE organization_quantity_changes SET state='applied' WHERE id=?",
           )
           .run(operation.id);
+      } else if (
+        operation &&
+        operation.stripe_subscription_id === id &&
+        now - operation.created_at_ms >= 23n * 3_600_000n
+      ) {
+        failStaleQuantityChange(state, org, operation.id, details.quantity);
       } else if (
         !operation &&
         existing &&

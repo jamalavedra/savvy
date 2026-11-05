@@ -2098,3 +2098,52 @@ test("reconciliation retries a durable quantity intent with its original key and
     5n,
   );
 });
+
+test("background sync settles a stale quantity change from Stripe's quantity without retrying its key", async (t) => {
+  const h = await organizationFixture(t);
+  await processEvent(
+    h.state,
+    event("evt_stale_paid", "invoice.paid", "in_org"),
+  );
+  h.db
+    .prepare(
+      "INSERT INTO organization_quantity_changes(organization_id,request_key,quantity,retire_seat_ids,previous_retire_seat_ids,stripe_idempotency_key,stripe_subscription_id,stripe_item_id,price_id,state,created_at_ms) VALUES(?,'stale',3,'[\"4\",\"5\"]','[]','stale-quantity-key','sub_org','si_org','price_monthly','unknown',?)",
+    )
+    .run(h.org, h.state.clock() - 23n * 3_600_000n);
+  h.db.prepare("UPDATE seats SET status='retiring' WHERE id IN(4,5)").run();
+  h.setPost(async () => {
+    throw new Error("a stale quantity change must not be retried");
+  });
+  assert.equal(
+    (
+      await h.deliver(
+        event("evt_stale_sub", "customer.subscription.updated", "sub_org"),
+      )
+    ).status,
+    200,
+  );
+  assert.deepEqual(
+    h.db.prepare("SELECT state FROM organization_quantity_changes").all(),
+    [{ state: "failed" }],
+  );
+  assert.deepEqual(
+    h.db
+      .prepare(
+        "SELECT quantity_next,external_change FROM organization_subscriptions",
+      )
+      .get(),
+    { quantity_next: 5n, external_change: 1n },
+  );
+  assert.equal(
+    h.db
+      .prepare<[], { n: bigint }>(
+        "SELECT count(*) AS n FROM seats WHERE status='retiring'",
+      )
+      .get()!.n,
+    0n,
+  );
+  assert.equal(
+    h.posts.some((p) => p.path === "/v1/subscriptions/sub_org"),
+    false,
+  );
+});
