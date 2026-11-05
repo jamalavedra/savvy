@@ -30,12 +30,7 @@ type StaleCursor = Pick<
 
 export type MeetingEventEffect =
   | { kind: "ignored" }
-  | {
-      kind: "transcript";
-      cursor: GenerationCursor;
-      turn: TranscriptTurn;
-      newSession: boolean;
-    }
+  | { kind: "transcript"; cursor: GenerationCursor; turn: TranscriptTurn }
   | {
       kind: "started";
       cursor: GenerationCursor;
@@ -76,7 +71,6 @@ export function reduceMeetingEvent(
         terminalGenerationId: sameSession ? current.terminalGenerationId : 0,
       },
       turn: event.turn,
-      newSession: !sameSession,
     };
   }
   if (event.type === "recommendationStarted") {
@@ -273,16 +267,6 @@ function reduceEvent(state: MeetingState, event: MeetingEvent) {
         recommendation: effect.recommendation ?? state.recommendation,
       };
   }
-}
-
-export function startsNewMeeting(
-  session: Pick<MeetingSession, "id" | "state">,
-  currentSessionId: string,
-) {
-  return (
-    (session.state === "recording" || session.state === "paused") &&
-    session.id !== currentSessionId
-  );
 }
 
 export function mergeTranscriptTurn(

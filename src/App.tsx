@@ -107,11 +107,10 @@ import {
 } from "./lib/platform";
 import { requestPermissionDecision } from "./lib/permissions";
 import {
-  mergeTranscriptTurn,
-  reduceMeetingEvent,
-  startsNewMeeting,
-  type GenerationCursor,
-  type ThinkingPhase,
+  idleMeeting,
+  reduceMeeting,
+  type MeetingAction,
+  type ThinkingState,
 } from "./lib/meetingEvents";
 import type {
   AppPaths,
@@ -152,15 +151,7 @@ const CARD_TITLES: Partial<Record<RecommendationTrigger, string>> = {
   manual: "Advice",
   opportunity: "Savvy noticed",
 };
-type ThinkingState = {
-  trigger: RecommendationTrigger;
-  generationId: number;
-  phase: ThinkingPhase;
-} | null;
-type ThinkingDisplay = Pick<
-  NonNullable<ThinkingState>,
-  "trigger" | "phase"
-> | null;
+type ThinkingDisplay = Pick<ThinkingState, "trigger" | "phase"> | null;
 
 function thinkingLabel(
   thinking: NonNullable<ThinkingDisplay>,
@@ -244,7 +235,6 @@ function App() {
   const approvedBrief = useRef<{ id: string; content: string } | null>(null);
   const prepareSurface = useRef<HTMLDivElement>(null);
   const readinessReturnFocus = useRef<HTMLElement | null>(null);
-  const [stoppedSessionId, setStoppedSessionId] = useState<string | null>(null);
   const briefJob = useRef<{
     clientId: string | null;
     requestId: string;
@@ -283,15 +273,24 @@ function App() {
   // null while the check is in flight, so onboarding never flashes on startup.
   const [onboarding, setOnboarding] = useState<"new" | "done" | null>(null);
   const [version, setVersion] = useState(appVersion);
-  const [transcriptTurns, setTranscriptTurns] = useState<TranscriptTurn[]>([]);
-  const [thinking, setThinking] = useState<ThinkingState>(null);
-  const visibleSessionRef = useRef("");
-  const generationRef = useRef<GenerationCursor>({
-    sessionId: "",
-    generationId: 0,
-    sequence: 0,
-    terminalGenerationId: 0,
-  });
+  const [meeting, setMeeting] = useState(idleMeeting);
+  const meetingRef = useRef(idleMeeting);
+  const dispatchMeeting = useCallback(
+    (action: MeetingAction) => {
+      const previous = meetingRef.current;
+      const next = reduceMeeting(previous, action);
+      if (next === previous) return;
+      meetingRef.current = next;
+      setMeeting(next);
+      if (next.session && next.session.id !== previous.session?.id) {
+        setError(null);
+      }
+      if (!overlayWindow && previous.session && !next.session) {
+        setView("meetings");
+      }
+    },
+    [overlayWindow],
+  );
   const handleStartRequest = useEffectEvent(() => {
     if (onboarding !== "done") {
       // Tray and shortcut starts land here too; while setup is showing, surface
@@ -302,54 +301,20 @@ function App() {
       }
       return;
     }
-    if (dashboard?.activeSession) void endActiveMeeting();
+    if (meeting.session) void endActiveMeeting();
     else void startActiveMeeting();
   });
-  function applyRecommendation(recommendation: Recommendation) {
-    setDashboard((current) =>
-      current ? { ...current, latestRecommendation: recommendation } : current,
-    );
-  }
-  const handleMeetingEvent = useEffectEvent((event: MeetingEvent) => {
-    const effect = reduceMeetingEvent(generationRef.current, event);
-    if (effect.kind === "ignored") return;
-    generationRef.current = effect.cursor;
-    if (effect.kind === "transcript") {
-      if (effect.newSession) setThinking(null);
-      setTranscriptTurns((turns) => mergeTranscriptTurn(turns, effect.turn));
-      return;
-    }
-    if (effect.kind === "phase") {
-      setThinking((current) =>
-        current && current.generationId === effect.generationId
-          ? { ...current, phase: "thinking" }
-          : current,
-      );
-      return;
-    }
-    if (effect.kind === "started") {
-      setThinking(effect.thinking);
-      if (effect.card !== undefined) {
-        const card = effect.card;
-        setDashboard((dashboard) =>
-          dashboard ? { ...dashboard, latestRecommendation: card } : dashboard,
-        );
-      }
-      return;
-    }
-    setThinking(null);
-    if (effect.recommendation) applyRecommendation(effect.recommendation);
-  });
-
   useEffect(() => {
-    if (!thinking) return;
+    if (!meeting.thinking) return;
     const timer = window.setTimeout(
-      () => setThinking(null),
+      () => dispatchMeeting({ type: "thinkingExpired" }),
       THINKING_WATCHDOG_MS,
     );
     return () => window.clearTimeout(timer);
-  }, [thinking]);
+  }, [meeting.thinking, dispatchMeeting]);
 
+  // Orders dashboard reads against each other so a slow focus read cannot
+  // restore a client list or brief that a later read already replaced.
   const dashboardRead = useRef(0);
   async function refreshDashboard() {
     const read = ++dashboardRead.current;
@@ -474,61 +439,25 @@ function App() {
             setError(event.payload),
           ),
           listen<MeetingEvent>("meeting://event", (event) =>
-            handleMeetingEvent(event.payload),
+            dispatchMeeting({ type: "event", event: event.payload }),
           ),
-          listen<string>("meeting://stopped", (event) => {
-            setStoppedSessionId(event.payload);
-            setThinking(null);
-          }),
-          listen<MeetingSession>("meeting://session", (event) => {
-            const newMeeting = startsNewMeeting(
-              event.payload,
-              visibleSessionRef.current,
-            );
-            if (newMeeting) {
-              visibleSessionRef.current = event.payload.id;
-              generationRef.current = {
-                sessionId: event.payload.id,
-                generationId: 0,
-                sequence: 0,
-                terminalGenerationId: 0,
-              };
-              setTranscriptTurns([]);
-              setThinking(null);
-              setError(null);
-            }
-            dashboardRead.current += 1;
-            setDashboard((current) =>
-              current
-                ? {
-                    ...current,
-                    latestRecommendation: newMeeting
-                      ? null
-                      : current.latestRecommendation,
-                    activeSession:
-                      event.payload.state === "recording" ||
-                      event.payload.state === "paused"
-                        ? event.payload
-                        : null,
-                  }
-                : current,
-            );
-            if (event.payload.state === "completed") setThinking(null);
-            if (!overlayWindow && event.payload.state === "completed") {
-              setView("meetings");
-            }
-          }),
+          listen<string>("meeting://stopped", (event) =>
+            dispatchMeeting({ type: "stopped", sessionId: event.payload }),
+          ),
+          listen<MeetingSession>("meeting://session", (event) =>
+            dispatchMeeting({ type: "session", session: event.payload }),
+          ),
           listen<string>("meeting://provider-error", (event) =>
             setError(event.payload),
           ),
           listen<{ sessionId: string; message: string }>(
             "meeting://stream-recovered",
             ({ payload }) => {
-              if (payload.sessionId === visibleSessionRef.current) {
-                setError((current) =>
-                  current === payload.message ? null : current,
-                );
-              }
+              if (payload.sessionId !== meetingRef.current.cursor.sessionId)
+                return;
+              setError((current) =>
+                current === payload.message ? null : current,
+              );
             },
           ),
           ...(overlayWindow
@@ -547,7 +476,7 @@ function App() {
       cancelled = true;
       unlisten.forEach((listener) => listener());
     };
-  }, [overlayWindow]);
+  }, [overlayWindow, dispatchMeeting]);
 
   const reviewedBrief =
     preparation?.brief?.id === reviewBriefId ? preparation.brief : null;
@@ -581,15 +510,17 @@ function App() {
     try {
       const client = await chooseClientFolder();
       if (!client) return;
-      setDashboard((current) => ({
-        clients: [
-          ...(current?.clients.filter((item) => item.id !== client.id) ?? []),
-          client,
-        ],
-        activeBrief: current?.activeBrief ?? null,
-        activeSession: current?.activeSession ?? null,
-        latestRecommendation: current?.latestRecommendation ?? null,
-      }));
+      setDashboard((current) =>
+        current
+          ? {
+              ...current,
+              clients: [
+                ...current.clients.filter((item) => item.id !== client.id),
+                client,
+              ],
+            }
+          : current,
+      );
       setActiveClientId(client.id);
       setView("prepare");
     } catch (reason) {
@@ -818,7 +749,7 @@ function App() {
 
   function startActiveMeeting() {
     if (
-      dashboard?.activeSession ||
+      meeting.session ||
       busy ||
       contextSelection ||
       contextSelectionInFlight.current
@@ -861,7 +792,7 @@ function App() {
 
   async function beginActiveMeeting() {
     if (
-      dashboard?.activeSession ||
+      meeting.session ||
       busy ||
       contextSelection ||
       contextSelectionInFlight.current
@@ -953,24 +884,16 @@ function App() {
         staleSourcePaths,
         ...(funding ? ([funding] as const) : []),
       );
+      dispatchMeeting({ type: "session", session });
       setReadinessOpen(false);
-      setTranscriptTurns([]);
       if (meetingBrief) {
         setPreparation((current) =>
           current ? { ...current, brief: meetingBrief } : current,
         );
+        setDashboard((current) =>
+          current ? { ...current, activeBrief: meetingBrief } : current,
+        );
       }
-      dashboardRead.current += 1;
-      setDashboard((current) =>
-        current
-          ? {
-              ...current,
-              activeBrief: meetingBrief ?? current.activeBrief,
-              activeSession: session,
-              latestRecommendation: null,
-            }
-          : current,
-      );
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
@@ -979,19 +902,13 @@ function App() {
   }
 
   async function endActiveMeeting() {
-    const session = dashboard?.activeSession;
+    const session = meeting.session;
     if (!session) return;
     setBusy(true);
     setError(null);
     try {
-      await stopMeeting(session.id);
-      setView("meetings");
-      dashboardRead.current += 1;
-      setDashboard((current) =>
-        current
-          ? { ...current, activeSession: null, latestRecommendation: null }
-          : current,
-      );
+      const completed = await stopMeeting(session.id);
+      dispatchMeeting({ type: "session", session: completed });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
@@ -1000,7 +917,7 @@ function App() {
   }
 
   async function toggleMeetingPause() {
-    const session = dashboard?.activeSession;
+    const session = meeting.session;
     if (!session) return;
     setBusy(true);
     setError(null);
@@ -1009,11 +926,7 @@ function App() {
         session.state === "paused"
           ? await resumeMeeting(session.id)
           : await pauseMeeting(session.id);
-      if (updated.state === "paused") setThinking(null);
-      dashboardRead.current += 1;
-      setDashboard((current) =>
-        current ? { ...current, activeSession: updated } : current,
-      );
+      dispatchMeeting({ type: "session", session: updated });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
@@ -1022,21 +935,14 @@ function App() {
   }
 
   async function forceRecommendation() {
-    const session = dashboard?.activeSession;
+    const session = meeting.session;
     if (!session) return;
-    setThinking({
-      trigger: "manual",
-      generationId: generationRef.current.generationId + 1,
-      phase: "checking",
-    });
+    dispatchMeeting({ type: "recommendationRequested" });
     setError(null);
-    setDashboard((current) =>
-      current ? { ...current, latestRecommendation: null } : current,
-    );
     try {
       await requestRecommendation(session.id);
     } catch (reason) {
-      setThinking(null);
+      dispatchMeeting({ type: "recommendationRequestFailed" });
       setError(reason instanceof Error ? reason.message : String(reason));
     }
   }
@@ -1066,32 +972,29 @@ function App() {
     return <Onboarding onComplete={() => void completeOnboarding()} />;
   }
 
-  if (
-    overlayWindow ||
-    (!window.__TAURI_INTERNALS__ && dashboard.activeSession)
-  ) {
+  if (overlayWindow || (!window.__TAURI_INTERNALS__ && meeting.session)) {
     return (
-      dashboard.activeSession && (
+      meeting.session && (
         <MeetingOverlay
-          key={dashboard.activeSession.id}
-          session={dashboard.activeSession}
-          turns={transcriptTurns}
-          recommendation={dashboard.latestRecommendation}
+          key={meeting.session.id}
+          session={meeting.session}
+          turns={meeting.turns}
+          recommendation={meeting.recommendation}
           onTogglePause={toggleMeetingPause}
           onRequestRecommendation={forceRecommendation}
           onStop={endActiveMeeting}
-          stopped={stoppedSessionId === dashboard.activeSession.id}
+          stopped={meeting.stopped}
           busy={busy}
           error={error}
           style={appSettings?.overlayStyle ?? "live"}
           position={appSettings?.overlayPosition ?? "bottom"}
           showTranscript={appSettings?.showLiveTranscript ?? false}
           hasNotes={Boolean(
-            dashboard.activeSession?.clientId ||
-            dashboard.activeSession?.briefId ||
+            meeting.session.clientId ||
+            meeting.session.briefId ||
             appSettings?.guidanceFolder,
           )}
-          thinking={thinking}
+          thinking={meeting.thinking}
         />
       )
     );
@@ -1346,16 +1249,14 @@ function App() {
               />
             </div>
           ) : view === "meetings" ? (
-            <HistoryView key={dashboard.activeSession?.id ?? "idle"} />
+            <HistoryView key={meeting.session?.id ?? "idle"} />
           ) : (
             <SettingsView
               section={view}
               settings={appSettings}
               version={version}
               saving={settingsBusy}
-              fundingBusy={
-                busy || !!briefProgress || !!dashboard?.activeSession
-              }
+              fundingBusy={busy || !!briefProgress || !!meeting.session}
               onSave={saveAppSettings}
             />
           )}
@@ -2682,7 +2583,7 @@ function RecommendationPreview({
   onKeep,
   autoDismiss,
 }: {
-  recommendation: DashboardSnapshot["latestRecommendation"];
+  recommendation: Recommendation | null;
   onDismiss?: () => void;
   onKeep?: () => void;
   autoDismiss: boolean;
@@ -2782,10 +2683,10 @@ export function MeetingOverlay({
   thinking,
   hasNotes,
 }: {
-  session: DashboardSnapshot["activeSession"];
+  session: MeetingSession | null;
   stopped?: boolean;
   turns: TranscriptTurn[];
-  recommendation: DashboardSnapshot["latestRecommendation"];
+  recommendation: Recommendation | null;
   onTogglePause: () => void;
   onRequestRecommendation: () => void;
   onStop: () => void;
