@@ -373,7 +373,6 @@ pub enum Grounding {
 pub enum RecommendationLifecycle {
     Local,
     Completed,
-    Failed,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

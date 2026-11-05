@@ -4552,9 +4552,6 @@ fn start_managed_transcription_worker(
         session.lease_version,
         session.meeting_ms_available
     );
-    if let Err(error) = app.emit("managed://session", &session) {
-        log::warn!("could not publish managed session status: {error}");
-    }
     let microphone_frames = state
         .microphone
         .lock()
@@ -7015,7 +7012,6 @@ pub fn run() {
                                 let _ = window.show();
                                 let _ = window.set_focus();
                             }
-                            let _ = handle.emit("managed://refresh", ());
                             return;
                         }
                         let meeting_active = handle
