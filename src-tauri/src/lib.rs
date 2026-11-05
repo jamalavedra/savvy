@@ -278,6 +278,39 @@ impl RecommendationWork {
 static RECOMMENDATION_WORK: std::sync::LazyLock<Mutex<RecommendationWork>> =
     std::sync::LazyLock::new(|| Mutex::new(RecommendationWork::default()));
 
+/// Releases the worker slot however the worker task exits, including a panic unwind.
+/// Without it a panicking generation leaves `running` true and no worker ever starts again.
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+struct WorkerExit {
+    work: &'static Mutex<RecommendationWork>,
+    armed: bool,
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+impl WorkerExit {
+    fn new(work: &'static Mutex<RecommendationWork>) -> Self {
+        Self { work, armed: true }
+    }
+
+    /// Call under the queue lock once `next()` drained, so a worker started by a
+    /// concurrent enqueue is not released by this one's drop.
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+impl Drop for WorkerExit {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        let mut work = self.work.lock().unwrap_or_else(|error| error.into_inner());
+        work.running = false;
+        work.active = None;
+    }
+}
+
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 struct GenerationSeed {
     token: GenerationToken,
@@ -5857,6 +5890,7 @@ fn spawn_provider_enhancement(app: AppHandle, pending: PendingGeneration, provid
         }
     }
     tauri::async_runtime::spawn(async move {
+        let mut exit = WorkerExit::new(&RECOMMENDATION_WORK);
         let mut next_start = tokio::time::Instant::now();
         loop {
             // Coalesce bursts during the gap instead of allocating a task per turn.
@@ -5873,7 +5907,11 @@ fn spawn_provider_enhancement(app: AppHandle, pending: PendingGeneration, provid
                 if work.next_start(now) > now {
                     continue;
                 }
-                work.next()
+                let next = work.next();
+                if next.is_none() {
+                    exit.disarm();
+                }
+                next
             };
             let Some((pending, provider)) = next else {
                 return;
@@ -8020,6 +8058,51 @@ mod tests {
         assert!(work.enqueue(pending(10_001), "codex".into()));
         assert_eq!(work.next_start(now), now);
         assert_eq!(work.next().unwrap().0.token.generation_id, 10_001);
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    #[test]
+    fn panicking_recommendation_worker_releases_the_slot_for_the_next_enqueue() {
+        static WORK: std::sync::LazyLock<Mutex<RecommendationWork>> =
+            std::sync::LazyLock::new(|| Mutex::new(RecommendationWork::default()));
+        let request = synthetic_opportunity_request(&["What is the price?"]);
+        let pending = |generation_id| PendingGeneration {
+            token: GenerationToken {
+                session_id: request.session_id,
+                generation_id,
+                transcript_revision: 1,
+            },
+            recommendation_id: Uuid::new_v4(),
+            request: request.clone(),
+            local: None,
+        };
+        assert!(WORK.lock().unwrap().enqueue(pending(1), "codex".into()));
+        let worker = std::thread::spawn(|| {
+            let _exit = WorkerExit::new(&WORK);
+            let next = WORK.lock().unwrap().next();
+            assert!(next.is_some());
+            panic!("provider exploded mid-generation");
+        });
+        assert!(worker.join().is_err());
+        let mut work = WORK.lock().unwrap_or_else(|error| error.into_inner());
+        assert!(!work.running, "panicked worker still owns the slot");
+        assert!(work.active.is_none());
+        assert!(
+            work.enqueue(pending(2), "codex".into()),
+            "next enqueue must start a worker"
+        );
+        // A worker that drained normally disarms its guard before releasing the lock, so a
+        // worker started by a concurrent enqueue keeps the slot.
+        let mut exit = WorkerExit::new(&WORK);
+        assert!(work.next().is_some());
+        assert!(work.next().is_none());
+        exit.disarm();
+        assert!(work.enqueue(pending(3), "codex".into()));
+        drop(exit);
+        assert!(
+            work.running,
+            "disarmed guard must not release a newer worker"
+        );
     }
 
     #[cfg(any(target_os = "macos", target_os = "windows"))]
