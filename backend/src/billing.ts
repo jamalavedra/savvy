@@ -431,7 +431,7 @@ export function accountSummary(
     .all(account);
   const latest = db
     .prepare<[bigint], { product: string; attemptId: string; status: string }>(
-      "SELECT product,request_key AS attemptId,state AS status FROM checkouts WHERE account_id=? AND state IN ('complete','failed','expired') ORDER BY COALESCE(checked_at_ms,created_at_ms) DESC,rowid DESC LIMIT 1",
+      "SELECT product,request_key AS attemptId,state AS status FROM checkouts WHERE account_id=? AND state IN ('complete','failed','expired') ORDER BY created_at_ms DESC,rowid DESC LIMIT 1",
     )
     .get(account);
   return {

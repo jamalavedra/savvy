@@ -138,6 +138,26 @@ test("attempt admission and last-brief reservation roll back atomically", () => 
   }
 });
 
+test("the latest confirmed purchase is the newest checkout, not the last one the background check touched", () => {
+  const db = openServiceDatabase(":memory:");
+  const now = 1_700_000_000_000n;
+  try {
+    db.prepare(
+      "INSERT INTO accounts(id,issuer,subject,created_at_ms) VALUES(1,'issuer','subject',?)",
+    ).run(now);
+    db.prepare(
+      "INSERT INTO checkouts(account_id,request_key,product,state,created_at_ms,checked_at_ms) VALUES(1,'older','pack','failed',?,?),(1,'newer','pack','complete',?,0)",
+    ).run(now - 20_000n, now - 10_000n, now);
+    assert.deepEqual(accountSummary(db, 1n, now).latestConfirmedPurchase, {
+      product: "pack",
+      attemptId: "newer",
+      status: "complete",
+    });
+  } finally {
+    db.close();
+  }
+});
+
 test("service schema matches the recorded schema snapshot", () => {
   const snapshot = JSON.parse(
     readFileSync(
