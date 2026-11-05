@@ -757,8 +757,8 @@ async function processEventInner(
                 ? "payment_pending"
                 : object.status;
           db.prepare(
-            "UPDATE checkouts SET state=?,stripe_id=? WHERE account_id=? AND request_key=? AND state IN ('pending','payment_pending')",
-          ).run(status, objectId, account, key);
+            "UPDATE checkouts SET state=?,stripe_id=? WHERE account_id=? AND request_key=? AND (state IN ('pending','payment_pending') OR ?='complete')",
+          ).run(status, objectId, account, key, status);
         }
       } else if (kind.startsWith("invoice.") && object.status === "paid") {
         const lines = field(object, "lines", "data");
@@ -866,7 +866,7 @@ async function processEventInner(
         );
       }
       db.prepare(
-        "UPDATE checkouts SET state='complete' WHERE product='monthly' AND state='payment_pending' AND EXISTS(SELECT 1 FROM subscription_periods p WHERE p.subscription_id=checkouts.subscription_id)",
+        "UPDATE checkouts SET state='complete' WHERE product='monthly' AND state IN ('payment_pending','failed') AND EXISTS(SELECT 1 FROM subscription_periods p WHERE p.subscription_id=checkouts.subscription_id)",
       ).run();
       db.prepare(
         "UPDATE allowance_grants SET revoked=COALESCE((SELECT refunded OR disputed FROM reversals WHERE origin=allowance_grants.origin),revoked) WHERE origin IN (SELECT origin FROM reversals)",

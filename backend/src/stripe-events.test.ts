@@ -796,6 +796,67 @@ test("an unpaid monthly checkout fails when its subscription ends without a paid
   assert.equal(h.state.billingInFlight.size, 0);
 });
 
+test("a monthly checkout canceled before its paid invoice is processed ends complete", async (t) => {
+  const h = await fixture(t);
+  h.db
+    .prepare(
+      "INSERT INTO checkouts(account_id,request_key,product,state,created_at_ms,price_id,return_url,stripe_id,subscription_id) VALUES(1,'canceled','monthly','payment_pending',0,'price_monthly','https://return.test','cs_canceled','sub_canceled')",
+    )
+    .run();
+  h.objects.set("/v1/subscriptions/sub_canceled", {
+    customer: "cus_test",
+    status: "canceled",
+    items: { data: [{ price: "price_monthly" }] },
+  });
+  const state = () =>
+    h.db
+      .prepare("SELECT state FROM checkouts WHERE request_key='canceled'")
+      .get();
+  assert.equal(
+    (
+      await h.deliver(
+        event("evt_cancel", "customer.subscription.deleted", "sub_canceled"),
+      )
+    ).status,
+    200,
+  );
+  assert.deepEqual(state(), { state: "failed" });
+  h.objects.set("/v1/invoices/in_canceled", invoice("sub_canceled"));
+  assert.equal(
+    (await h.deliver(event("evt_late_paid", "invoice.paid", "in_canceled")))
+      .status,
+    200,
+  );
+  assert.deepEqual(state(), { state: "complete" });
+  assert.deepEqual(
+    accountSummary(h.db, 1n, h.state.clock()).latestConfirmedPurchase,
+    { product: "monthly", attemptId: "canceled", status: "complete" },
+  );
+});
+
+test("a paid pack completion settles a checkout the reconciler already failed", async (t) => {
+  const h = await fixture(t);
+  h.purchase("late");
+  h.db
+    .prepare("UPDATE checkouts SET state='failed' WHERE request_key='late'")
+    .run();
+  h.objects.set("/v1/checkout/sessions/cs_late", pack("late", "pi_late"));
+  assert.equal(
+    (
+      await h.deliver(
+        event("evt_late", "checkout.session.completed", "cs_late"),
+      )
+    ).status,
+    200,
+  );
+  assert.deepEqual(
+    h.db
+      .prepare("SELECT state,stripe_id FROM checkouts WHERE request_key='late'")
+      .get(),
+    { state: "complete", stripe_id: "cs_late" },
+  );
+});
+
 test("invoice replay grants once, a pack refund preserves monthly time, and a won dispute restores only undisputed unrefunded grants", async (t) => {
   const h = await fixture(t);
   const checkout = {
