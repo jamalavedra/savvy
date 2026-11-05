@@ -530,7 +530,7 @@ test("settlement preserves the confirmed expiry interval but cannot debit a fina
     onAudio(h.state, 1n, "expiring", "microphone", 16000, h.now());
     h.advance(500n);
   }
-  h.tx(() => finishInterval(h.db, 1n, "expiring", "expired", h.now()));
+  h.tx(() => finishInterval(h.db, 1n, "expiring", h.now()));
   assert.equal(requireSession(h.db, 1n, "expiring").settled_ms, 7_500n);
   assert.equal(requireSession(h.db, 1n, "expiring").reserved_ms, 0n);
   h.db
@@ -549,7 +549,7 @@ test("settlement preserves the confirmed expiry interval but cannot debit a fina
       "UPDATE seat_periods SET financial_status='reversed' WHERE seat_id=?",
     )
     .run(fresh);
-  h.tx(() => finishInterval(h.db, 1n, "reversed", "reversal", h.now()));
+  h.tx(() => finishInterval(h.db, 1n, "reversed", h.now()));
   assert.equal(requireSession(h.db, 1n, "reversed").settled_ms, 0n);
   assert.equal(requireSession(h.db, 1n, "reversed").reserved_ms, 0n);
 });

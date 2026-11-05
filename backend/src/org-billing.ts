@@ -360,13 +360,7 @@ export function applyOrganizationReversal(
         ? live.deliveredUntilMs
         : now
       : (session.billable_since_ms ?? now);
-    finishInterval(
-      db,
-      session.account_id,
-      session.local_session_id,
-      "seat_revoked",
-      end,
-    );
+    finishInterval(db, session.account_id, session.local_session_id, end);
     transition(db, "managed_sessions", ["active", "paused"], "stopped", {
       set: "lease_version=lease_version+1,lease_expires_ms=NULL,updated_at_ms=?",
       where: "id=?",

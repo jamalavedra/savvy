@@ -141,6 +141,7 @@ export function migrateService(db: Db) {
       ["allowance_grants", "revocation_reason", "TEXT"],
       ["composio_sessions", "user_id", "TEXT NOT NULL DEFAULT ''"],
       ["managed_sessions", "lifecycle_command", "INTEGER NOT NULL DEFAULT 0"],
+      ["managed_sessions", "pause_reason", "TEXT"],
       ["checkouts", "created_at_ms", "INTEGER NOT NULL DEFAULT 0"],
       ["checkouts", "price_id", "TEXT"],
       ["checkouts", "return_url", "TEXT"],

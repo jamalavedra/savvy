@@ -87,7 +87,7 @@ test("personal wire totals and meeting reservations exclude seat grants even on 
       0n,
     );
     db.transaction(() =>
-      finishInterval(db, 1n, "legacy-meeting", "test", now),
+      finishInterval(db, 1n, "legacy-meeting", now),
     ).immediate();
     db.prepare(
       "UPDATE allowance_grants SET revoked=1 WHERE origin='personal'",

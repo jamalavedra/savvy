@@ -75,6 +75,7 @@ CREATE TABLE IF NOT EXISTS audio_pacing (
             reserved_ms INTEGER NOT NULL DEFAULT 0,
             settled_ms INTEGER NOT NULL DEFAULT 0,
             billable_since_ms INTEGER,
+            -- Unused: the previous release still writes it. Drop it once that release is retired.
             interruption TEXT,
             created_at_ms INTEGER NOT NULL,
             updated_at_ms INTEGER NOT NULL,

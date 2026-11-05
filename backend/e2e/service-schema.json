@@ -952,6 +952,14 @@
         "notnull": 1,
         "dflt_value": "0",
         "pk": 0
+      },
+      {
+        "cid": 15,
+        "name": "pause_reason",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
       }
     ],
     "foreignKeys": [
