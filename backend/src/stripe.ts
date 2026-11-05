@@ -757,7 +757,7 @@ async function processEventInner(
                 ? "payment_pending"
                 : object.status;
           db.prepare(
-            "UPDATE checkouts SET state=?,stripe_id=? WHERE account_id=? AND request_key=?",
+            "UPDATE checkouts SET state=?,stripe_id=? WHERE account_id=? AND request_key=? AND state IN ('pending','payment_pending')",
           ).run(status, objectId, account, key);
         }
       } else if (kind.startsWith("invoice.") && object.status === "paid") {

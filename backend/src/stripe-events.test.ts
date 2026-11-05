@@ -712,6 +712,54 @@ test("delayed pack payment stays pending until authoritative paid state, includi
   );
 });
 
+test("a failed pack checkout stays failed through a replayed completion and no longer blocks a new purchase", async (t) => {
+  const h = await fixture(t);
+  h.purchase("replayed");
+  const value = pack("replayed", "pi_replayed");
+  value.payment_status = "unpaid";
+  h.objects.set("/v1/checkout/sessions/cs_replayed", value);
+  const state = () =>
+    h.db
+      .prepare("SELECT state FROM checkouts WHERE request_key='replayed'")
+      .get();
+  assert.equal(
+    (
+      await h.deliver(
+        event(
+          "evt_replay_failed",
+          "checkout.session.async_payment_failed",
+          "cs_replayed",
+        ),
+      )
+    ).status,
+    200,
+  );
+  assert.deepEqual(state(), { state: "failed" });
+  assert.equal(
+    (
+      await h.deliver(
+        event("evt_replay_done", "checkout.session.completed", "cs_replayed"),
+      )
+    ).status,
+    200,
+  );
+  assert.deepEqual(state(), { state: "failed" });
+  assert.equal(accountSummary(h.db, 1n, h.state.clock()).paymentPending, false);
+  h.setPost(async () => ({
+    status: 200,
+    body: {
+      id: "cs_next",
+      url: "https://checkout.stripe.com/c/pay/test#fragment",
+    },
+  }));
+  const next = await h.post("/v1/billing/checkout", {
+    product: "pack",
+    idempotencyKey: "next",
+  });
+  assert.equal(next.status, 200);
+  assert.equal(next.body.attemptId, "next");
+});
+
 test("invoice replay grants once, a pack refund preserves monthly time, and a won dispute restores only undisputed unrefunded grants", async (t) => {
   const h = await fixture(t);
   const checkout = {
