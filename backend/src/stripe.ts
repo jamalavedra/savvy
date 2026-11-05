@@ -823,7 +823,7 @@ async function processEventInner(
           object.status === "incomplete_expired"
         )
           db.prepare(
-            "UPDATE checkouts SET state='complete' WHERE account_id=? AND subscription_id=? AND product='monthly' AND state='payment_pending'",
+            "UPDATE checkouts SET state='failed' WHERE account_id=? AND subscription_id=? AND product='monthly' AND state='payment_pending' AND NOT EXISTS(SELECT 1 FROM subscription_periods p WHERE p.subscription_id=checkouts.subscription_id)",
           ).run(account, objectId);
       } else if (
         (kind === "charge.refunded" &&

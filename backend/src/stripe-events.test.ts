@@ -760,6 +760,42 @@ test("a failed pack checkout stays failed through a replayed completion and no l
   assert.equal(next.body.attemptId, "next");
 });
 
+test("an unpaid monthly checkout fails when its subscription ends without a paid period", async (t) => {
+  const h = await fixture(t);
+  h.db
+    .prepare(
+      "INSERT INTO checkouts(account_id,request_key,product,state,created_at_ms,price_id,return_url,stripe_id,subscription_id) VALUES(1,'unpaid','monthly','payment_pending',0,'price_monthly','https://return.test','cs_unpaid','sub_unpaid')",
+    )
+    .run();
+  h.objects.set("/v1/subscriptions/sub_unpaid", {
+    customer: "cus_test",
+    status: "incomplete_expired",
+    items: { data: [{ price: "price_monthly" }] },
+  });
+  assert.equal(
+    (
+      await h.deliver(
+        event("evt_unpaid_end", "customer.subscription.deleted", "sub_unpaid"),
+      )
+    ).status,
+    200,
+  );
+  assert.deepEqual(
+    h.db
+      .prepare("SELECT state FROM checkouts WHERE request_key='unpaid'")
+      .get(),
+    { state: "failed" },
+  );
+  const summary = accountSummary(h.db, 1n, h.state.clock());
+  assert.equal(summary.paymentPending, false);
+  assert.deepEqual(summary.latestConfirmedPurchase, {
+    product: "monthly",
+    attemptId: "unpaid",
+    status: "failed",
+  });
+  assert.equal(h.state.billingInFlight.size, 0);
+});
+
 test("invoice replay grants once, a pack refund preserves monthly time, and a won dispute restores only undisputed unrefunded grants", async (t) => {
   const h = await fixture(t);
   const checkout = {
