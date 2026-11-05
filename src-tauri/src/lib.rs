@@ -4782,11 +4782,34 @@ fn spawn_managed_stream(
 fn finish_managed_failure(app: AppHandle, id: Uuid, message: &str) {
     if message.contains("session_ended") {
         tauri::async_runtime::spawn_blocking(move || {
-            let _ = run_app_operation(&app, |app, state| stop_live_meeting(app, state, id));
+            let state = app.state::<AppState>();
+            let stop = || stop_live_meeting(&app, &state, id);
+            match wait_for_app_operation(&state.app_operation, stop) {
+                Some(Ok(_)) => {}
+                Some(Err(error)) => {
+                    log::warn!("hosted session ended but the local meeting did not stop: {error}");
+                }
+                None => {
+                    log::info!(
+                        "hosted session ended while Savvy is closing; exit stops the meeting"
+                    );
+                }
+            }
         });
     } else {
         pause_managed_assistance(app, id);
     }
+}
+
+/// Waits for the application gate, then runs `operation` unless Savvy is quitting or
+/// relaunching, which stops the meeting on its own. Unlike `run_app_operation` this
+/// never fails because another operation currently holds the gate.
+fn wait_for_app_operation<T>(gate: &Mutex<bool>, operation: impl FnOnce() -> T) -> Option<T> {
+    let operation_guard = gate.lock().unwrap_or_else(|error| error.into_inner());
+    if *operation_guard {
+        return None;
+    }
+    Some(operation())
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -8420,6 +8443,30 @@ mod tests {
         assert!(!partial_path.exists());
         assert!(!transcript_path.exists());
         fs::remove_dir_all(directory).expect("remove recordings directory");
+    }
+
+    #[test]
+    fn hosted_session_end_waits_for_the_gate_instead_of_giving_up() {
+        let gate = std::sync::Arc::new(Mutex::new(false));
+        let (held_tx, held_rx) = std::sync::mpsc::channel();
+        let holder_gate = gate.clone();
+        let holder = std::thread::spawn(move || {
+            let _operation = holder_gate.lock().unwrap();
+            held_tx.send(()).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        });
+        held_rx.recv().unwrap();
+        let stopped = wait_for_app_operation(&gate, || "stopped");
+        assert_eq!(
+            stopped,
+            Some("stopped"),
+            "stop must run once the gate is released"
+        );
+        holder.join().unwrap();
+        *gate.lock().unwrap() = true;
+        let ran = std::cell::Cell::new(false);
+        assert!(wait_for_app_operation(&gate, || ran.set(true)).is_none());
+        assert!(!ran.get(), "a relaunch or exit already stops the meeting");
     }
 
     #[test]
