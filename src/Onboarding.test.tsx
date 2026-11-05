@@ -938,6 +938,27 @@ describe("Onboarding off macOS", () => {
     expect(requestMicrophonePermission).not.toHaveBeenCalled();
   });
 
+  it("moves Windows own-provider setup forward to the audio check", async () => {
+    getAppStatus.mockResolvedValue({ version: "0.1.0", platform: "windows" });
+    await renderOnboarding(false);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Use your own providers" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Skip for now" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Set up later" }),
+    );
+    expect(await screen.findByText("Audio setup")).toBeVisible();
+    expect(
+      screen.queryByPlaceholderText("Paste your API key"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("To get started, let Savvy hear the meeting."),
+    ).not.toBeInTheDocument();
+  });
+
   it("keeps a signed-in Windows account on managed audio setup", async () => {
     getAppStatus.mockResolvedValue({ version: "0.1.0", platform: "windows" });
     const begin = vi.spyOn(appApi, "managedSignInBegin").mockResolvedValue({

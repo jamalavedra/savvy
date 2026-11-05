@@ -139,7 +139,7 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
       if (!reading) return false;
       setIsMacos(reading.macos);
       setPlatform(reading.platform);
-      if (reading.platform === "windows" && !managed) setStep("transcription");
+      if (reading.platform === "windows" && !managed) setStep("check");
       setMicrophone(reading.mic ? "granted" : "needed");
       setScreen(reading.capture ? "granted" : "needed");
       return true;
