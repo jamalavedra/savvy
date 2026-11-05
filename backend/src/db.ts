@@ -113,16 +113,21 @@ export function openPrivateDatabase(path: string): Db {
  * off, so the caller disables them around the transaction.
  */
 function addLifecycleConstraints(db: Db) {
-  const pending = Object.entries(LIFECYCLES).filter(([table, { column }]) => {
+  // Compare whole definitions, so a later change to an allowed set rebuilds the
+  // table too. Rename quotes the table name and ADD COLUMN reformats, hence the
+  // normalisation; a rebuilt table then matches and is left alone.
+  const normalise = (sql: string) =>
+    sql.replace(/["`]/g, "").replace(/\s+/g, " ").trim();
+  const pending = Object.keys(LIFECYCLES).filter((table) => {
     const current = db
       .prepare<[string], { sql: string }>(
         "SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
       )
       .get(table)!.sql;
-    return !current.includes(`CHECK(${column} IN (`);
+    return normalise(current) !== normalise(canonicalDefinition(table));
   });
   if (pending.length === 0) return;
-  const rebuilt = new Set(pending.map(([table]) => table));
+  const rebuilt = new Set(pending);
   for (const [table, column, values] of CONSTRAINED_COLUMNS) {
     if (!rebuilt.has(table)) continue;
     const stray = db

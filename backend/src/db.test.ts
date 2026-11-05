@@ -109,6 +109,11 @@ function definitions(db: Db) {
     )
     .all();
 }
+function rootPages(db: Db) {
+  return db
+    .prepare("SELECT name,rootpage FROM sqlite_master ORDER BY name")
+    .all();
+}
 function allowedValues(db: Db, table: string, column: string) {
   const { sql } = db
     .prepare<[string], { sql: string }>(
@@ -217,8 +222,41 @@ test("lifecycle tables from an earlier release are rebuilt with CHECK constraint
       /CHECK constraint failed/,
     );
   const settled = definitions(db);
+  const pages = rootPages(db);
   migrateService(db);
   assert.deepEqual(definitions(db), settled, "a second run changes nothing");
+  assert.deepEqual(rootPages(db), pages, "a second run rebuilds nothing");
+});
+
+test("a table built with an older allowed set is rebuilt with the current one", (t) => {
+  const db = openServiceDatabase(":memory:");
+  t.after(() => db.close());
+  const current = "'pending','payment_pending','complete','failed','expired'";
+  const older = "'pending','payment_pending','complete','failed'";
+  const { sql } = db
+    .prepare<[], { sql: string }>(
+      "SELECT sql FROM sqlite_master WHERE type='table' AND name='checkouts'",
+    )
+    .get()!;
+  assert.ok(sql.includes(current));
+  db.pragma("foreign_keys = OFF");
+  db.exec(`
+    ALTER TABLE checkouts RENAME TO current_checkouts;
+    ${sql.replace(current, older)};
+    DROP TABLE current_checkouts;
+  `);
+  db.pragma("foreign_keys = ON");
+  assert.deepEqual(allowedValues(db, "checkouts", "state").sort(), [
+    "complete",
+    "failed",
+    "payment_pending",
+    "pending",
+  ]);
+  migrateService(db);
+  assert.deepEqual(
+    allowedValues(db, "checkouts", "state").sort(),
+    [...states("checkouts")].sort(),
+  );
 });
 
 test("the rebuild refuses a database holding a state outside the allowed set and leaves it untouched", (t) => {
