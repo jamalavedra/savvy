@@ -712,6 +712,151 @@ test("delayed pack payment stays pending until authoritative paid state, includi
   );
 });
 
+test("a failed pack checkout stays failed through a replayed completion and no longer blocks a new purchase", async (t) => {
+  const h = await fixture(t);
+  h.purchase("replayed");
+  const value = pack("replayed", "pi_replayed");
+  value.payment_status = "unpaid";
+  h.objects.set("/v1/checkout/sessions/cs_replayed", value);
+  const state = () =>
+    h.db
+      .prepare("SELECT state FROM checkouts WHERE request_key='replayed'")
+      .get();
+  assert.equal(
+    (
+      await h.deliver(
+        event(
+          "evt_replay_failed",
+          "checkout.session.async_payment_failed",
+          "cs_replayed",
+        ),
+      )
+    ).status,
+    200,
+  );
+  assert.deepEqual(state(), { state: "failed" });
+  assert.equal(
+    (
+      await h.deliver(
+        event("evt_replay_done", "checkout.session.completed", "cs_replayed"),
+      )
+    ).status,
+    200,
+  );
+  assert.deepEqual(state(), { state: "failed" });
+  assert.equal(accountSummary(h.db, 1n, h.state.clock()).paymentPending, false);
+  h.setPost(async () => ({
+    status: 200,
+    body: {
+      id: "cs_next",
+      url: "https://checkout.stripe.com/c/pay/test#fragment",
+    },
+  }));
+  const next = await h.post("/v1/billing/checkout", {
+    product: "pack",
+    idempotencyKey: "next",
+  });
+  assert.equal(next.status, 200);
+  assert.equal(next.body.attemptId, "next");
+});
+
+test("an unpaid monthly checkout fails when its subscription ends without a paid period", async (t) => {
+  const h = await fixture(t);
+  h.db
+    .prepare(
+      "INSERT INTO checkouts(account_id,request_key,product,state,created_at_ms,price_id,return_url,stripe_id,subscription_id) VALUES(1,'unpaid','monthly','payment_pending',0,'price_monthly','https://return.test','cs_unpaid','sub_unpaid')",
+    )
+    .run();
+  h.objects.set("/v1/subscriptions/sub_unpaid", {
+    customer: "cus_test",
+    status: "incomplete_expired",
+    items: { data: [{ price: "price_monthly" }] },
+  });
+  assert.equal(
+    (
+      await h.deliver(
+        event("evt_unpaid_end", "customer.subscription.deleted", "sub_unpaid"),
+      )
+    ).status,
+    200,
+  );
+  assert.deepEqual(
+    h.db
+      .prepare("SELECT state FROM checkouts WHERE request_key='unpaid'")
+      .get(),
+    { state: "failed" },
+  );
+  const summary = accountSummary(h.db, 1n, h.state.clock());
+  assert.equal(summary.paymentPending, false);
+  assert.deepEqual(summary.latestConfirmedPurchase, {
+    product: "monthly",
+    attemptId: "unpaid",
+    status: "failed",
+  });
+  assert.equal(h.state.billingInFlight.size, 0);
+});
+
+test("a monthly checkout canceled before its paid invoice is processed ends complete", async (t) => {
+  const h = await fixture(t);
+  h.db
+    .prepare(
+      "INSERT INTO checkouts(account_id,request_key,product,state,created_at_ms,price_id,return_url,stripe_id,subscription_id) VALUES(1,'canceled','monthly','payment_pending',0,'price_monthly','https://return.test','cs_canceled','sub_canceled')",
+    )
+    .run();
+  h.objects.set("/v1/subscriptions/sub_canceled", {
+    customer: "cus_test",
+    status: "canceled",
+    items: { data: [{ price: "price_monthly" }] },
+  });
+  const state = () =>
+    h.db
+      .prepare("SELECT state FROM checkouts WHERE request_key='canceled'")
+      .get();
+  assert.equal(
+    (
+      await h.deliver(
+        event("evt_cancel", "customer.subscription.deleted", "sub_canceled"),
+      )
+    ).status,
+    200,
+  );
+  assert.deepEqual(state(), { state: "failed" });
+  h.objects.set("/v1/invoices/in_canceled", invoice("sub_canceled"));
+  assert.equal(
+    (await h.deliver(event("evt_late_paid", "invoice.paid", "in_canceled")))
+      .status,
+    200,
+  );
+  assert.deepEqual(state(), { state: "complete" });
+  assert.deepEqual(
+    accountSummary(h.db, 1n, h.state.clock()).latestConfirmedPurchase,
+    { product: "monthly", attemptId: "canceled", status: "complete" },
+  );
+});
+
+test("a paid pack completion settles a checkout the reconciler already failed", async (t) => {
+  const h = await fixture(t);
+  h.purchase("late");
+  h.db
+    .prepare("UPDATE checkouts SET state='failed' WHERE request_key='late'")
+    .run();
+  h.objects.set("/v1/checkout/sessions/cs_late", pack("late", "pi_late"));
+  assert.equal(
+    (
+      await h.deliver(
+        event("evt_late", "checkout.session.completed", "cs_late"),
+      )
+    ).status,
+    200,
+  );
+  assert.deepEqual(
+    h.db
+      .prepare("SELECT state,stripe_id FROM checkouts WHERE request_key='late'")
+      .get(),
+    { state: "complete", stripe_id: "cs_late" },
+  );
+});
+
 test("invoice replay grants once, a pack refund preserves monthly time, and a won dispute restores only undisputed unrefunded grants", async (t) => {
   const h = await fixture(t);
   const checkout = {
@@ -1487,6 +1632,83 @@ test("organization invoice before checkout notification fulfills through signed 
   );
 });
 
+test("team checkout failure and expiry are terminal through replayed completions", async (t) => {
+  const h = await organizationFixture(t);
+  delete h.checkout.subscription;
+  h.checkout.payment_status = "unpaid";
+  const states = () =>
+    h.db
+      .prepare(
+        "SELECT request_key,state FROM organization_checkouts ORDER BY id",
+      )
+      .all();
+  assert.equal(
+    (
+      await h.deliver(
+        event(
+          "evt_org_failed",
+          "checkout.session.async_payment_failed",
+          "cs_org",
+        ),
+      )
+    ).status,
+    200,
+  );
+  assert.deepEqual(states(), [{ request_key: "org-buy", state: "failed" }]);
+  assert.equal(
+    (
+      await h.deliver(
+        event("evt_org_replay", "checkout.session.completed", "cs_org"),
+      )
+    ).status,
+    200,
+  );
+  assert.deepEqual(states(), [{ request_key: "org-buy", state: "failed" }]);
+  const retry: StripeObject = {
+    id: "cs_org_retry",
+    customer: "cus_org",
+    metadata: { savvy_org: h.org.toString(), savvy_key: "org-retry" },
+    payment_status: "unpaid",
+    status: "open",
+    mode: "subscription",
+    line_items: { data: [{ price: "price_monthly", quantity: 5 }] },
+    url: "https://checkout.stripe.com/c/org",
+  };
+  h.objects.set("POST /v1/checkout/sessions", retry);
+  h.objects.set("/v1/checkout/sessions/cs_org_retry", retry);
+  assert.equal(
+    (
+      await organizationCheckout(h.state, 1n, h.org, {
+        quantity: 5,
+        requestKey: "org-retry",
+      })
+    ).status,
+    "pending",
+  );
+  retry.status = "expired";
+  assert.equal(
+    (
+      await h.deliver(
+        event("evt_org_expired", "checkout.session.expired", "cs_org_retry"),
+      )
+    ).status,
+    200,
+  );
+  Object.assign(retry, { status: "complete", payment_status: "paid" });
+  assert.equal(
+    (
+      await h.deliver(
+        event("evt_org_late", "checkout.session.completed", "cs_org_retry"),
+      )
+    ).status,
+    200,
+  );
+  assert.deepEqual(states(), [
+    { request_key: "org-buy", state: "failed" },
+    { request_key: "org-retry", state: "expired" },
+  ]);
+});
+
 test("future organization invoices stay pending and gap filling preserves paid holders until the new period", async (t) => {
   const h = await organizationFixture(t);
   await processEvent(
@@ -1971,5 +2193,54 @@ test("reconciliation retries a durable quantity intent with its original key and
       )
       .get()!.n,
     5n,
+  );
+});
+
+test("background sync settles a stale quantity change from Stripe's quantity without retrying its key", async (t) => {
+  const h = await organizationFixture(t);
+  await processEvent(
+    h.state,
+    event("evt_stale_paid", "invoice.paid", "in_org"),
+  );
+  h.db
+    .prepare(
+      "INSERT INTO organization_quantity_changes(organization_id,request_key,quantity,retire_seat_ids,previous_retire_seat_ids,stripe_idempotency_key,stripe_subscription_id,stripe_item_id,price_id,state,created_at_ms) VALUES(?,'stale',3,'[\"4\",\"5\"]','[]','stale-quantity-key','sub_org','si_org','price_monthly','unknown',?)",
+    )
+    .run(h.org, h.state.clock() - 23n * 3_600_000n);
+  h.db.prepare("UPDATE seats SET status='retiring' WHERE id IN(4,5)").run();
+  h.setPost(async () => {
+    throw new Error("a stale quantity change must not be retried");
+  });
+  assert.equal(
+    (
+      await h.deliver(
+        event("evt_stale_sub", "customer.subscription.updated", "sub_org"),
+      )
+    ).status,
+    200,
+  );
+  assert.deepEqual(
+    h.db.prepare("SELECT state FROM organization_quantity_changes").all(),
+    [{ state: "failed" }],
+  );
+  assert.deepEqual(
+    h.db
+      .prepare(
+        "SELECT quantity_next,external_change FROM organization_subscriptions",
+      )
+      .get(),
+    { quantity_next: 5n, external_change: 1n },
+  );
+  assert.equal(
+    h.db
+      .prepare<[], { n: bigint }>(
+        "SELECT count(*) AS n FROM seats WHERE status='retiring'",
+      )
+      .get()!.n,
+    0n,
+  );
+  assert.equal(
+    h.posts.some((p) => p.path === "/v1/subscriptions/sub_org"),
+    false,
   );
 });

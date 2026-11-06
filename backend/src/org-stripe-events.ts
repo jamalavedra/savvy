@@ -1,4 +1,5 @@
 import type { ServiceState } from "./state.js";
+import { transition } from "./transition.js";
 import { reserveAttempt } from "./billing.js";
 import { ApiError } from "./errors.js";
 import { recoverPrice } from "./catalog.js";
@@ -11,6 +12,7 @@ import {
   findCheckout,
   organizationCustomer,
   recordOrganizationCheckout,
+  rejectQuantityChange,
   subscriptionDetails,
   type Checkout,
 } from "./org-stripe.js";
@@ -38,6 +40,7 @@ interface QuantityOperation {
   id: bigint;
   quantity: bigint;
   retire_seat_ids: string;
+  previous_retire_seat_ids: string;
   stripe_subscription_id: string;
   stripe_item_id: string;
   price_id: string;
@@ -121,6 +124,31 @@ function externalRetirement(
     .slice(0, Math.max(0, seats.length - quantity))
     .map((s) => s.id.toString());
 }
+/**
+ * Settles a quantity change whose Stripe idempotency key can no longer be
+ * retried. Stripe's current quantity is the truth: the change is failed, seat
+ * retirement is rebuilt from that quantity and the owner is asked to review.
+ */
+export function failStaleQuantityChange(
+  state: ServiceState,
+  org: bigint,
+  operation: bigint,
+  quantity: number,
+) {
+  applyRetirementPlan(state, org, externalRetirement(state, org, quantity));
+  state.db
+    .prepare(
+      "UPDATE organization_subscriptions SET quantity_next=?,external_change=1,updated_at_ms=? WHERE organization_id=?",
+    )
+    .run(quantity, state.clock(), org);
+  transition(
+    state.db,
+    "organization_quantity_changes",
+    ["pending", "unknown"],
+    "failed",
+    { where: "id=?", params: [operation] },
+  );
+}
 function operationRetirement(
   state: ServiceState,
   org: bigint,
@@ -191,7 +219,7 @@ async function synchronizeSubscription(
     .get(org);
   if (existing && existing.stripe_subscription_id !== id)
     return { current, intent, details, historical: true };
-  const operation = state.db
+  let operation = state.db
     .prepare<[bigint], QuantityOperation>(
       "SELECT * FROM organization_quantity_changes WHERE organization_id=? AND state IN ('pending','unknown')",
     )
@@ -206,11 +234,23 @@ async function synchronizeSubscription(
     details.quantity !== Number(operation.quantity) &&
     state.clock() - operation.created_at_ms < 23n * 3_600_000n
   ) {
-    await post(state, `subscriptions/${id}`, operation.stripe_idempotency_key, [
-      ["items[0][id]", operation.stripe_item_id],
-      ["items[0][quantity]", operation.quantity.toString()],
-      ["proration_behavior", "none"],
-    ]);
+    try {
+      await post(
+        state,
+        `subscriptions/${id}`,
+        operation.stripe_idempotency_key,
+        [
+          ["items[0][id]", operation.stripe_item_id],
+          ["items[0][quantity]", operation.quantity.toString()],
+          ["proration_behavior", "none"],
+        ],
+      );
+    } catch (error) {
+      if (!(error instanceof ApiError && error.code === "purchase_rejected"))
+        throw error;
+      rejectQuantityChange(state, org, operation);
+      operation = undefined;
+    }
     current = await get(state, `subscriptions/${id}`);
     details = subscriptionDetails(current, customer, intent.price_id, id);
     ended =
@@ -236,16 +276,27 @@ async function synchronizeSubscription(
         );
       if (ended) {
         applyRetirementPlan(state, org, []);
-        state.db
-          .prepare(
-            "UPDATE organization_quantity_changes SET state='failed' WHERE organization_id=? AND stripe_subscription_id=? AND state IN ('pending','unknown')",
-          )
-          .run(org, id);
-        state.db
-          .prepare(
-            "UPDATE organization_checkouts SET state='failed',updated_at_ms=? WHERE organization_id=? AND stripe_subscription_id=? AND state<>'complete'",
-          )
-          .run(now, org, id);
+        transition(
+          state.db,
+          "organization_quantity_changes",
+          ["pending", "unknown"],
+          "failed",
+          {
+            where: "organization_id=? AND stripe_subscription_id=?",
+            params: [org, id],
+          },
+        );
+        transition(
+          state.db,
+          "organization_checkouts",
+          ["pending", "unknown", "payment_pending"],
+          "failed",
+          {
+            set: "updated_at_ms=?",
+            where: "organization_id=? AND stripe_subscription_id=?",
+            params: [now, org, id],
+          },
+        );
       } else if (
         operation &&
         operation.stripe_subscription_id === id &&
@@ -256,11 +307,19 @@ async function synchronizeSubscription(
           org,
           operationRetirement(state, org, operation),
         );
-        state.db
-          .prepare(
-            "UPDATE organization_quantity_changes SET state='applied' WHERE id=?",
-          )
-          .run(operation.id);
+        transition(
+          state.db,
+          "organization_quantity_changes",
+          ["pending", "unknown"],
+          "applied",
+          { where: "id=?", params: [operation.id] },
+        );
+      } else if (
+        operation &&
+        operation.stripe_subscription_id === id &&
+        now - operation.created_at_ms >= 23n * 3_600_000n
+      ) {
+        failStaleQuantityChange(state, org, operation.id, details.quantity);
       } else if (
         !operation &&
         existing &&
@@ -407,11 +466,13 @@ export async function processOrganizationEvent(
         kind === "checkout.session.async_payment_failed" &&
         session.payment_status !== "paid"
       )
-        state.db
-          .prepare(
-            "UPDATE organization_checkouts SET state='failed' WHERE id=? AND state<>'complete'",
-          )
-          .run(row.id);
+        transition(
+          state.db,
+          "organization_checkouts",
+          ["pending", "unknown", "payment_pending"],
+          "failed",
+          { where: "id=?", params: [row.id] },
+        );
       if (session.subscription != null && session.status === "complete") {
         let canonical = await get(
           state,
