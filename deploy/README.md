@@ -23,10 +23,11 @@ pnpm --dir backend build
 A backend release needs `backend/build/`, `backend/dist/`, `backend/package.json`,
 the lockfile, production `node_modules`, and `config/managed-catalog.json` at the
 release root alongside `backend/`. Preserve that relative path; the compiled catalog
-module reads it. Run migrations with `node build/migrate.js` and start with
-`node build/server.js` from the package working directory. TypeScript tooling is not
-a runtime requirement. Deploy frontend assets and the compiled server from the same
-build.
+module reads it. Run migrations with `node build/migrate.js service`, which refuses
+without changing anything if existing rows break a schema constraint, then
+`node build/migrate.js`, and start with `node build/server.js` from the package
+working directory. TypeScript tooling is not a runtime requirement. Deploy frontend
+assets and the compiled server from the same build.
 
 Create a dedicated `savvy` system user. Keep a release directory under
 `/opt/savvy/releases/<release-id>/` and point `/opt/savvy/current` to that release.
@@ -141,7 +142,10 @@ fixtures. Stripe-hosted return pages trigger refresh and never prove payment.
 2. Write `/etc/savvy/backend.env` with a new random `BETTER_AUTH_SECRET` of at least
    32 characters. Store a copy of the secret outside the host.
 3. Run the auth migration once as the `savvy` user with the environment loaded.
-   Service schema migrations are additive and run at backend startup.
+   Service schema migrations run at backend startup in one transaction. Besides
+   adding columns, they rebuild the lifecycle tables once to add CHECK constraints
+   on their state columns and refuse to run, changing nothing, if a row holds an
+   unexpected value.
 4. Start the unit. Check `GET /ready` and `GET /readyz`, sign in from a desktop
    build that points at this origin, and read the account before opening purchases.
 
@@ -166,8 +170,9 @@ night, so it was removed from Epistoma on 2 November 2026 (see the host's Ansibl
 repository). The newest snapshot is therefore from the latest deploy.
 
 To upgrade by hand, stop the unit, take a backup, point `/opt/savvy/current` at the
-new release, run `node build/migrate.js` and start the unit again. Keep the previous
-release directory until the new one has passed readiness and a sign-in check.
+new release, run `node build/migrate.js service` and `node build/migrate.js`, and
+start the unit again. Keep the previous release directory until the new one has
+passed readiness and a sign-in check.
 
 For an ad-hoc backup, stop the backend and run
 `pnpm --dir backend backup /path/to/new-private-backup` with its environment loaded.

@@ -86,9 +86,18 @@ test("two simultaneous sources cost 75 seconds across pause/resume and lifecycle
   h.feed(65_000n, ["microphone", "system"]);
   const paused = lifecycle(h.state, 1n, ID, "pause", 1n, 1n);
   assert.equal(paused.settledMs, 65_000n);
+  assert.equal(paused.pauseReason, "user");
   h.advance(20_000n);
   const resumed = lifecycle(h.state, 1n, ID, "resume", 2n, 3n);
   assert.equal(resumed.settledMs, 65_000n);
+  assert.equal(resumed.pauseReason, null);
+  // An older release resumes without clearing the column; only a paused session reports it.
+  h.db
+    .prepare(
+      "UPDATE managed_sessions SET pause_reason='user' WHERE state='active'",
+    )
+    .run();
+  assert.equal(h.view().pauseReason, null);
   const controller = new AbortController();
   h.state.cancellations.set(
     1n,
@@ -412,6 +421,7 @@ test("exhaustion requires explicit resume, session ownership and single-account 
   );
   assert.equal(h.view().settledMs, 1000n);
   assert.equal(h.view().state, "paused");
+  assert.equal(h.view().pauseReason, "exhausted");
   assert.throws(() => lifecycle(h.state, 1n, ID, "resume", 2n, 1n), {
     code: "quota_exhausted",
   });
@@ -455,6 +465,7 @@ test("idle closes delivered coverage only and a new explicit meeting supersedes 
   assert.equal(h.view().settledMs, 100n);
   settleDisconnectedSource(h.state, 1n, ID, "microphone", generation);
   assert.equal(h.view().state, "paused");
+  assert.equal(h.view().pauseReason, "disconnected");
   const replacement = h.create(OTHER);
   assert.equal(replacement.state, "active");
   assert.equal(h.view().state, "stopped");
@@ -486,6 +497,7 @@ test("provider pause preserves observed coverage and frame admission limits surv
   const paused = pauseSession(h.state, 1n, ID);
   assert.equal(paused.settledMs, 100n);
   assert.equal(paused.state, "paused");
+  assert.equal(paused.pauseReason, "provider_failure");
   assert.equal(h.state.sessions.size, 0);
   assert.equal(balance(h.db, 1n, h.state.clock()).meetingMsReserved, 0n);
 });

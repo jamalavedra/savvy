@@ -13,6 +13,7 @@ import {
   type FundingRow,
 } from "./funding.js";
 import { resolveFundingContext } from "./org.js";
+import { transition, type PauseReason } from "./transition.js";
 
 export const RESERVATION_MS = 30_000n;
 export const CHECKPOINT_MS = 5_000n;
@@ -67,6 +68,7 @@ export interface SessionRow extends FundingRow {
   reserved_ms: bigint;
   settled_ms: bigint;
   billable_since_ms: bigint | null;
+  pause_reason: PauseReason | null;
 }
 export interface SessionView {
   funding:
@@ -78,6 +80,7 @@ export interface SessionView {
   settledMs: bigint;
   meetingMsAvailable: bigint;
   warning: string | null;
+  pauseReason: PauseReason | null;
 }
 function freshSource(now = 0n): SourceState {
   return {
@@ -101,7 +104,7 @@ function liveSession(state: ServiceState, id: bigint) {
 function readSession(db: Db, account: bigint, id: string) {
   return db
     .prepare<[bigint, string], SessionRow>(
-      "SELECT id,account_id,local_session_id,state,lease_version,lease_expires_ms,reserved_ms,settled_ms,billable_since_ms,funding_scope,funding_assignment_id FROM managed_sessions WHERE account_id=? AND local_session_id=?",
+      "SELECT id,account_id,local_session_id,state,lease_version,lease_expires_ms,reserved_ms,settled_ms,billable_since_ms,pause_reason,funding_scope,funding_assignment_id FROM managed_sessions WHERE account_id=? AND local_session_id=?",
     )
     .get(account, id);
 }
@@ -278,9 +281,11 @@ export function createSession(
     .get(account)!.n;
   if (empty >= 1024n)
     throw new ApiError("rate_limited", "session limit reached", 3_600_000n);
-  db.prepare(
-    "UPDATE managed_sessions SET state='stopped',lease_version=lease_version+1,lease_expires_ms=NULL,interruption='superseded_paused_meeting',updated_at_ms=? WHERE account_id=? AND state='paused' AND reserved_ms=0",
-  ).run(now, account);
+  transition(db, "managed_sessions", ["paused"], "stopped", {
+    set: "lease_version=lease_version+1,lease_expires_ms=NULL,updated_at_ms=?",
+    where: "account_id=? AND reserved_ms=0",
+    params: [now, account],
+  });
   if (
     db
       .prepare(
@@ -340,14 +345,10 @@ export function finishInterval(
   db: Db,
   account: bigint,
   id: string,
-  reason: string,
   now: bigint,
 ) {
   const [spent] = settleTo(db, requireSession(db, account, id), now, true);
   setReservation(db, requireSession(db, account, id), 0n, now);
-  db.prepare(
-    "UPDATE managed_sessions SET interruption=?,updated_at_ms=? WHERE account_id=? AND local_session_id=?",
-  ).run(reason, now, account, id);
   return spent;
 }
 
@@ -582,10 +583,12 @@ export function onAudio(
         "UPDATE managed_sessions SET lease_expires_ms=?,updated_at_ms=? WHERE id=?",
       ).run(now + LEASE_MS, now, session.id);
       if (exhausted) {
-        finishInterval(db, account, id, "exhausted", now);
-        db.prepare(
-          "UPDATE managed_sessions SET state='paused',lease_version=lease_version+1,lease_expires_ms=NULL WHERE id=?",
-        ).run(session.id);
+        finishInterval(db, account, id, now);
+        transition(db, "managed_sessions", ["active"], "paused", {
+          set: "lease_version=lease_version+1,lease_expires_ms=NULL,pause_reason='exhausted'",
+          where: "id=?",
+          params: [session.id],
+        });
       }
       updated = { row: session.id, live };
       return exhausted ? "exhausted" : "continue";
@@ -620,7 +623,6 @@ export function onIdleCheck(
         state.db,
         account,
         id,
-        "audio_idle",
         min(live?.deliveredUntilMs ?? 0n, now),
       ),
     )
@@ -663,6 +665,8 @@ export function sessionView(
     settledMs: session.settled_ms,
     meetingMsAvailable: remaining,
     warning,
+    // An older release can resume a session without clearing the column.
+    pauseReason: session.state === "paused" ? session.pause_reason : null,
   };
 }
 export function lifecycle(
@@ -694,7 +698,7 @@ export function lifecycle(
         );
       // Audio already forwarded is billed in full, as when the last source disconnects.
       const end = state.sessions.get(session.id)?.deliveredUntilMs ?? 0n;
-      finishInterval(db, account, id, action, end > 0n ? end : now);
+      finishInterval(db, account, id, end > 0n ? end : now);
       if (action === "resume") {
         state.requireAssistance();
         if (
@@ -707,18 +711,23 @@ export function lifecycle(
         )
           throw new ApiError("quota_exhausted", "buy a pack before resuming");
       }
-      db.prepare(
-        "UPDATE managed_sessions SET state=?,lease_version=lease_version+1,lease_expires_ms=?,lifecycle_command=? WHERE id=?",
-      ).run(
+      const to =
         action === "resume"
           ? "active"
           : action === "stop"
             ? "stopped"
-            : "paused",
-        action === "resume" ? now + LEASE_MS : null,
-        command,
-        session.id,
-      );
+            : "paused";
+      // A user pause records its reason; a resume clears it; a stop keeps the last one.
+      transition(db, "managed_sessions", ["active", "paused"], to, {
+        set: "lease_version=lease_version+1,lease_expires_ms=?,lifecycle_command=?,pause_reason=CASE ? WHEN 'paused' THEN 'user' WHEN 'active' THEN NULL ELSE pause_reason END",
+        where: "id=?",
+        params: [
+          to === "active" ? now + LEASE_MS : null,
+          command,
+          to,
+          session.id,
+        ],
+      });
       changed = true;
       return sessionView(db, account, id, now);
     })
@@ -764,9 +773,11 @@ export function settleDisconnectedSource(
         setReservation(db, requireSession(db, account, id), 0n, state.clock());
         // An abnormal socket loss may reconnect under the existing short lease.
         if (!allowReconnect)
-          db.prepare(
-            "UPDATE managed_sessions SET state='paused',lease_version=lease_version+1,lease_expires_ms=NULL WHERE id=?",
-          ).run(session.id);
+          transition(db, "managed_sessions", ["active"], "paused", {
+            set: "lease_version=lease_version+1,lease_expires_ms=NULL,pause_reason='disconnected'",
+            where: "id=?",
+            params: [session.id],
+          });
       }
     })
     .immediate();
@@ -815,11 +826,17 @@ export function recoverRestart(state: ServiceState) {
           row.local_session_id,
         );
         setReservation(state.db, session, 0n, state.clock());
-        state.db
-          .prepare(
-            "UPDATE managed_sessions SET state='stopped',billable_since_ms=NULL,lease_expires_ms=NULL,lease_version=lease_version+1,interruption='service_restart' WHERE id=?",
-          )
-          .run(session.id);
+        transition(
+          state.db,
+          "managed_sessions",
+          ["active", "paused"],
+          "stopped",
+          {
+            set: "billable_since_ms=NULL,lease_expires_ms=NULL,lease_version=lease_version+1",
+            where: "id=?",
+            params: [session.id],
+          },
+        );
       }
       state.db
         .prepare(
@@ -831,6 +848,7 @@ export function recoverRestart(state: ServiceState) {
   state.sessions.clear();
 }
 
+/** Pauses an assisted meeting because the AI provider is failing. */
 export function pauseSession(state: ServiceState, account: bigint, id: string) {
   const now = state.clock();
   const view = state.db
@@ -843,12 +861,12 @@ export function pauseSession(state: ServiceState, account: bigint, id: string) {
         );
       // Audio already forwarded is billed in full, as when the last source disconnects.
       const end = state.sessions.get(session.id)?.deliveredUntilMs ?? 0n;
-      finishInterval(state.db, account, id, "paused", end > 0n ? end : now);
-      state.db
-        .prepare(
-          "UPDATE managed_sessions SET state='paused',lease_version=lease_version+1,lease_expires_ms=NULL,updated_at_ms=? WHERE id=?",
-        )
-        .run(now, session.id);
+      finishInterval(state.db, account, id, end > 0n ? end : now);
+      transition(state.db, "managed_sessions", ["active", "paused"], "paused", {
+        set: "lease_version=lease_version+1,lease_expires_ms=NULL,pause_reason='provider_failure',updated_at_ms=?",
+        where: "id=?",
+        params: [now, session.id],
+      });
       return sessionView(state.db, account, id, now);
     })
     .immediate();
@@ -886,18 +904,12 @@ export function expireStaleSessions(state: ServiceState) {
             "UPDATE managed_sessions SET billable_since_ms=NULL WHERE id=?",
           )
           .run(session.id);
-        finishInterval(
-          state.db,
-          row.account_id,
-          row.local_session_id,
-          "lease_expired",
-          now,
-        );
-        state.db
-          .prepare(
-            "UPDATE managed_sessions SET state='stopped',lease_version=lease_version+1,lease_expires_ms=NULL,updated_at_ms=? WHERE id=?",
-          )
-          .run(now, session.id);
+        finishInterval(state.db, row.account_id, row.local_session_id, now);
+        transition(state.db, "managed_sessions", ["active"], "stopped", {
+          set: "lease_version=lease_version+1,lease_expires_ms=NULL,updated_at_ms=?",
+          where: "id=?",
+          params: [now, session.id],
+        });
       })
       .immediate();
     state.sessions.delete(row.id);

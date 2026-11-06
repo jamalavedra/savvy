@@ -4,6 +4,7 @@ import {
 } from "./org-stripe-events.js";
 import { randomUUID } from "node:crypto";
 import type { ServiceState } from "./state.js";
+import { transition } from "./transition.js";
 import { ApiError } from "./errors.js";
 import {
   teamPurchasesEnabled,
@@ -165,9 +166,18 @@ export function recordOrganizationCheckout(
         );
       state.db
         .prepare(
-          "UPDATE organization_checkouts SET stripe_session_id=?,stripe_subscription_id=COALESCE(?,stripe_subscription_id),state=CASE WHEN state IN ('complete','failed','expired') THEN state ELSE ? END,updated_at_ms=? WHERE id=?",
+          "UPDATE organization_checkouts SET stripe_session_id=?,stripe_subscription_id=COALESCE(?,stripe_subscription_id),updated_at_ms=? WHERE id=?",
         )
-        .run(id, subscription, status, state.clock(), row.id);
+        .run(id, subscription, state.clock(), row.id);
+      transition(
+        state.db,
+        "organization_checkouts",
+        status === "pending"
+          ? ["pending", "unknown"]
+          : ["pending", "unknown", "payment_pending"],
+        status,
+        { where: "id=?", params: [row.id] },
+      );
       if (subscription && paid)
         state.db
           .prepare(
@@ -364,11 +374,17 @@ export async function organizationCheckout(
           "an old purchase outcome must be reconciled before another purchase",
         );
       requireOwner(state.db, actor, org);
-      state.db
-        .prepare(
-          "UPDATE organization_checkouts SET state='unknown',updated_at_ms=? WHERE id=?",
-        )
-        .run(state.clock(), row.id);
+      transition(
+        state.db,
+        "organization_checkouts",
+        ["pending", "unknown"],
+        "unknown",
+        {
+          set: "updated_at_ms=?",
+          where: "id=?",
+          params: [state.clock(), row.id],
+        },
+      );
       try {
         session = await post(
           state,
@@ -392,11 +408,17 @@ export async function organizationCheckout(
         );
       } catch (error) {
         if (error instanceof ApiError && error.code === "purchase_rejected")
-          state.db
-            .prepare(
-              "UPDATE organization_checkouts SET state='failed',updated_at_ms=? WHERE id=?",
-            )
-            .run(state.clock(), row.id);
+          transition(
+            state.db,
+            "organization_checkouts",
+            ["pending", "unknown"],
+            "failed",
+            {
+              set: "updated_at_ms=?",
+              where: "id=?",
+              params: [state.clock(), row.id],
+            },
+          );
         throw error;
       }
     }
@@ -495,11 +517,13 @@ export function rejectQuantityChange(
         org,
         retireIds(operation.previous_retire_seat_ids),
       );
-      state.db
-        .prepare(
-          "UPDATE organization_quantity_changes SET state='failed' WHERE id=?",
-        )
-        .run(operation.id);
+      transition(
+        state.db,
+        "organization_quantity_changes",
+        ["pending", "unknown"],
+        "failed",
+        { where: "id=?", params: [operation.id] },
+      );
     })
     .immediate();
 }
@@ -722,11 +746,13 @@ export async function updateSeatQuantity(
             "this quantity change was rejected; create a new attempt",
           );
         }
-        state.db
-          .prepare(
-            "UPDATE organization_quantity_changes SET state='unknown' WHERE id=?",
-          )
-          .run(operation.id);
+        transition(
+          state.db,
+          "organization_quantity_changes",
+          ["pending", "unknown"],
+          "unknown",
+          { where: "id=?", params: [operation.id] },
+        );
         let response: StripeObject;
         try {
           requireOwner(state.db, actor, org);
@@ -782,11 +808,13 @@ export async function updateSeatQuantity(
               "UPDATE organization_subscriptions SET quantity_next=?,external_change=0,updated_at_ms=? WHERE organization_id=?",
             )
             .run(operation!.quantity, state.clock(), org);
-          state.db
-            .prepare(
-              "UPDATE organization_quantity_changes SET state='applied' WHERE id=?",
-            )
-            .run(operation!.id);
+          transition(
+            state.db,
+            "organization_quantity_changes",
+            ["pending", "unknown"],
+            "applied",
+            { where: "id=?", params: [operation!.id] },
+          );
         })
         .immediate();
     }

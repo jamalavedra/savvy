@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { Db } from "./db.js";
 import type { ServiceState } from "./state.js";
+import { transition } from "./transition.js";
 import { ApiError } from "./errors.js";
 import {
   insertGrant,
@@ -481,16 +482,12 @@ export function endAssignment(
         ? live.deliveredUntilMs
         : now
       : (session.billable_since_ms ?? now);
-    finishInterval(
-      db,
-      session.account_id,
-      session.local_session_id,
-      "seat_revoked",
-      end,
-    );
-    db.prepare(
-      "UPDATE managed_sessions SET state='stopped',lease_version=lease_version+1,lease_expires_ms=NULL,updated_at_ms=? WHERE id=?",
-    ).run(now, session.id);
+    finishInterval(db, session.account_id, session.local_session_id, end);
+    transition(db, "managed_sessions", ["active", "paused"], "stopped", {
+      set: "lease_version=lease_version+1,lease_expires_ms=NULL,updated_at_ms=?",
+      where: "id=?",
+      params: [now, session.id],
+    });
   }
   const requests = db
     .prepare<[bigint], { account_id: bigint; request_key: string }>(

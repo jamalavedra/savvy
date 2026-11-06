@@ -84,12 +84,18 @@ sudo -u savvy env \
   SAVVY_HOST=127.0.0.1 PORT=8788 \
   sh -c 'cd "$1/backend" && exec /opt/node-v22.23.4-linux-x64/bin/node --env-file=/etc/savvy/backend.env build/backup.js "$2"' sh "$previous" "$snapshot"
 
+run_migration() {
+  sudo -u savvy env \
+    SAVVY_AUTH_DATABASE=/var/lib/savvy/auth.sqlite \
+    SAVVY_DB_PATH=/var/lib/savvy/service.sqlite \
+    sh -c 'cd "$1/backend" && exec /opt/node-v22.23.4-linux-x64/bin/node --env-file=/etc/savvy/backend.env build/migrate.js "$2"' sh "$release" "$1"
+}
 switch_release "$release"
+# The service migration is one transaction that refuses rather than half-applies,
+# so a refusal still rolls back to the previous release.
+run_migration service
 migration_started=true
-sudo -u savvy env \
-  SAVVY_AUTH_DATABASE=/var/lib/savvy/auth.sqlite \
-  SAVVY_DB_PATH=/var/lib/savvy/service.sqlite \
-  sh -c 'cd "$1/backend" && exec /opt/node-v22.23.4-linux-x64/bin/node --env-file=/etc/savvy/backend.env build/migrate.js' sh "$release"
+run_migration auth
 sudo systemctl start savvy-backend.service
 curl --fail --retry 24 --retry-delay 5 --retry-all-errors \
   -H 'CF-Connecting-IP: 127.0.0.1' http://127.0.0.1:8788/ready > /dev/null
