@@ -121,7 +121,6 @@ pub struct RecommendationCoordinator {
     transcript_revision: u64,
     event_sequence: u64,
     active_generation: Option<(GenerationToken, Trigger)>,
-    stopped: bool,
 }
 
 impl RecommendationCoordinator {
@@ -132,7 +131,6 @@ impl RecommendationCoordinator {
             transcript_revision: 0,
             event_sequence: 0,
             active_generation: None,
-            stopped: false,
         }
     }
 
@@ -153,26 +151,20 @@ impl RecommendationCoordinator {
     }
 
     pub fn accepts(&self, token: GenerationToken) -> bool {
-        !self.stopped
-            && self
-                .active_generation
-                .is_some_and(|active| active.0 == token)
+        self.active_generation
+            .is_some_and(|active| active.0 == token)
     }
 
     pub fn active_generation(&self) -> Option<GenerationToken> {
-        (!self.stopped)
-            .then(|| self.active_generation.map(|active| active.0))
-            .flatten()
+        self.active_generation.map(|active| active.0)
     }
 
     pub fn active_trigger(&self) -> Option<Trigger> {
-        (!self.stopped)
-            .then(|| self.active_generation.map(|active| active.1))
-            .flatten()
+        self.active_generation.map(|active| active.1)
     }
 
     pub fn is_idle(&self) -> bool {
-        !self.stopped && self.active_generation.is_none()
+        self.active_generation.is_none()
     }
 
     pub fn finish_generation(&mut self, token: GenerationToken) -> bool {
@@ -186,11 +178,6 @@ impl RecommendationCoordinator {
     pub fn next_sequence(&mut self) -> u64 {
         self.event_sequence += 1;
         self.event_sequence
-    }
-
-    pub fn stop(&mut self) {
-        self.stopped = true;
-        self.active_generation = None;
     }
 }
 
@@ -384,9 +371,9 @@ mod tests {
         assert!(coordinator.is_idle());
         assert_eq!(coordinator.active_generation(), None);
         assert!(!coordinator.finish_generation(latest));
-        let stopped = coordinator.start_generation(Trigger::Risk);
-        coordinator.stop();
-        assert!(!coordinator.accepts(stopped));
+        let cancelled = coordinator.start_generation(Trigger::Risk);
+        assert!(coordinator.finish_generation(cancelled));
+        assert!(!coordinator.accepts(cancelled));
         assert_eq!(coordinator.active_generation(), None);
     }
 
