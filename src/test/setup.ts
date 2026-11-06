@@ -6,3 +6,4 @@ HTMLDialogElement.prototype.showModal = function () {
 HTMLDialogElement.prototype.close = function () {
   this.removeAttribute("open");
 };
+Element.prototype.scrollTo = function () {};

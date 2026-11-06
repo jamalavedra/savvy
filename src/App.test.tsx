@@ -13,7 +13,6 @@ import {
   meetingEventIsStale,
   mergeTranscriptTurn,
   reduceMeetingEvent,
-  startsNewMeeting,
   type GenerationCursor,
 } from "./lib/meetingEvents";
 import { resetBrowserDemoState } from "./lib/api";
@@ -22,7 +21,65 @@ import { listen } from "@tauri-apps/api/event";
 
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 import { requestPermissionDecision } from "./lib/permissions";
-import type { TranscriptTurn } from "./types";
+import type { AppSettings, MeetingEvent, TranscriptTurn } from "./types";
+
+/** Runs App against a stubbed native host whose meeting state arrives only through events. */
+async function stubTauri(settings: Partial<AppSettings> = {}) {
+  const snapshot = await api.getDashboard();
+  const session = await api.startMeeting(null, null);
+  resetBrowserDemoState();
+  const preparation = await api.getPreparationSnapshot(null);
+  vi.spyOn(api, "getDashboard").mockResolvedValue(snapshot);
+  vi.spyOn(api, "getAppSettings").mockResolvedValue({
+    ...(await api.getAppSettings()),
+    ...settings,
+  });
+  vi.spyOn(api, "getAppStatus").mockResolvedValue({
+    version: "0.1.3",
+    platform: "macos",
+  });
+  vi.spyOn(api, "getPreparationSnapshot").mockResolvedValue(preparation);
+  vi.spyOn(api, "getAudioLevel").mockResolvedValue(0);
+  vi.spyOn(api, "setOverlayExpanded").mockResolvedValue(undefined);
+  vi.mocked(listen).mockClear().mockResolvedValue(vi.fn());
+  window.__TAURI_INTERNALS__ = {};
+  return { snapshot, session };
+}
+
+async function emitTauri(name: string, payload: unknown) {
+  await waitFor(() =>
+    expect(listen).toHaveBeenCalledWith(name, expect.any(Function)),
+  );
+  act(() => {
+    const calls = vi.mocked(listen).mock.calls;
+    const handler = [...calls].reverse().find(([event]) => event === name)![1];
+    handler({ event: name, id: 1, payload });
+  });
+}
+
+function transcriptEvent(
+  sessionId: string,
+  sequence: number,
+  text: string,
+): MeetingEvent {
+  return {
+    type: "transcript",
+    sessionId,
+    sequence,
+    interim: false,
+    turn: {
+      id: `${sessionId}-${sequence}`,
+      sessionId,
+      channel: "other",
+      text,
+      language: "en",
+      startMs: sequence * 2_000,
+      endMs: sequence * 2_000 + 1_000,
+      isFinal: true,
+      confidence: 0.9,
+    },
+  };
+}
 
 it("shows native provider validation errors without losing their message", async () => {
   const invoke = vi.fn().mockRejectedValueOnce({
@@ -186,10 +243,7 @@ describe("App", () => {
     "recovers dashboard initialization in overlay=%s",
     async (overlay) => {
       const snapshot = await api.getDashboard();
-      if (overlay) {
-        snapshot.activeSession = await api.startMeeting(null, null);
-        window.history.replaceState({}, "", "/?overlay=1");
-      }
+      if (overlay) window.history.replaceState({}, "", "/?overlay=1");
       let resolve!: (value: typeof snapshot) => void;
       const load = vi
         .spyOn(api, "getDashboard")
@@ -217,16 +271,14 @@ describe("App", () => {
       await act(async () => resolve(snapshot));
       expect(load).toHaveBeenCalledTimes(3);
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-      if (overlay)
-        expect(
-          await screen.findByRole("button", {
-            name: "Keep recommendation open",
-          }),
-        ).toBeVisible();
-      else
+      if (overlay) {
+        expect(screen.queryByLabelText("Loading")).not.toBeInTheDocument();
+        expect(document.querySelector(".ov-stage")).toBeNull();
+      } else {
         expect(
           await screen.findByRole("button", { name: "Regenerate" }),
         ).toBeVisible();
+      }
     },
   );
 
@@ -535,6 +587,34 @@ describe("App", () => {
     expect(start).not.toHaveBeenCalled();
   });
 
+  it("lets the rep dismiss a failed context selection and keep the saved one", async () => {
+    const save = vi
+      .spyOn(api, "setClientDocumentSelection")
+      .mockRejectedValueOnce(new Error("Selection could not be saved"));
+    render(<App />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Show documents" }),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Select none" }));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Selection could not be saved",
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Dismiss context selection" }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Prepare brief" }),
+      ).toBeEnabled(),
+    );
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("checkbox", { name: /msa-2024-signed\.pdf/ }),
+    ).toBeChecked();
+    expect(save).toHaveBeenCalledTimes(1);
+  });
+
   it("ignores a stale preparation read after confirming a new document selection", async () => {
     const dashboard = await api.getDashboard();
     const snapshot = await api.getPreparationSnapshot(dashboard.clients[0].id);
@@ -637,6 +717,178 @@ describe("App", () => {
     ).not.toBeInTheDocument();
     expect(readiness()).toBeDisabled();
     expect(start).not.toHaveBeenCalled();
+  });
+
+  it("ignores a stale dashboard read that resolves after a newer one", async () => {
+    vi.mocked(listen).mockResolvedValue(vi.fn());
+    const current = await api.getDashboard();
+    const read = vi.spyOn(api, "getDashboard").mockResolvedValue(current);
+    render(<App />);
+    await screen.findByRole("button", { name: "General" });
+    const initialReads = read.mock.calls.length;
+
+    let resolveStale!: (snapshot: typeof current) => void;
+    read.mockImplementationOnce(
+      () =>
+        new Promise((done) => {
+          resolveStale = done;
+        }),
+    );
+    fireEvent(window, new Event("focus"));
+    fireEvent(window, new Event("focus"));
+    await waitFor(() => expect(read).toHaveBeenCalledTimes(initialReads + 2));
+    await act(async () => resolveStale({ ...current, clients: [] }));
+
+    expect(
+      screen.getByRole("button", { name: "Meeting context" }),
+    ).toHaveTextContent("Northstar Health");
+  });
+
+  it("keeps a stopped meeting stopped when an older dashboard read resolves later", async () => {
+    vi.mocked(listen).mockResolvedValue(vi.fn());
+    const idle = await api.getDashboard();
+    const read = vi.spyOn(api, "getDashboard").mockResolvedValue(idle);
+    const start = vi.spyOn(api, "startMeeting");
+    render(<App />);
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Check readiness" }),
+      ).toBeEnabled(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Check readiness" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Check readiness" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Start meeting" }),
+    );
+    await screen.findByRole("button", { name: "Stop meeting" });
+    const live = { ...idle, activeSession: await start.mock.results[0].value };
+    const initialReads = read.mock.calls.length;
+
+    let resolveStale!: (snapshot: typeof live) => void;
+    read.mockImplementationOnce(
+      () =>
+        new Promise((done) => {
+          resolveStale = done;
+        }),
+    );
+    fireEvent(window, new Event("focus"));
+    await waitFor(() => expect(read).toHaveBeenCalledTimes(initialReads + 1));
+    fireEvent.click(screen.getByRole("button", { name: "Stop meeting" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Stop meeting" })[0]);
+    await screen.findByText("Meeting history");
+    await act(async () => resolveStale(live));
+
+    expect(
+      screen.queryByRole("button", { name: "Stop meeting" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("Meeting history")).toBeVisible();
+  });
+
+  it("ignores a second stop, including from the tray, while one is in flight", async () => {
+    const { session } = await stubTauri();
+    let resolveStop!: (value: typeof session) => void;
+    const stop = vi.spyOn(api, "stopMeeting").mockImplementation(
+      () =>
+        new Promise((done) => {
+          resolveStop = done;
+        }),
+    );
+    render(<App />);
+    await screen.findByRole("button", { name: "General" });
+    await emitTauri("meeting://session", session);
+    await emitTauri("savvy://start-listening", null);
+    await emitTauri("savvy://start-listening", null);
+    expect(stop).toHaveBeenCalledTimes(1);
+    await act(async () => resolveStop({ ...session, state: "completed" }));
+    expect(await screen.findByText("Meeting history")).toBeVisible();
+    await emitTauri("savvy://start-listening", null);
+    expect(stop).toHaveBeenCalledTimes(1);
+  });
+
+  it("recovers a running meeting after a reload so the tray still stops it", async () => {
+    const { snapshot, session } = await stubTauri();
+    vi.mocked(api.getDashboard).mockResolvedValue({
+      ...snapshot,
+      activeSession: session,
+    });
+    const stop = vi
+      .spyOn(api, "stopMeeting")
+      .mockResolvedValue({ ...session, state: "completed" });
+    const read = vi.mocked(api.getDashboard);
+    render(<App />);
+    await screen.findByRole("button", { name: "General" });
+    await waitFor(() => expect(read).toHaveBeenCalledTimes(2));
+    await emitTauri("savvy://start-listening", null);
+    await waitFor(() => expect(stop).toHaveBeenCalledWith(session.id));
+  });
+
+  it("lets Stop run again after a stop fails", async () => {
+    const { session } = await stubTauri();
+    const stop = vi
+      .spyOn(api, "stopMeeting")
+      .mockRejectedValueOnce(new Error("stop failed"))
+      .mockResolvedValue({ ...session, state: "completed" });
+    render(<App />);
+    await screen.findByRole("button", { name: "General" });
+    await emitTauri("meeting://session", session);
+    await emitTauri("savvy://start-listening", null);
+    expect(await screen.findByText("stop failed")).toBeVisible();
+    await emitTauri("savvy://start-listening", null);
+    await waitFor(() => expect(stop).toHaveBeenCalledTimes(2));
+  });
+
+  it("drops a late event from the previous meeting without touching the current one", async () => {
+    const { session } = await stubTauri({ showLiveTranscript: true });
+    const next = { ...session, id: "next-meeting" };
+    window.history.replaceState({}, "", "/?overlay=1");
+    render(<App />);
+    await emitTauri("meeting://session", session);
+    await emitTauri("meeting://event", transcriptEvent(session.id, 1, "First"));
+    expect(await screen.findByText("First")).toBeVisible();
+    await emitTauri("meeting://session", { ...session, state: "completed" });
+    expect(document.querySelector(".ov-stage")).toBeNull();
+
+    await emitTauri("meeting://session", next);
+    await emitTauri("meeting://event", transcriptEvent(next.id, 1, "Second"));
+    await emitTauri("meeting://event", transcriptEvent(session.id, 9, "Late"));
+    expect(screen.getByText("Second")).toBeVisible();
+    expect(screen.queryByText("Late")).not.toBeInTheDocument();
+    expect(screen.queryByText("First")).not.toBeInTheDocument();
+    await emitTauri("meeting://event", transcriptEvent(next.id, 2, "Third"));
+    expect(screen.getByText("Third")).toBeVisible();
+  });
+
+  it("keeps a transcript event that arrives before the session event", async () => {
+    const { session } = await stubTauri({ showLiveTranscript: true });
+    window.history.replaceState({}, "", "/?overlay=1");
+    render(<App />);
+    await emitTauri("meeting://event", transcriptEvent(session.id, 1, "Early"));
+    expect(document.querySelector(".ov-stage")).toBeNull();
+    await emitTauri("meeting://session", session);
+    expect(await screen.findByText("Early")).toBeVisible();
+  });
+
+  it("clears thinking when the host pauses the meeting", async () => {
+    const { session } = await stubTauri();
+    window.history.replaceState({}, "", "/?overlay=1");
+    render(<App />);
+    await emitTauri("meeting://session", session);
+    await emitTauri("meeting://event", {
+      type: "recommendationStarted",
+      sessionId: session.id,
+      sequence: 1,
+      generationId: 1,
+      transcriptRevision: 1,
+      trigger: "question",
+      local: null,
+    } satisfies MeetingEvent);
+    expect(await screen.findByText("Checking notes")).toBeVisible();
+    expect(document.querySelector(".mascot-state.thinking")).toBeVisible();
+    await emitTauri("meeting://session", { ...session, state: "paused" });
+    expect(screen.queryByText("Checking notes")).not.toBeInTheDocument();
+    expect(document.querySelector(".mascot-state.muted")).toBeVisible();
   });
 
   it("pins the brief at readiness even if preparation refreshes before start", async () => {
@@ -797,7 +1049,7 @@ describe("App", () => {
     });
     vi.spyOn(api, "getPreparationSnapshot").mockResolvedValue(preparation);
     const meter = vi.spyOn(api, "getAudioLevel");
-    vi.mocked(listen).mockResolvedValue(vi.fn());
+    vi.mocked(listen).mockClear().mockResolvedValue(vi.fn());
     window.__TAURI_INTERNALS__ = {};
     window.history.replaceState({}, "", "/?overlay=1");
     const view = render(<App />);
@@ -824,52 +1076,32 @@ describe("App", () => {
   });
 
   it("clears only the recovered stream warning for the current meeting", async () => {
-    const snapshot = await api.getDashboard();
-    const settings = await api.getAppSettings();
-    const preparation = await api.getPreparationSnapshot(null);
-    const session = await api.startMeeting(null, null);
-    vi.spyOn(api, "getDashboard").mockResolvedValue(snapshot);
-    vi.spyOn(api, "getAppSettings").mockResolvedValue(settings);
-    vi.spyOn(api, "getAppStatus").mockResolvedValue({
-      version: "0.1.3",
-      platform: "macos",
-    });
-    vi.spyOn(api, "getPreparationSnapshot").mockResolvedValue(preparation);
-    vi.spyOn(api, "getAudioLevel").mockResolvedValue(0);
-    vi.mocked(listen).mockClear().mockResolvedValue(vi.fn());
-    window.__TAURI_INTERNALS__ = {};
+    const { session } = await stubTauri();
     render(<App />);
-    await waitFor(() =>
-      expect(listen).toHaveBeenCalledWith(
-        "meeting://stream-recovered",
-        expect.any(Function),
-      ),
-    );
-    const emit = (name: string, payload: unknown) =>
-      act(() => {
-        const handler = vi
-          .mocked(listen)
-          .mock.calls.find(([event]) => event === name)![1];
-        handler({ event: name, id: 1, payload });
-      });
     const message = "Live microphone transcription interrupted; reconnecting.";
-    emit("meeting://session", session);
-    emit("meeting://provider-error", message);
+    await emitTauri("meeting://session", session);
+    await emitTauri("meeting://provider-error", message);
     expect(screen.getByText(message)).toBeVisible();
-    emit("meeting://stream-recovered", {
+    await emitTauri("meeting://stream-recovered", {
       sessionId: "previous-meeting",
       message,
     });
     expect(screen.getByText(message)).toBeVisible();
-    emit("meeting://stream-recovered", {
+    await emitTauri("meeting://stream-recovered", {
       sessionId: session.id,
       message: "Live system audio transcription interrupted; reconnecting.",
     });
     expect(screen.getByText(message)).toBeVisible();
-    emit("meeting://stream-recovered", { sessionId: session.id, message });
+    await emitTauri("meeting://stream-recovered", {
+      sessionId: session.id,
+      message,
+    });
     expect(screen.queryByText(message)).not.toBeInTheDocument();
-    emit("meeting://capture-error", "Microphone disconnected");
-    emit("meeting://stream-recovered", { sessionId: session.id, message });
+    await emitTauri("meeting://capture-error", "Microphone disconnected");
+    await emitTauri("meeting://stream-recovered", {
+      sessionId: session.id,
+      message,
+    });
     expect(screen.getByText("Microphone disconnected")).toBeVisible();
   });
 
@@ -1015,7 +1247,6 @@ describe("App", () => {
       generationId: 1,
       sequence: 3,
       terminalGenerationId: 1,
-      trigger: null,
     };
     const started = (
       trigger: "question" | "opportunity" | "manual",
@@ -1097,7 +1328,7 @@ describe("App", () => {
       ).toBe("ignored");
     });
 
-    it("forgets thinking when another meeting's transcript arrives", () => {
+    it("starts a fresh generation cursor for a meeting it has not seen", () => {
       const effect = reduceMeetingEvent(cursor, {
         type: "transcript",
         sessionId: "other",
@@ -1107,21 +1338,13 @@ describe("App", () => {
       });
       expect(effect.kind).toBe("transcript");
       if (effect.kind !== "transcript") return;
-      expect(effect.newSession).toBe(true);
-      expect(effect.cursor.generationId).toBe(0);
+      expect(effect.cursor).toEqual({
+        sessionId: "other",
+        generationId: 0,
+        sequence: 1,
+        terminalGenerationId: 0,
+      });
     });
-  });
-
-  it("clears live state only when a different meeting starts", () => {
-    expect(
-      startsNewMeeting({ id: "next", state: "recording" }, "previous"),
-    ).toBe(true);
-    expect(startsNewMeeting({ id: "next", state: "paused" }, "next")).toBe(
-      false,
-    );
-    expect(
-      startsNewMeeting({ id: "next", state: "completed" }, "previous"),
-    ).toBe(false);
   });
 
   it("keeps completed transcript phrases while replacing interim speech", () => {
@@ -1455,13 +1678,21 @@ describe("App", () => {
   });
 
   it("removes a recommendation when its Keep countdown completes", async () => {
-    const snapshot = await api.getDashboard();
-    vi.spyOn(api, "getDashboard").mockResolvedValue({
-      ...snapshot,
-      activeSession: await api.startMeeting(null, null),
-    });
+    const { snapshot, session } = await stubTauri();
     window.history.replaceState({}, "", "/?overlay=1");
     render(<App />);
+    await emitTauri("meeting://session", session);
+    await emitTauri("meeting://event", {
+      type: "recommendationCompleted",
+      sessionId: session.id,
+      sequence: 1,
+      generationId: 1,
+      transcriptRevision: 1,
+      recommendation: {
+        ...snapshot.latestRecommendation!,
+        sessionId: session.id,
+      },
+    } satisfies MeetingEvent);
 
     const keep = await screen.findByRole("button", {
       name: "Keep recommendation open",
@@ -1486,13 +1717,21 @@ describe("App", () => {
   });
 
   it("can keep a recommendation until it is manually dismissed", async () => {
-    const snapshot = await api.getDashboard();
-    vi.spyOn(api, "getDashboard").mockResolvedValue({
-      ...snapshot,
-      activeSession: await api.startMeeting(null, null),
-    });
+    const { snapshot, session } = await stubTauri();
     window.history.replaceState({}, "", "/?overlay=1");
     render(<App />);
+    await emitTauri("meeting://session", session);
+    await emitTauri("meeting://event", {
+      type: "recommendationCompleted",
+      sessionId: session.id,
+      sequence: 1,
+      generationId: 1,
+      transcriptRevision: 1,
+      recommendation: {
+        ...snapshot.latestRecommendation!,
+        sessionId: session.id,
+      },
+    } satisfies MeetingEvent);
 
     fireEvent.click(
       await screen.findByRole("button", { name: "Keep recommendation open" }),
@@ -1724,6 +1963,64 @@ describe("App", () => {
       expect(capture.mock.calls.filter(([active]) => !active)).toHaveLength(1);
     },
   );
+
+  it("keeps the shortcut suspended across re-renders and restores it once after save", async () => {
+    vi.mocked(listen).mockResolvedValue(vi.fn());
+    const capture = vi
+      .spyOn(api, "setShortcutRecording")
+      .mockResolvedValue(undefined);
+    let settle!: () => void;
+    vi.spyOn(api, "updateAppSettings").mockImplementation(
+      (settings) =>
+        new Promise((done) => {
+          settle = () => done(settings as never);
+        }),
+    );
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "General" }));
+    const chip = () =>
+      screen.getByRole("button", { name: "Change start listening shortcut" });
+    await act(async () => {
+      fireEvent.click(chip());
+    });
+    await waitFor(() => expect(chip()).toHaveTextContent("Press keys…"));
+    const restores = () => capture.mock.calls.filter(([active]) => !active);
+
+    await act(async () => {
+      fireEvent(window, new Event("focus"));
+    });
+    expect(chip()).toHaveTextContent("Press keys…");
+    expect(restores()).toHaveLength(0);
+
+    fireEvent.keyDown(window, { key: "K", code: "KeyK", metaKey: true });
+    fireEvent.keyUp(window, { key: "K", code: "KeyK", metaKey: true });
+    await waitFor(() => expect(chip()).not.toHaveTextContent("Press keys…"));
+    expect(restores()).toHaveLength(0);
+    await act(async () => settle());
+    await waitFor(() => expect(restores()).toHaveLength(1));
+  });
+
+  it("restores the shortcut once when capture is cancelled with Escape", async () => {
+    vi.mocked(listen).mockResolvedValue(vi.fn());
+    const capture = vi
+      .spyOn(api, "setShortcutRecording")
+      .mockResolvedValue(undefined);
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "General" }));
+    const chip = () =>
+      screen.getByRole("button", { name: "Change start listening shortcut" });
+    await act(async () => {
+      fireEvent.click(chip());
+    });
+    await waitFor(() => expect(chip()).toHaveTextContent("Press keys…"));
+
+    fireEvent.keyDown(window, { key: "Escape", code: "Escape" });
+
+    await waitFor(() => expect(chip()).not.toHaveTextContent("Press keys…"));
+    await waitFor(() =>
+      expect(capture.mock.calls.filter(([active]) => !active)).toHaveLength(1),
+    );
+  });
 
   it("groups the general settings into labelled sections", async () => {
     render(<App />);
