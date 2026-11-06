@@ -220,6 +220,7 @@ struct LiveMeeting {
     started_monotonic: std::time::Instant,
     // Fixed at start: settings refuse a mode change while a meeting is live.
     mode: ServiceMode,
+    #[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
     capture: Capture,
     phase: LivePhase,
 }
@@ -405,6 +406,7 @@ impl TranscriptionStream {
 /// What the live meeting is doing. `Recording` owns its transcription stream, so a meeting
 /// cannot record without one. `Stopping` has released capture and the hosted session and
 /// only waits for its history write; stopping again retries that write.
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
 enum LivePhase {
     Recording(TranscriptionStream),
     Paused,
@@ -419,6 +421,7 @@ enum StopEntry {
     Retry,
 }
 
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
 impl LivePhase {
     fn is_recording(&self) -> bool {
         match self {
@@ -5632,6 +5635,8 @@ fn stop_live_meeting(
     if first_stop {
         play_configured_feedback(state, false);
     }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let _ = first_stop;
     let _ = app.emit("meeting://stopped", session_id);
     {
         let mut live = state
