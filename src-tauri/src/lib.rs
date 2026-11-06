@@ -1,8 +1,10 @@
 mod brief_document;
 mod brief_job;
+mod gate;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod provider_output;
 use brief_job::BriefJob;
+use gate::AppGate;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod audio_check;
 use chrono::{DateTime, Utc};
@@ -41,6 +43,7 @@ use savvy_storage::Storage;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 use savvy_transcription::{
     speaker_channel, stream_transcription, LiveTranscript, ReconciledTranscript, StreamingProvider,
+    TranscriptionError,
 };
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 use serde::de::DeserializeOwned;
@@ -117,20 +120,14 @@ struct AppState {
     storage: Mutex<Storage>,
     live_meeting: Mutex<Option<LiveMeeting>>,
     settings: Mutex<AppSettings>,
-    // Serializes capture/settings changes; true blocks new work during restart.
-    app_operation: Mutex<bool>,
+    app_gate: AppGate,
+    // Pause, resume and stop of the live meeting. Start also holds it through its context
+    // check, a network call, but only while no meeting exists for the others to wait on.
+    meeting_control: Mutex<()>,
     settings_path: PathBuf,
     provider_health: Mutex<Vec<ProviderHealth>>,
     // Canonical paths the user chose in a native picker; each grant is used once.
     granted_paths: Mutex<HashSet<PathBuf>>,
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
-    microphone: Mutex<MicrophoneCapture>,
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
-    system_audio: Mutex<SystemAudioCapture>,
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
-    transcription_stop: Mutex<Option<tokio::sync::watch::Sender<bool>>>,
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
-    transcription_assembly: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     codex_server: Mutex<Option<std::sync::Arc<CodexAppServer>>>,
     #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -221,6 +218,323 @@ struct LiveMeeting {
     provider_warning_sent: bool,
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     started_monotonic: std::time::Instant,
+    // Fixed at start: settings refuse a mode change while a meeting is live.
+    mode: ServiceMode,
+    #[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
+    capture: Capture,
+    phase: LivePhase,
+}
+
+/// Capture devices of one meeting. They open when the meeting starts and drop with the
+/// meeting once its history is written, so a stopped meeting cannot hold a device.
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
+struct Capture {
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    microphone: MicrophoneCapture,
+    /// Absent for microphone-only meetings.
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    system_audio: Option<SystemAudioCapture>,
+}
+
+/// Microphone frames and the system source, which may be unavailable or switched off.
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+struct AudioSources {
+    microphone: flume::Receiver<AudioFrame>,
+    system: SystemSource,
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+enum SystemSource {
+    Frames(flume::Receiver<AudioFrame>),
+    Off,
+    Unavailable(String),
+}
+
+/// The device side of a resume, so the transition can be exercised without audio hardware.
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+trait CaptureControl {
+    /// Resumes the microphone and starts system audio when the meeting uses it.
+    fn resume(&mut self) -> Result<AudioSources, String>;
+    /// Pauses the microphone and closes system audio.
+    fn pause(&mut self) -> Result<(), String>;
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+impl Capture {
+    /// Opens the configured devices and starts recording the microphone to `path`.
+    fn start(settings: &AppSettings, path: PathBuf) -> Result<Self, String> {
+        let system_audio = if settings.microphone_only {
+            None
+        } else {
+            #[cfg_attr(not(target_os = "windows"), allow(unused_mut))]
+            let mut capture = SystemAudioCapture::new();
+            #[cfg(target_os = "windows")]
+            capture
+                .configure(settings.selected_system_output_device.clone())
+                .map_err(|error| error.to_string())?;
+            Some(capture)
+        };
+        let mut microphone = MicrophoneCapture::new();
+        microphone
+            .configure(
+                settings.selected_microphone.clone(),
+                settings.selected_channel,
+            )
+            .map_err(|error| error.to_string())?;
+        microphone
+            .record_to(path)
+            .map_err(|error| error.to_string())?;
+        microphone.start().map_err(|error| {
+            if cfg!(target_os = "windows") {
+                format!("Savvy could not start the microphone: {error}. Check the selected device and enable microphone access for desktop apps in Windows Settings > Privacy & security > Microphone.")
+            } else {
+                format!("Savvy could not start the microphone: {error}")
+            }
+        })?;
+        Ok(Self {
+            microphone,
+            system_audio,
+        })
+    }
+
+    /// Closes both devices and finishes the recording file. Returns every device error.
+    fn stop(&mut self) -> Vec<String> {
+        let mut errors = Vec::new();
+        if let Err(error) = self.microphone.stop() {
+            errors.push(error.to_string());
+        }
+        if let Some(Err(error)) = self.system_audio.as_mut().map(AudioCapture::stop) {
+            errors.push(error.to_string());
+        }
+        errors
+    }
+
+    fn level(&self) -> Result<f32, String> {
+        #[cfg(target_os = "macos")]
+        if let Some(system_audio) = &self.system_audio {
+            system_audio.level().map_err(|error| error.to_string())?;
+        }
+        self.microphone.level().map_err(|error| error.to_string())
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+impl CaptureControl for Capture {
+    fn resume(&mut self) -> Result<AudioSources, String> {
+        self.microphone
+            .resume()
+            .map_err(|error| error.to_string())?;
+        let system = match self.system_audio.as_mut() {
+            None => SystemSource::Off,
+            Some(system_audio) => match system_audio.start() {
+                Ok(()) => {
+                    log::info!("system audio capture started");
+                    SystemSource::Frames(system_audio.frames())
+                }
+                Err(error) => SystemSource::Unavailable(error.to_string()),
+            },
+        };
+        Ok(AudioSources {
+            microphone: self.microphone.frames(),
+            system,
+        })
+    }
+
+    /// A microphone that cannot pause is closed so it cannot keep recording behind a
+    /// Paused meeting.
+    fn pause(&mut self) -> Result<(), String> {
+        let microphone_error = self.microphone.pause().err();
+        if microphone_error.is_some() {
+            if let Err(error) = self.microphone.stop() {
+                log::warn!("microphone close after failed pause: {error}");
+            }
+        }
+        let system_error = self
+            .system_audio
+            .as_mut()
+            .and_then(|system_audio| system_audio.stop().err());
+        match microphone_error.or(system_error) {
+            Some(error) => Err(error.to_string()),
+            None => Ok(()),
+        }
+    }
+}
+
+/// The transcription tasks of a Recording meeting: one stream per audio source plus the
+/// assembler that turns their events into transcript turns.
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
+#[derive(Debug)]
+struct TranscriptionStream {
+    stop: tokio::sync::watch::Sender<bool>,
+    sources: Vec<tauri::async_runtime::JoinHandle<()>>,
+    assembly: tauri::async_runtime::JoinHandle<()>,
+}
+
+/// How long a source stream may take to close its socket after the stop signal.
+const STREAM_CLOSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
+impl TranscriptionStream {
+    /// Tells every task to stop. `finish` waits for them; call it off the meeting lock.
+    fn signal_stop(&self) {
+        let _ = self.stop.send(true);
+    }
+
+    /// Waits for the assembler to flush, then for the sources to close. A source that
+    /// ignores the stop signal is aborted so no task outlives its meeting phase.
+    fn finish(self) -> Result<(), String> {
+        tauri::async_runtime::block_on(async move {
+            let assembly = self
+                .assembly
+                .await
+                .map_err(|error| format!("transcript assembly failed: {error}"));
+            for mut source in self.sources {
+                match tokio::time::timeout(STREAM_CLOSE_TIMEOUT, &mut source).await {
+                    Ok(Ok(())) => {}
+                    Ok(Err(error)) => log::warn!("transcription stream ended abnormally: {error}"),
+                    Err(_) => {
+                        log::warn!("transcription stream ignored the stop signal; aborting it");
+                        source.abort();
+                    }
+                }
+            }
+            assembly
+        })
+    }
+}
+
+/// What the live meeting is doing. `Recording` owns its transcription stream, so a meeting
+/// cannot record without one. `Stopping` has released capture and the hosted session and
+/// only waits for its history write; stopping again retries that write.
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
+enum LivePhase {
+    Recording(TranscriptionStream),
+    Paused,
+    Stopping,
+}
+
+/// What `LivePhase::begin_stop` found. The first stop releases capture and the hosted
+/// session; a retry only repeats the history write.
+enum StopEntry {
+    Recording(TranscriptionStream),
+    Paused,
+    Retry,
+}
+
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
+impl LivePhase {
+    fn is_recording(&self) -> bool {
+        match self {
+            Self::Recording(_) => true,
+            Self::Paused | Self::Stopping => false,
+        }
+    }
+
+    /// The persisted and wire representation of this phase.
+    fn meeting_state(&self) -> MeetingState {
+        match self {
+            Self::Recording(_) => MeetingState::Recording,
+            Self::Paused => MeetingState::Paused,
+            Self::Stopping => MeetingState::Completed,
+        }
+    }
+
+    /// Recording -> Paused. The stream is told to stop; the caller finishes it off the lock.
+    fn pause(&mut self) -> Result<TranscriptionStream, String> {
+        match std::mem::replace(self, Self::Paused) {
+            Self::Recording(stream) => {
+                stream.signal_stop();
+                Ok(stream)
+            }
+            Self::Paused => Err("meeting is already paused".into()),
+            Self::Stopping => {
+                *self = Self::Stopping;
+                Err("meeting is stopping".into())
+            }
+        }
+    }
+
+    /// Paused -> Recording with the stream opened for it. Callers check the phase before
+    /// opening a stream; a refused stream is told to stop and ends on its own.
+    fn resume(&mut self, stream: TranscriptionStream) -> Result<(), String> {
+        match self {
+            Self::Paused => {
+                *self = Self::Recording(stream);
+                Ok(())
+            }
+            Self::Recording(_) => {
+                stream.signal_stop();
+                Err("meeting is already recording".into())
+            }
+            Self::Stopping => {
+                stream.signal_stop();
+                Err("meeting is stopping".into())
+            }
+        }
+    }
+
+    /// Recording or Paused -> Stopping. Returns the stream to finish when it was recording.
+    fn begin_stop(&mut self) -> StopEntry {
+        match std::mem::replace(self, Self::Stopping) {
+            Self::Recording(stream) => {
+                stream.signal_stop();
+                StopEntry::Recording(stream)
+            }
+            Self::Paused => StopEntry::Paused,
+            Self::Stopping => StopEntry::Retry,
+        }
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[derive(Debug)]
+enum ResumeOutcome {
+    Recording,
+    /// The meeting stays Paused with capture paused; the error says why the stream failed.
+    StreamUnavailable(String),
+}
+
+/// Paused -> Recording: capture first, then history, then the transcription stream. A failure
+/// before the stream rolls capture back and leaves the meeting Paused. A stream that cannot
+/// open pauses capture again and records Paused, so a Recording meeting always has a stream.
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn resume_live_phase(
+    phase: &mut LivePhase,
+    session: &mut MeetingSession,
+    capture: &mut impl CaptureControl,
+    mut persist: impl FnMut(&MeetingSession) -> Result<(), String>,
+    open_stream: impl FnOnce(AudioSources) -> Result<TranscriptionStream, String>,
+) -> Result<ResumeOutcome, String> {
+    match phase {
+        LivePhase::Paused => {}
+        LivePhase::Recording(_) => return Err("meeting is already recording".into()),
+        LivePhase::Stopping => return Err("meeting is stopping".into()),
+    }
+    let sources = capture.resume()?;
+    let mut next = session.clone();
+    next.state = MeetingState::Recording;
+    if let Err(error) = persist(&next) {
+        if let Err(rollback) = capture.pause() {
+            return Err(format!("{error}; capture rollback: {rollback}"));
+        }
+        return Err(error);
+    }
+    match open_stream(sources) {
+        Ok(stream) => {
+            phase.resume(stream)?;
+            *session = next;
+            Ok(ResumeOutcome::Recording)
+        }
+        Err(error) => {
+            if let Err(pause) = capture.pause() {
+                log::warn!("capture could not pause after the stream failed: {pause}");
+            }
+            if let Err(persist_error) = persist(session) {
+                log::warn!("paused state could not be saved: {persist_error}");
+            }
+            Ok(ResumeOutcome::StreamUnavailable(error))
+        }
+    }
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -277,6 +591,39 @@ impl RecommendationWork {
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 static RECOMMENDATION_WORK: std::sync::LazyLock<Mutex<RecommendationWork>> =
     std::sync::LazyLock::new(|| Mutex::new(RecommendationWork::default()));
+
+/// Releases the worker slot however the worker task exits, including a panic unwind.
+/// Without it a panicking generation leaves `running` true and no worker ever starts again.
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+struct WorkerExit {
+    work: &'static Mutex<RecommendationWork>,
+    armed: bool,
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+impl WorkerExit {
+    fn new(work: &'static Mutex<RecommendationWork>) -> Self {
+        Self { work, armed: true }
+    }
+
+    /// Call under the queue lock once `next()` drained, so a worker started by a
+    /// concurrent enqueue is not released by this one's drop.
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+impl Drop for WorkerExit {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        let mut work = self.work.lock().unwrap_or_else(|error| error.into_inner());
+        work.running = false;
+        work.active = None;
+    }
+}
 
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 struct GenerationSeed {
@@ -650,10 +997,7 @@ async fn audio_check_start(
         if !tauri_plugin_macos_permissions::check_microphone_permission().await {
             return Err("Allow Savvy microphone access in System Settings > Privacy & Security > Microphone, then quit and reopen Savvy before checking audio again.".into());
         }
-        let operation = state.app_operation.lock().map_err(|_| "operation lock")?;
-        if *operation {
-            return Err("Savvy is restarting.".into());
-        }
+        let _operation = state.app_gate.try_begin()?;
         if state
             .live_meeting
             .lock()
@@ -728,7 +1072,7 @@ async fn managed_sign_in_cancel() -> Result<(), String> {
 /// and history are untouched, and cancellation happens in the billing portal.
 #[tauri::command]
 fn managed_sign_out(state: State<'_, AppState>) -> Result<(), String> {
-    let _operation = state.app_operation.lock().map_err(|_| "operation lock")?;
+    let _operation = state.app_gate.try_begin()?;
     if state
         .live_meeting
         .lock()
@@ -877,15 +1221,20 @@ fn update_settings(
     {
         return Err("Stop the audio check before changing audio or assistance mode.".into());
     }
-    if (settings.service_mode != previous.service_mode
-        || settings.microphone_only != previous.microphone_only)
+    // The live meeting's capture and mode are fixed at start; see `LiveMeeting::mode`.
+    let capture_settings_changed = settings.service_mode != previous.service_mode
+        || settings.microphone_only != previous.microphone_only
+        || settings.selected_microphone != previous.selected_microphone
+        || settings.selected_channel != previous.selected_channel
+        || settings.selected_system_output_device != previous.selected_system_output_device;
+    if capture_settings_changed
         && state
             .live_meeting
             .lock()
             .map_err(|_| "meeting lock poisoned")?
             .is_some()
     {
-        return Err("stop the active meeting before changing the service mode".into());
+        return Err("Stop the meeting before changing audio or assistance settings.".into());
     }
     #[cfg(target_os = "macos")]
     if let (ServiceMode::Managed, ServiceMode::Byok) =
@@ -904,12 +1253,12 @@ fn update_settings(
             return Err("Connect your selected AI provider before switching.".into());
         }
     }
-    if let Err(error) = apply_runtime_settings(app, state, &previous, &settings) {
-        let _ = apply_runtime_settings(app, state, &settings, &previous);
+    if let Err(error) = apply_runtime_settings(app, &previous, &settings) {
+        let _ = apply_runtime_settings(app, &settings, &previous);
         return Err(error);
     }
     if let Err(error) = settings::save(&state.settings_path, &settings) {
-        let _ = apply_runtime_settings(app, state, &settings, &previous);
+        let _ = apply_runtime_settings(app, &settings, &previous);
         return Err(error);
     }
     *state
@@ -926,38 +1275,9 @@ fn update_settings(
 
 fn apply_runtime_settings(
     app: &AppHandle,
-    _state: &AppState,
     current: &AppSettings,
     next: &AppSettings,
 ) -> Result<(), String> {
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
-    if next.selected_microphone != current.selected_microphone
-        || next.selected_channel != current.selected_channel
-    {
-        _state
-            .microphone
-            .lock()
-            .map_err(|_| "microphone lock poisoned")?
-            .configure(next.selected_microphone.clone(), next.selected_channel)
-            .map_err(|error| error.to_string())?;
-    }
-    #[cfg(target_os = "windows")]
-    if next.selected_system_output_device != current.selected_system_output_device {
-        if _state
-            .live_meeting
-            .lock()
-            .map_err(|_| "meeting lock poisoned")?
-            .is_some()
-        {
-            return Err("Stop the meeting before changing system audio output.".into());
-        }
-        _state
-            .system_audio
-            .lock()
-            .map_err(|_| "system audio lock poisoned")?
-            .configure(next.selected_system_output_device.clone())
-            .map_err(|error| error.to_string())?;
-    }
     if next.theme != current.theme {
         apply_native_theme(app, &next.theme);
     }
@@ -2263,16 +2583,11 @@ fn refresh_connected_sources_inner(
 }
 
 fn with_context_removal<T>(
-    app_operation: &Mutex<bool>,
+    gate: &AppGate,
     client_id: Option<Uuid>,
     operation: impl FnOnce() -> Result<T, String>,
 ) -> Result<T, String> {
-    let app_guard = app_operation
-        .try_lock()
-        .map_err(|_| "an application operation is already in progress")?;
-    if *app_guard {
-        return Err("Savvy is reopening; try again after it opens".into());
-    }
+    let _app_operation = gate.try_begin()?;
     // Keep registration blocked until deletion finishes, not just the idle check.
     // ponytail: this serializes registrations across scopes during deletion; use
     // per-scope locks if deletion latency starts delaying unrelated clients.
@@ -2295,7 +2610,7 @@ fn remove_brief(client_id: Option<String>, state: State<'_, AppState>) -> Result
         .map(|value| Uuid::parse_str(&value))
         .transpose()
         .map_err(|error| error.to_string())?;
-    with_context_removal(&state.app_operation, client_id, || {
+    with_context_removal(&state.app_gate, client_id, || {
         if state
             .live_meeting
             .lock()
@@ -2318,7 +2633,7 @@ fn remove_brief(client_id: Option<String>, state: State<'_, AppState>) -> Result
 #[tauri::command]
 fn remove_client_context(client_id: String, state: State<'_, AppState>) -> Result<(), String> {
     let client_id = Uuid::parse_str(&client_id).map_err(|error| error.to_string())?;
-    with_context_removal(&state.app_operation, Some(client_id), || {
+    with_context_removal(&state.app_gate, Some(client_id), || {
         if state
             .live_meeting
             .lock()
@@ -3264,6 +3579,11 @@ async fn start_meeting(
         if managed_mode(state) != managed {
             return Err("service mode changed while authorizing".into());
         }
+        // A stop still finishing its tail (overlay, transcript file) must not overlap a start.
+        let _control = state
+            .meeting_control
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         start_meeting_inner(
             client_id,
             brief_id,
@@ -3288,13 +3608,7 @@ fn run_app_operation<T>(
     operation: impl FnOnce(&AppHandle, &AppState) -> Result<T, String>,
 ) -> Result<T, String> {
     let state = app.state::<AppState>();
-    let operation_guard = state
-        .app_operation
-        .try_lock()
-        .map_err(|_| "an application operation is already in progress")?;
-    if *operation_guard {
-        return Err("Savvy is reopening; try again after it opens".into());
-    }
+    let _operation = state.app_gate.try_begin()?;
     operation(app, &state)
 }
 
@@ -3303,6 +3617,30 @@ async fn run_app_command<T: Send + 'static>(
     operation: impl FnOnce(&AppHandle, &AppState) -> Result<T, String> + Send + 'static,
 ) -> Result<T, String> {
     tauri::async_runtime::spawn_blocking(move || run_app_operation(&app, operation))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+/// Runs a pause, resume or stop of the live meeting. Waits for the previous meeting
+/// command, never for an application operation, so a long rescan or network call
+/// cannot leave a meeting recording when the user asks it to pause or stop.
+fn run_meeting_operation<T>(
+    app: &AppHandle,
+    operation: impl FnOnce(&AppHandle, &AppState) -> Result<T, String>,
+) -> Result<T, String> {
+    let state = app.state::<AppState>();
+    let _control = state
+        .meeting_control
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    operation(app, &state)
+}
+
+async fn run_meeting_command<T: Send + 'static>(
+    app: AppHandle,
+    operation: impl FnOnce(&AppHandle, &AppState) -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(move || run_meeting_operation(&app, operation))
         .await
         .map_err(|error| error.to_string())?
 }
@@ -3335,18 +3673,14 @@ fn start_meeting_inner(
     {
         return Err("another meeting is already active".into());
     }
-    let (meeting_language, transcription_provider, service_mode) = {
-        let settings = state
-            .settings
-            .lock()
-            .map_err(|_| "settings lock poisoned")?;
-        (
-            settings.transcription_language.clone(),
-            settings.transcription_provider.clone(),
-            settings.service_mode,
-        )
-    };
-    ensure_transcription_ready(service_mode, &transcription_provider)?;
+    let settings = state
+        .settings
+        .lock()
+        .map_err(|_| "settings lock poisoned")?
+        .clone();
+    let meeting_language = settings.transcription_language.clone();
+    let service_mode = settings.service_mode;
+    ensure_transcription_ready(service_mode, &settings.transcription_provider)?;
     let mut brief = if let Some(brief_id) = brief_id {
         let storage = state.storage.lock().map_err(|_| "storage lock poisoned")?;
         brief_document::load_reviewed(
@@ -3356,10 +3690,6 @@ fn start_meeting_inner(
             expected_brief_hash.as_deref(),
         )?
     } else {
-        let settings = state
-            .settings
-            .lock()
-            .map_err(|_| "settings lock poisoned")?;
         general_guidelines_brief(&settings)
     };
     brief.response_language = recommendation_language(&meeting_language);
@@ -3401,108 +3731,128 @@ fn start_meeting_inner(
         id: session_id,
         client_id,
         brief_id,
-        state: MeetingState::Recording,
+        state: MeetingState::Paused,
         started_at: Utc::now(),
         ended_at: None,
         audio_path: None,
         context_pack_hash: context_pack.hash.clone(),
         source_index_revision: context_pack.source_revision.clone(),
     };
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = (session, app);
+        return Err("Meetings require macOS or Windows.".into());
+    }
     #[cfg(any(target_os = "macos", target_os = "windows"))]
-    let session = {
+    {
         let path = recordings_directory(state)?.join(format!("{}.wav", session.id));
-        let mut microphone = state
-            .microphone
-            .lock()
-            .map_err(|_| "microphone lock poisoned")?;
-        microphone
-            .record_to(path.clone())
-            .map_err(|error| error.to_string())?;
-        microphone
-            .start()
-            .map_err(|error| {
-                if cfg!(target_os = "windows") {
-                    format!("Savvy could not start the microphone: {error}. Check the selected device and enable microphone access for desktop apps in Windows Settings > Privacy & security > Microphone.")
-                } else {
-                    format!("Savvy could not start the microphone: {error}")
-                }
-            })?;
-        MeetingSession {
+        let capture = Capture::start(&settings, path.clone())?;
+        log::info!("microphone capture started");
+        play_configured_feedback(state, true);
+        let session = MeetingSession {
             audio_path: Some(path),
             ..session
-        }
-    };
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
-    log::info!("microphone capture started");
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
-    play_configured_feedback(state, true);
-    {
-        let storage = state.storage.lock().map_err(|_| "storage lock poisoned")?;
-        if let Err(error) = storage.save_session(&session) {
-            #[cfg(any(target_os = "macos", target_os = "windows"))]
-            if let Ok(mut microphone) = state.microphone.lock() {
-                let _ = microphone.stop();
-            }
-            return Err(error.to_string());
-        }
-    }
-    let risk_terms = context_pack
-        .hard_constraints
-        .iter()
-        .map(|value| value.trim().to_owned())
-        .filter(|value| !value.is_empty())
-        .collect::<Vec<_>>();
-    let live = LiveMeeting {
-        session: session.clone(),
-        outline: OutlineTracker::new(brief.agenda.clone(), 0.12),
-        context: RollingContext::new(90_000),
-        trigger_detector: TriggerDetector::new(risk_terms),
-        context_pack,
-        ledger: MeetingLedger::default(),
-        coordinator: RecommendationCoordinator::new(session.id),
-        last_scan_ms: 0,
-        scan_turn_ids: Vec::new(),
-        scan_accelerated: false,
-        provider_warning_sent: false,
-        #[cfg(any(target_os = "macos", target_os = "windows"))]
-        started_monotonic: std::time::Instant::now(),
-        brief,
-    };
-    *state
-        .live_meeting
-        .lock()
-        .map_err(|_| "meeting lock poisoned")? = Some(live);
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
-    prepare_providers(app, state, session.id);
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
-    if let Err(error) = start_transcription_worker(app, state, session.id) {
-        log::error!("live transcription unavailable: {error}");
-        if managed_mode(state) {
-            let id = session.id.to_string();
-            tauri::async_runtime::spawn_blocking(move || {
-                managed::session_action_ordered(&id, "pause", managed::next_command())
-            });
-            pause_managed_assistance(app.clone(), session.id);
-        }
-        let _ = app.emit(
-            "meeting://provider-error",
-            format!("Live transcription unavailable: {error}"),
-        );
-    }
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
-    {
-        let settings = state
-            .settings
+        };
+        let risk_terms = context_pack
+            .hard_constraints
+            .iter()
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty())
+            .collect::<Vec<_>>();
+        let mut live = LiveMeeting {
+            session,
+            outline: OutlineTracker::new(brief.agenda.clone(), 0.12),
+            context: RollingContext::new(90_000),
+            trigger_detector: TriggerDetector::new(risk_terms),
+            context_pack,
+            ledger: MeetingLedger::default(),
+            coordinator: RecommendationCoordinator::new(session_id),
+            last_scan_ms: 0,
+            scan_turn_ids: Vec::new(),
+            scan_accelerated: false,
+            provider_warning_sent: false,
+            started_monotonic: std::time::Instant::now(),
+            brief,
+            mode: service_mode,
+            capture,
+            phase: LivePhase::Paused,
+        };
+        let claim = claim_managed_session(service_mode, session_id);
+        // Hold the meeting lock from install to Recording, so transcript callbacks never
+        // see a meeting without its stream and a concurrent start sees this one.
+        let mut guard = state
+            .live_meeting
             .lock()
-            .map_err(|_| "settings lock poisoned")?
-            .clone();
+            .map_err(|_| "meeting lock poisoned")?;
+        if guard.is_some() {
+            live.capture.stop();
+            return Err("another meeting is already active".into());
+        }
+        let live = guard.insert(live);
+        let outcome = {
+            let storage = state.storage.lock().map_err(|_| "storage lock poisoned")?;
+            resume_live_phase(
+                &mut live.phase,
+                &mut live.session,
+                &mut live.capture,
+                |session| {
+                    storage
+                        .save_session(session)
+                        .map_err(|error| error.to_string())
+                },
+                |sources| {
+                    claim?;
+                    TranscriptionStream::start(app, &settings, service_mode, sources, session_id)
+                },
+            )
+        };
+        let outcome = match outcome {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                if let Some(mut failed) = guard.take() {
+                    for capture_error in failed.capture.stop() {
+                        log::warn!("capture close after failed start: {capture_error}");
+                    }
+                }
+                return Err(error);
+            }
+        };
+        let session = live.session.clone();
+        drop(guard);
+        prepare_providers(app, state, session.id);
+        if let ResumeOutcome::StreamUnavailable(error) = outcome {
+            log::error!("live transcription unavailable: {error}");
+            report_stream_unavailable(app, service_mode, session_id, &error);
+        }
         overlay::show(app, &settings);
+        // The transition is committed; notification failure must not undo its result.
+        if let Err(error) = app.emit("meeting://session", &session) {
+            log::warn!("could not emit committed meeting state: {error}");
+        }
+        Ok(session)
     }
-    // The transition is committed; notification failure must not undo its result.
-    if let Err(error) = app.emit("meeting://session", &session) {
-        log::warn!("could not emit committed meeting state: {error}");
+}
+
+/// The meeting is Paused because no transcription stream could open: tell the user and, for
+/// a hosted meeting, the service, so billing stops until an explicit resume.
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn report_stream_unavailable(app: &AppHandle, mode: ServiceMode, session_id: Uuid, error: &str) {
+    match mode {
+        ServiceMode::Managed => {
+            let id = session_id.to_string();
+            let command = managed::next_command();
+            tauri::async_runtime::spawn_blocking(move || {
+                if let Err(error) = managed::session_action_ordered(&id, "pause", command) {
+                    log::warn!("hosted pause will reconcile later: {error}");
+                }
+            });
+        }
+        ServiceMode::Byok => {}
     }
-    Ok(session)
+    let _ = app.emit(
+        "meeting://provider-error",
+        managed_stream_message(error, "meeting"),
+    );
 }
 
 // ponytail: rescan within the existing 60-second/16-MiB limits at meeting start;
@@ -3763,8 +4113,7 @@ fn process_transcript_turn_inner(
         let live = guard
             .as_mut()
             .filter(|live| {
-                live.session.id == session_id
-                    && (allow_tail || live.session.state == MeetingState::Recording)
+                live.session.id == session_id && (allow_tail || live.phase.is_recording())
             })
             .ok_or_else(|| "meeting is not listening".to_owned())?;
         let outline_section_id = live.outline.observe(&turn.text);
@@ -3782,7 +4131,9 @@ fn process_transcript_turn_inner(
             live.coordinator.observe_turn();
         }
         let transcript_sequence = live.coordinator.next_sequence();
-        let seed = (live.session.state == MeetingState::Recording)
+        let seed = live
+            .phase
+            .is_recording()
             .then(|| live.trigger_detector.detect(&turn))
             .flatten()
             .map(|trigger| {
@@ -3882,7 +4233,7 @@ fn generation_seed(
 #[cfg(any(target_os = "macos", target_os = "windows", test))]
 fn scan_is_due(live: &LiveMeeting, now_ms: u64) -> bool {
     let since_last_scan = now_ms.saturating_sub(live.last_scan_ms);
-    live.session.state == MeetingState::Recording
+    live.phase.is_recording()
         && live.coordinator.is_idle()
         && !live.scan_turn_ids.is_empty()
         && since_last_scan >= SCAN_MIN_GAP_MS
@@ -4315,6 +4666,10 @@ fn request_recommendation(
             .as_mut()
             .filter(|live| live.session.id == session_id)
             .ok_or_else(|| "meeting is not active".to_owned())?;
+        match live.phase {
+            LivePhase::Recording(_) | LivePhase::Paused => {}
+            LivePhase::Stopping => return Err("meeting is stopping".into()),
+        }
         if live.coordinator.active_trigger() == Some(Trigger::Manual) {
             return Ok(());
         }
@@ -4346,53 +4701,42 @@ fn system_audio_help() -> &'static str {
     }
 }
 
+/// Claims the hosted session authorized for this meeting. The claim can wait on a token
+/// refresh, so callers make it before taking the meeting or storage lock and hand the
+/// result to the stream opener.
 #[cfg(any(target_os = "macos", target_os = "windows"))]
-fn start_transcription_worker(
-    app: &AppHandle,
-    state: &AppState,
-    session_id: Uuid,
-) -> Result<(), String> {
-    let settings = state
-        .settings
-        .lock()
-        .map_err(|_| "settings lock poisoned")?
-        .clone();
-    match settings.service_mode {
+fn claim_managed_session(mode: ServiceMode, session_id: Uuid) -> Result<(), String> {
+    match mode {
+        ServiceMode::Byok => Ok(()),
         ServiceMode::Managed => {
-            return start_managed_transcription_worker(app, state, session_id, &settings);
+            let (session, _service_url, _access_token) =
+                managed::take_prepared(&session_id.to_string())?;
+            log::info!(
+                "managed transcription starting lease={} remaining_ms={}",
+                session.lease_version,
+                session.meeting_ms_available
+            );
+            Ok(())
         }
-        ServiceMode::Byok => {}
     }
-    let provider = match settings.transcription_provider.as_str() {
-        "deepgram" => StreamingProvider::Deepgram,
-        "assemblyAi" => StreamingProvider::AssemblyAi,
-        _ => return Err("unsupported transcription provider".into()),
-    };
-    let api_key = transcription_api_key(&settings.transcription_provider)?;
-    log::info!(
-        "live transcription starting provider={} model={} language={}",
-        settings.transcription_provider,
-        settings.transcription_model,
-        settings.transcription_language
-    );
-    let microphone_frames = state
-        .microphone
-        .lock()
-        .map_err(|_| "microphone lock poisoned")?
-        .frames();
-    let system_frames = if settings.microphone_only {
-        None
-    } else {
-        let mut capture = state
-            .system_audio
-            .lock()
-            .map_err(|_| "system audio lock poisoned")?;
-        match capture.start() {
-            Ok(()) => {
-                log::info!("system audio capture started");
-                Some(capture.frames())
-            }
-            Err(error) => {
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+impl TranscriptionStream {
+    /// Opens one stream per audio source and the assembler for `session_id`. Managed mode
+    /// streams through the Savvy relay under the session prepared before capture started.
+    fn start(
+        app: &AppHandle,
+        settings: &AppSettings,
+        mode: ServiceMode,
+        sources: AudioSources,
+        session_id: Uuid,
+    ) -> Result<Self, String> {
+        let mut frames = vec![(AudioSource::Microphone, sources.microphone)];
+        match sources.system {
+            SystemSource::Frames(system) => frames.push((AudioSource::System, system)),
+            SystemSource::Off => {}
+            SystemSource::Unavailable(error) => {
                 log::warn!("system audio capture unavailable: {error}");
                 let _ = app.emit(
                     "meeting://provider-error",
@@ -4401,55 +4745,75 @@ fn start_transcription_worker(
                         system_audio_help()
                     ),
                 );
-                None
             }
         }
-    };
-    let (stop_sender, stop_receiver) = tokio::sync::watch::channel(false);
-    let assembly_stop = stop_receiver.clone();
-    *state
-        .transcription_stop
-        .lock()
-        .map_err(|_| "transcription lock poisoned")? = Some(stop_sender);
-    let (transcript_sender, transcript_receiver) = tokio::sync::mpsc::channel(64);
-    let model = settings.transcription_model;
-    let language = settings.transcription_language;
-    spawn_transcription_stream(
-        app.clone(),
-        provider,
-        model.clone(),
-        language.clone(),
-        api_key.clone(),
-        microphone_frames,
-        stop_receiver.clone(),
-        transcript_sender.clone(),
-        AudioSource::Microphone,
-    );
-    let system_available = system_frames.is_some();
-    if let Some(system_frames) = system_frames {
-        spawn_transcription_stream(
+        let system_available = frames.len() > 1;
+        let (stop, stop_receiver) = tokio::sync::watch::channel(false);
+        let (transcript_sender, transcript_receiver) = tokio::sync::mpsc::channel(64);
+        let tasks = match mode {
+            ServiceMode::Managed => frames
+                .into_iter()
+                .map(|(source, frames)| {
+                    spawn_managed_stream(
+                        app.clone(),
+                        ManagedStream {
+                            session_id,
+                            language: settings.transcription_language.clone(),
+                        },
+                        frames,
+                        stop_receiver.clone(),
+                        transcript_sender.clone(),
+                        source,
+                    )
+                })
+                .collect(),
+            ServiceMode::Byok => {
+                let provider = match settings.transcription_provider.as_str() {
+                    "deepgram" => StreamingProvider::Deepgram,
+                    "assemblyAi" => StreamingProvider::AssemblyAi,
+                    _ => return Err("unsupported transcription provider".into()),
+                };
+                let api_key = transcription_api_key(&settings.transcription_provider)?;
+                log::info!(
+                    "live transcription starting provider={} model={} language={}",
+                    settings.transcription_provider,
+                    settings.transcription_model,
+                    settings.transcription_language
+                );
+                frames
+                    .into_iter()
+                    .map(|(source, frames)| {
+                        spawn_transcription_stream(
+                            app.clone(),
+                            OwnKeyStream {
+                                session_id,
+                                provider,
+                                model: settings.transcription_model.clone(),
+                                language: settings.transcription_language.clone(),
+                                api_key: api_key.clone(),
+                            },
+                            frames,
+                            stop_receiver.clone(),
+                            transcript_sender.clone(),
+                            source,
+                        )
+                    })
+                    .collect()
+            }
+        };
+        let assembly = spawn_transcript_assembly(
             app.clone(),
-            provider,
-            model,
-            language,
-            api_key,
-            system_frames,
+            session_id,
+            transcript_receiver,
+            system_available,
             stop_receiver,
-            transcript_sender.clone(),
-            AudioSource::System,
         );
+        Ok(Self {
+            stop,
+            sources: tasks,
+            assembly,
+        })
     }
-    *state
-        .transcription_assembly
-        .lock()
-        .map_err(|_| "transcript assembly lock poisoned")? = Some(spawn_transcript_assembly(
-        app.clone(),
-        session_id,
-        transcript_receiver,
-        system_available,
-        assembly_stop,
-    ));
-    Ok(())
 }
 
 /// Assembles provider events into turns, reconciles the two sources, and
@@ -4470,12 +4834,12 @@ fn spawn_transcript_assembly(
             system_available,
             |transcript| process_reconciled_transcript(&app, session_id, transcript),
             |event| {
-                if meeting_state(&app, session_id) == Some(MeetingState::Recording) {
+                if is_recording(&app, session_id) {
                     emit_interim_transcript(&app, session_id, event);
                 }
             },
             || {
-                if meeting_state(&app, session_id) == Some(MeetingState::Recording) {
+                if is_recording(&app, session_id) {
                     if let Err(error) = maybe_dispatch_scan(&app, session_id) {
                         log::warn!(
                             "opportunity scan could not start session={session_id}: {error}"
@@ -4486,111 +4850,6 @@ fn spawn_transcript_assembly(
         )
         .await;
     })
-}
-
-// Called on the command blocking worker, without capture/storage/meeting locks.
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-fn drain_transcript_assembly(state: &AppState) -> Result<(), String> {
-    let assembly = state
-        .transcription_assembly
-        .lock()
-        .map_err(|_| "transcript assembly lock poisoned")?
-        .take();
-    if let Some(assembly) = assembly {
-        tauri::async_runtime::block_on(assembly).map_err(|error| error.to_string())?;
-    }
-    Ok(())
-}
-
-/// Managed transcription streams through the Savvy relay. The hosted session
-/// is created first, so an ineligible account is refused before any capture
-/// starts, then both sources stream to the relay under the same session.
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-fn start_managed_transcription_worker(
-    app: &AppHandle,
-    state: &AppState,
-    session_id: Uuid,
-    settings: &AppSettings,
-) -> Result<(), String> {
-    let (session, _service_url, _access_token) = managed::take_prepared(&session_id.to_string())?;
-    log::info!(
-        "managed transcription starting lease={} remaining_ms={}",
-        session.lease_version,
-        session.meeting_ms_available
-    );
-    if let Err(error) = app.emit("managed://session", &session) {
-        log::warn!("could not publish managed session status: {error}");
-    }
-    let microphone_frames = state
-        .microphone
-        .lock()
-        .map_err(|_| "microphone lock poisoned")?
-        .frames();
-    let system_frames = if settings.microphone_only {
-        None
-    } else {
-        let mut capture = state
-            .system_audio
-            .lock()
-            .map_err(|_| "system audio lock poisoned")?;
-        match capture.start() {
-            Ok(()) => Some(capture.frames()),
-            Err(error) => {
-                log::warn!("system audio capture unavailable: {error}");
-                let _ = app.emit(
-                    "meeting://provider-error",
-                    format!(
-                        "System audio unavailable; your microphone still works: {error}. Allow Savvy in System Settings > Privacy & Security > Screen & System Audio Recording, then restart Savvy."
-                    ),
-                );
-                None
-            }
-        }
-    };
-    let (stop_sender, stop_receiver) = tokio::sync::watch::channel(false);
-    let assembly_stop = stop_receiver.clone();
-    *state
-        .transcription_stop
-        .lock()
-        .map_err(|_| "transcription lock poisoned")? = Some(stop_sender);
-    let (transcript_sender, transcript_receiver) = tokio::sync::mpsc::channel(64);
-    let language = settings.transcription_language.clone();
-    spawn_managed_stream(
-        app.clone(),
-        ManagedStream {
-            session_id,
-            language: language.clone(),
-        },
-        microphone_frames,
-        stop_receiver.clone(),
-        transcript_sender.clone(),
-        AudioSource::Microphone,
-    );
-    let system_available = system_frames.is_some();
-    if let Some(system_frames) = system_frames {
-        spawn_managed_stream(
-            app.clone(),
-            ManagedStream {
-                session_id,
-                language,
-            },
-            system_frames,
-            stop_receiver,
-            transcript_sender.clone(),
-            AudioSource::System,
-        );
-    }
-    *state
-        .transcription_assembly
-        .lock()
-        .map_err(|_| "transcript assembly lock poisoned")? = Some(spawn_transcript_assembly(
-        app.clone(),
-        session_id,
-        transcript_receiver,
-        system_available,
-        assembly_stop,
-    ));
-    Ok(())
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -4610,7 +4869,7 @@ fn spawn_managed_stream(
     mut stop: tokio::sync::watch::Receiver<bool>,
     transcripts: tokio::sync::mpsc::Sender<LiveTranscript>,
     source: AudioSource,
-) {
+) -> tauri::async_runtime::JoinHandle<()> {
     tauri::async_runtime::spawn(async move {
         loop {
             if *stop.borrow() {
@@ -4742,34 +5001,62 @@ fn spawn_managed_stream(
                 }
             }
         }
-    });
+    })
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 fn finish_managed_failure(app: AppHandle, id: Uuid, message: &str) {
     if message.contains("session_ended") {
         tauri::async_runtime::spawn_blocking(move || {
-            let _ = run_app_operation(&app, |app, state| stop_live_meeting(app, state, id));
+            let state = app.state::<AppState>();
+            let stop = || stop_live_meeting(&app, &state, id);
+            match wait_for_meeting_control(&state.meeting_control, &state.app_gate, stop) {
+                Some(Ok(_)) => {}
+                Some(Err(error)) => {
+                    log::warn!("hosted session ended but the local meeting did not stop: {error}");
+                }
+                None => {
+                    log::info!(
+                        "hosted session ended while Savvy is closing; exit stops the meeting"
+                    );
+                }
+            }
         });
     } else {
-        pause_managed_assistance(app, id);
+        pause_without_transcription(app, id);
     }
 }
 
+/// Waits for the previous meeting command, then runs `operation` unless Savvy is quitting
+/// or relaunching, which stops the meeting on its own. An application operation holding
+/// the gate (a rescan, a source refresh) never delays or fails it.
+fn wait_for_meeting_control<T>(
+    control: &Mutex<()>,
+    gate: &AppGate,
+    operation: impl FnOnce() -> T,
+) -> Option<T> {
+    let _control = control.lock().unwrap_or_else(|error| error.into_inner());
+    if gate.is_closing() {
+        return None;
+    }
+    Some(operation())
+}
+
 #[cfg(any(target_os = "macos", target_os = "windows"))]
-fn pause_managed_assistance(app: AppHandle, id: Uuid) {
+/// The transcription stream ended for good (refused key, hosted quota or pause). A meeting
+/// cannot stay Recording without one, so it pauses; resume retries the stream.
+fn pause_without_transcription(app: AppHandle, id: Uuid) {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
-        let Ok(_operation) = state.app_operation.lock() else {
+        let _control = state
+            .meeting_control
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if !is_recording(&app, id) {
             return;
-        };
-        let recording = state.live_meeting.lock().ok().is_some_and(|live| {
-            live.as_ref().is_some_and(|live| {
-                live.session.id == id && live.session.state == MeetingState::Recording
-            })
-        });
-        if recording {
-            let _ = set_meeting_listening(id.to_string(), false, &app, &state);
+        }
+        if let Err(error) = pause_live_meeting(&app, &state, id) {
+            log::warn!("meeting could not pause after transcription stopped: {error}");
         }
     });
 }
@@ -4840,25 +5127,32 @@ fn process_reconciled_transcript(
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
-#[allow(clippy::too_many_arguments)]
-fn spawn_transcription_stream(
-    app: AppHandle,
+struct OwnKeyStream {
+    session_id: Uuid,
     provider: StreamingProvider,
     model: String,
     language: String,
     api_key: String,
+}
+
+/// Reconnects after a dropped connection. A refused key cannot recover, so the meeting
+/// pauses instead of recording without transcription.
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn spawn_transcription_stream(
+    app: AppHandle,
+    stream: OwnKeyStream,
     frames: flume::Receiver<AudioFrame>,
     stop: tokio::sync::watch::Receiver<bool>,
     transcripts: tokio::sync::mpsc::Sender<LiveTranscript>,
     source: AudioSource,
-) {
+) -> tauri::async_runtime::JoinHandle<()> {
     tauri::async_runtime::spawn(async move {
         loop {
             let result = stream_transcription(
-                provider,
-                &model,
-                &language,
-                &api_key,
+                stream.provider,
+                &stream.model,
+                &stream.language,
+                &stream.api_key,
                 frames.clone(),
                 stop.clone(),
                 transcripts.clone(),
@@ -4875,6 +5169,20 @@ fn spawn_transcription_stream(
                 AudioSource::Microphone => "microphone",
                 AudioSource::System => "system audio",
             };
+            let error = match error {
+                TranscriptionError::Rejected(reason) => {
+                    log::error!("{label} transcription stopped: {reason}");
+                    let _ = app.emit(
+                        "meeting://provider-error",
+                        format!(
+                            "Live {label} transcription stopped: {reason}. Check the transcription API key in Settings."
+                        ),
+                    );
+                    pause_without_transcription(app.clone(), stream.session_id);
+                    break;
+                }
+                TranscriptionError::Failed(reason) => reason,
+            };
             log::warn!("{label} transcription disconnected: {error}");
             let _ = app.emit(
                 "meeting://provider-error",
@@ -4890,20 +5198,19 @@ fn spawn_transcription_stream(
                 }
             }
         }
-    });
+    })
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
-fn meeting_state(app: &AppHandle, session_id: Uuid) -> Option<MeetingState> {
+fn is_recording(app: &AppHandle, session_id: Uuid) -> bool {
     app.state::<AppState>()
         .live_meeting
         .lock()
         .ok()
-        .and_then(|meeting| {
+        .is_some_and(|meeting| {
             meeting
                 .as_ref()
-                .filter(|live| live.session.id == session_id)
-                .map(|live| live.session.state)
+                .is_some_and(|live| live.session.id == session_id && live.phase.is_recording())
         })
 }
 
@@ -4968,40 +5275,12 @@ fn emit_interim_transcript(app: &AppHandle, session_id: Uuid, transcript: LiveTr
     }
 }
 
-fn commit_listening_state(
-    session: &mut MeetingSession,
-    listening: bool,
-    mut capture: impl FnMut(bool) -> Result<(), String>,
-    persist: impl FnOnce(&MeetingSession) -> Result<(), String>,
-) -> Result<(), String> {
-    let mut next = session.clone();
-    next.state = if listening {
-        MeetingState::Recording
-    } else {
-        MeetingState::Paused
-    };
-    if let Err(error) = capture(listening).and_then(|()| persist(&next)) {
-        if listening {
-            if let Err(rollback) = capture(false) {
-                return Err(format!("{error}; capture rollback: {rollback}"));
-            }
-        } else {
-            // A persistence failure must never undo the user's request to stop capture.
-            session.state = MeetingState::Paused;
-        }
-        return Err(error);
-    }
-    *session = next;
-    Ok(())
-}
-
-fn set_meeting_listening(
-    session_id: String,
-    listening: bool,
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn pause_live_meeting(
     app: &AppHandle,
     state: &AppState,
+    session_id: Uuid,
 ) -> Result<MeetingSession, String> {
-    let session_id = Uuid::parse_str(&session_id).map_err(|error| error.to_string())?;
     let mut guard = state
         .live_meeting
         .lock()
@@ -5010,106 +5289,94 @@ fn set_meeting_listening(
         .as_mut()
         .filter(|live| live.session.id == session_id)
         .ok_or_else(|| "meeting is not active in this process".to_owned())?;
-    let expected = if listening {
-        MeetingState::Paused
-    } else {
-        MeetingState::Recording
-    };
-    if live.session.state != expected {
-        return Err("meeting is already in the requested state".into());
-    }
-    if !listening {
-        cancel_active_generation(app, live);
-        #[cfg(any(target_os = "macos", target_os = "windows"))]
-        cancel_reasoning(state);
-        // Close both transports so buffered tails cannot enter a later resume.
-        #[cfg(any(target_os = "macos", target_os = "windows"))]
-        {
-            if let Ok(mut stop) = state.transcription_stop.lock() {
-                if let Some(stop) = stop.take() {
-                    let _ = stop.send(true);
-                }
-            }
-        }
-    }
-    // Acquire every fallible lock before starting capture. Keep these guards
-    // through persistence and rollback, so rollback cannot fail to reacquire one.
-    let storage = state.storage.lock().map_err(|_| "storage lock poisoned")?;
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
-    let mut microphone = state
-        .microphone
+    let stream = live.phase.pause()?;
+    live.session.state = live.phase.meeting_state();
+    cancel_active_generation(app, live);
+    cancel_reasoning(state);
+    let capture_result = live.capture.pause();
+    let persist_result = state
+        .storage
         .lock()
-        .map_err(|_| "microphone lock poisoned")?;
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
-    let mut system_audio = state
-        .system_audio
-        .lock()
-        .map_err(|_| "system audio lock poisoned")?;
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
-    let microphone_only = state
-        .settings
-        .lock()
-        .map_err(|_| "settings lock poisoned")?
-        .microphone_only;
-    let result = commit_listening_state(
-        &mut live.session,
-        listening,
-        |enabled| {
-            #[cfg(any(target_os = "macos", target_os = "windows"))]
-            {
-                if enabled {
-                    microphone.resume().map_err(|error| error.to_string())?;
-                    let system_result = if microphone_only {
-                        system_audio.stop()
-                    } else {
-                        system_audio.start()
-                    };
-                    if let Err(error) = system_result {
-                        log::warn!("system audio could not follow listening state: {error}");
-                        let _ = app.emit("meeting://capture-error", error.to_string());
-                    }
-                } else {
-                    let microphone_error = microphone.pause().err();
-                    if microphone_error.is_some() {
-                        // stop takes ownership of the stream before any fallible work.
-                        if let Err(error) = microphone.stop() {
-                            log::warn!("microphone close after failed pause: {error}");
-                        }
-                    }
-                    let system_error = system_audio.stop().err();
-                    if let Some(error) = microphone_error.or(system_error) {
-                        return Err(error.to_string());
-                    }
-                }
-            }
-            #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-            let _ = enabled;
-            Ok(())
-        },
-        |session| {
+        .map_err(|_| "storage lock poisoned".to_owned())
+        .and_then(|storage| {
             storage
-                .save_session(session)
+                .save_session(&live.session)
                 .map_err(|error| error.to_string())
-        },
-    );
+        });
     let session = live.session.clone();
-    drop(storage);
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
-    {
-        drop(microphone);
-        drop(system_audio);
-    }
     drop(guard);
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
-    if !listening {
-        drain_transcript_assembly(state)?;
-    }
-    // A failed notification cannot turn a committed resume into a failed command
-    // and trigger hosted cleanup. The command response carries the same state.
+    // Both transports close before the command returns, so buffered tails cannot enter a
+    // later resume.
+    let stream_result = stream.finish();
+    // A failed notification cannot undo the pause. The command response carries the state.
     if let Err(error) = app.emit("meeting://session", &session) {
         log::warn!("could not emit listening state: {error}");
     }
-    result?;
+    capture_result?;
+    persist_result?;
+    stream_result?;
+    Ok(session)
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn resume_live_meeting(
+    app: &AppHandle,
+    state: &AppState,
+    session_id: Uuid,
+) -> Result<MeetingSession, String> {
+    let settings = state
+        .settings
+        .lock()
+        .map_err(|_| "settings lock poisoned")?
+        .clone();
+    let not_active = || "meeting is not active in this process".to_owned();
+    // A meeting keeps its mode for life, so it can be read before the claim.
+    let mode = state
+        .live_meeting
+        .lock()
+        .map_err(|_| "meeting lock poisoned")?
+        .as_ref()
+        .filter(|live| live.session.id == session_id)
+        .map(|live| live.mode)
+        .ok_or_else(not_active)?;
+    let claim = claim_managed_session(mode, session_id);
+    let mut guard = state
+        .live_meeting
+        .lock()
+        .map_err(|_| "meeting lock poisoned")?;
+    let live = guard
+        .as_mut()
+        .filter(|live| live.session.id == session_id)
+        .ok_or_else(not_active)?;
+    let outcome = {
+        let storage = state.storage.lock().map_err(|_| "storage lock poisoned")?;
+        resume_live_phase(
+            &mut live.phase,
+            &mut live.session,
+            &mut live.capture,
+            |session| {
+                storage
+                    .save_session(session)
+                    .map_err(|error| error.to_string())
+            },
+            |sources| {
+                claim?;
+                TranscriptionStream::start(app, &settings, mode, sources, session_id)
+            },
+        )
+    };
+    let session = live.session.clone();
+    drop(guard);
+    if let Err(error) = app.emit("meeting://session", &session) {
+        log::warn!("could not emit listening state: {error}");
+    }
+    match outcome? {
+        ResumeOutcome::Recording => {}
+        ResumeOutcome::StreamUnavailable(error) => {
+            log::warn!("transcription could not reattach: {error}");
+            report_stream_unavailable(app, mode, session_id, &error);
+        }
+    }
     Ok(session)
 }
 
@@ -5129,8 +5396,15 @@ fn managed_mode_from(app: &AppHandle) -> bool {
 async fn pause_meeting(session_id: String, app: AppHandle) -> Result<MeetingSession, String> {
     let managed = managed_mode_from(&app);
     let hosted_id = session_id.clone();
-    let session = run_app_command(app, move |app, state| {
-        set_meeting_listening(session_id, false, app, state)
+    let session_id = Uuid::parse_str(&session_id).map_err(|error| error.to_string())?;
+    let session = run_meeting_command(app, move |app, state| {
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        return pause_live_meeting(app, state, session_id);
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        {
+            let _ = (app, state, session_id);
+            Err("Meetings require macOS or Windows.".to_owned())
+        }
     })
     .await?;
     if managed {
@@ -5162,25 +5436,32 @@ async fn resume_meeting(session_id: String, app: AppHandle) -> Result<MeetingSes
     tauri::async_runtime::spawn_blocking(move || {
         run_resume_operation(|| {
             let parsed = Uuid::parse_str(&session_id).map_err(|error| error.to_string())?;
-            let managed = run_app_operation(&app, |_, state| {
+            let managed = run_meeting_operation(&app, |_, state| {
                 let live = state
                     .live_meeting
                     .lock()
                     .map_err(|_| "meeting lock poisoned")?;
-                if !live.as_ref().is_some_and(|live| {
-                    live.session.id == parsed && live.session.state == MeetingState::Paused
-                }) {
-                    return Err("meeting is not paused in this process".into());
+                let live = live
+                    .as_ref()
+                    .filter(|live| live.session.id == parsed)
+                    .ok_or("meeting is not active in this process")?;
+                match live.phase {
+                    LivePhase::Paused => Ok(live.mode.is_managed()),
+                    LivePhase::Recording(_) => Err("meeting is already recording".to_owned()),
+                    LivePhase::Stopping => Err("meeting is stopping".to_owned()),
                 }
-                Ok(managed_mode(state))
             })?;
             if managed {
                 // No application or capture lock is held during network requests.
                 if let Err(error) = managed::resume_session(&session_id) {
                     if error.contains("session_ended") {
-                        run_app_operation(&app, |app, state| {
-                            stop_live_meeting(app, state, parsed)
-                        })?;
+                        let state = app.state::<AppState>();
+                        let stop = || stop_live_meeting(&app, &state, parsed);
+                        if let Some(Err(stop_error)) =
+                            wait_for_meeting_control(&state.meeting_control, &state.app_gate, stop)
+                        {
+                            return Err(stop_error);
+                        }
                         return Err(managed_stream_message(&error, "meeting"));
                     }
                     return Err(error);
@@ -5190,32 +5471,16 @@ async fn resume_meeting(session_id: String, app: AppHandle) -> Result<MeetingSes
                     return Err(error);
                 }
             }
-            let result = run_app_operation(&app, |app, state| {
-                if managed_mode(state) != managed {
-                    return Err("service mode changed while authorizing".into());
-                }
-                let session = set_meeting_listening(session_id.clone(), true, app, state)?;
-                // Install workers before releasing either the application or resume
-                // lock. A deferred restart could attach after a later pause/resume.
+            // The stream is installed before either the meeting-control or resume lock
+            // is released, so a deferred restart cannot attach after a later pause.
+            let result = run_meeting_operation(&app, |app, state| {
                 #[cfg(any(target_os = "macos", target_os = "windows"))]
+                return resume_live_meeting(app, state, parsed);
+                #[cfg(not(any(target_os = "macos", target_os = "windows")))]
                 {
-                    if let Err(error) = start_transcription_worker(app, state, parsed) {
-                        log::warn!("transcription could not reattach: {error}");
-                        if managed {
-                            let id = session_id.clone();
-                            let command = managed::next_command();
-                            tauri::async_runtime::spawn_blocking(move || {
-                                managed::session_action_ordered(&id, "pause", command)
-                            });
-                        }
-                        let _ = app.emit(
-                            "meeting://provider-error",
-                            managed_stream_message(&error, "meeting"),
-                        );
-                        return set_meeting_listening(session_id.clone(), false, app, state);
-                    }
+                    let _ = (app, state);
+                    Err("Meetings require macOS or Windows.".to_owned())
                 }
-                Ok(session)
             });
             if managed && result.is_err() {
                 // Finish cleanup while owning the resume slot. A later retry cannot
@@ -5234,7 +5499,7 @@ async fn resume_meeting(session_id: String, app: AppHandle) -> Result<MeetingSes
 #[tauri::command]
 async fn stop_meeting(session_id: String, app: AppHandle) -> Result<MeetingSession, String> {
     let session_id = Uuid::parse_str(&session_id).map_err(|error| error.to_string())?;
-    run_app_command(app, move |app, state| {
+    run_meeting_command(app, move |app, state| {
         stop_live_meeting(app, state, session_id)
     })
     .await
@@ -5253,11 +5518,11 @@ pub(crate) fn quit(app: &AppHandle) {
 
 fn stop_active_meeting(app: &AppHandle) {
     let state = app.state::<AppState>();
-    let mut operation = state
-        .app_operation
+    state.app_gate.begin_exit();
+    let _control = state
+        .meeting_control
         .lock()
         .unwrap_or_else(|error| error.into_inner());
-    *operation = true;
     let session_id = state
         .live_meeting
         .lock()
@@ -5271,18 +5536,42 @@ fn stop_active_meeting(app: &AppHandle) {
     }
 }
 
-fn persist_stopped_meeting(
+/// A meeting left Recording or Paused by a previous run has no live state in this process,
+/// so it is closed as Interrupted. Pause, resume, and stop only act on the live meeting,
+/// which keeps per-launch hosted command ids from ever being sent for an old session.
+fn interrupt_previous_session(storage: &Storage) -> Result<Option<Uuid>, String> {
+    let Some(mut session) = storage
+        .latest_active_session()
+        .map_err(|error| error.to_string())?
+    else {
+        return Ok(None);
+    };
+    session.state = MeetingState::Interrupted;
+    session.ended_at = Some(Utc::now());
+    storage
+        .save_session(&session)
+        .map_err(|error| error.to_string())?;
+    Ok(Some(session.id))
+}
+
+/// Stopping -> Stopped: writes the final session, then drops the live meeting with its
+/// capture. A failed write keeps the meeting Stopping so the user can retry the stop.
+fn finish_stop(
     live: &mut Option<LiveMeeting>,
     session: &MeetingSession,
-    on_stopped: impl FnOnce(),
     persist: impl FnOnce(&MeetingSession) -> Result<(), String>,
 ) -> Result<(), String> {
     let pending = live
         .as_mut()
         .filter(|live| live.session.id == session.id)
         .ok_or("meeting is not active in this process")?;
+    match pending.phase {
+        LivePhase::Stopping => {}
+        LivePhase::Recording(_) | LivePhase::Paused => {
+            return Err("meeting has not begun stopping".into());
+        }
+    }
     pending.session = session.clone();
-    on_stopped();
     persist(session)?;
     live.take();
     Ok(())
@@ -5293,55 +5582,48 @@ fn stop_live_meeting(
     state: &AppState,
     session_id: Uuid,
 ) -> Result<MeetingSession, String> {
-    let mut session = {
+    let (mut session, stream, first_stop) = {
         let mut guard = state
             .live_meeting
             .lock()
             .map_err(|_| "meeting lock poisoned")?;
-        if guard.as_ref().map(|live| live.session.id) != Some(session_id) {
-            return Err("meeting is not active in this process".into());
-        }
-        if let Some(live) = guard.as_mut() {
-            cancel_active_generation(app, live);
-            live.coordinator.stop();
-        }
-        #[cfg(any(target_os = "macos", target_os = "windows"))]
-        cancel_reasoning(state);
-        let live = guard.as_mut().expect("active meeting was checked");
-        live.session.state = MeetingState::Completed;
+        let live = guard
+            .as_mut()
+            .filter(|live| live.session.id == session_id)
+            .ok_or("meeting is not active in this process")?;
+        let (stream, first_stop) = match live.phase.begin_stop() {
+            StopEntry::Recording(stream) => (Some(stream), true),
+            StopEntry::Paused => (None, true),
+            StopEntry::Retry => (None, false),
+        };
+        live.session.state = live.phase.meeting_state();
         live.session.ended_at.get_or_insert_with(Utc::now);
-        live.session.clone()
-    };
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
-    if let Ok(mut stop) = state.transcription_stop.lock() {
-        if let Some(stop) = stop.take() {
-            let _ = stop.send(true);
+        if first_stop {
+            cancel_active_generation(app, live);
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
+            {
+                cancel_reasoning(state);
+                for error in live.capture.stop() {
+                    let _ = app.emit("meeting://capture-error", error);
+                }
+            }
+            // Billing stops with capture, once; a retried history write is not a new stop.
+            match live.mode {
+                ServiceMode::Managed => {
+                    tauri::async_runtime::spawn_blocking(move || {
+                        if let Err(error) = managed::stop_session(&session_id.to_string()) {
+                            log::warn!("hosted stop will reconcile on next connect: {error}");
+                        }
+                    });
+                }
+                ServiceMode::Byok => {}
+            }
         }
+        (live.session.clone(), stream, first_stop)
+    };
+    if let Some(stream) = stream {
+        stream.finish()?;
     }
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
-    let recording_error = state
-        .microphone
-        .lock()
-        .map_err(|_| "microphone lock poisoned")?
-        .stop()
-        .err();
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
-    let system_audio_error = state
-        .system_audio
-        .lock()
-        .map_err(|_| "system audio lock poisoned")?
-        .stop()
-        .err();
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
-    if let Some(error) = recording_error {
-        let _ = app.emit("meeting://capture-error", error.to_string());
-    }
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
-    if let Some(error) = system_audio_error {
-        let _ = app.emit("meeting://capture-error", error.to_string());
-    }
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
-    drain_transcript_assembly(state)?;
     if session
         .audio_path
         .as_ref()
@@ -5350,30 +5632,21 @@ fn stop_live_meeting(
         session.audio_path = None;
     }
     #[cfg(any(target_os = "macos", target_os = "windows"))]
-    play_configured_feedback(state, false);
+    if first_stop {
+        play_configured_feedback(state, false);
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let _ = first_stop;
     let _ = app.emit("meeting://stopped", session_id);
     {
         let mut live = state
             .live_meeting
             .lock()
             .map_err(|_| "meeting lock poisoned")?;
-        persist_stopped_meeting(
-            &mut live,
-            &session,
-            || {
-                if managed_mode(state) {
-                    tauri::async_runtime::spawn_blocking(move || {
-                        if let Err(error) = managed::stop_session(&session_id.to_string()) {
-                            log::warn!("hosted stop will reconcile on next connect: {error}");
-                        }
-                    });
-                }
-            },
-            |session| {
-                state.storage.lock().map_err(|_| "storage lock poisoned")?
+        finish_stop(&mut live, &session, |session| {
+            state.storage.lock().map_err(|_| "storage lock poisoned")?
                 .save_session(session).map_err(|error| format!("Meeting stopped, but history could not be saved. Retry Stop meeting: {error}"))
-            },
-        )?;
+        })?;
     }
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     overlay::hide(app);
@@ -5424,22 +5697,10 @@ fn shutdown_providers(state: &AppState) {
 fn get_audio_level(state: State<'_, AppState>) -> Result<f32, String> {
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     {
-        #[cfg(target_os = "macos")]
-        {
-            match state.system_audio.try_lock() {
-                Ok(system) => {
-                    system.level().map_err(|error| error.to_string())?;
-                }
-                Err(std::sync::TryLockError::WouldBlock) => {}
-                Err(std::sync::TryLockError::Poisoned(_)) => {
-                    return Err("system audio lock poisoned".into())
-                }
-            }
-        }
-        match state.microphone.try_lock() {
-            Ok(microphone) => microphone.level().map_err(|error| error.to_string()),
+        match state.live_meeting.try_lock() {
+            Ok(live) => live.as_ref().map_or(Ok(0.0), |live| live.capture.level()),
             Err(std::sync::TryLockError::WouldBlock) => Ok(0.0),
-            Err(std::sync::TryLockError::Poisoned(_)) => Err("microphone lock poisoned".into()),
+            Err(std::sync::TryLockError::Poisoned(_)) => Err("meeting lock poisoned".into()),
         }
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
@@ -5857,6 +6118,7 @@ fn spawn_provider_enhancement(app: AppHandle, pending: PendingGeneration, provid
         }
     }
     tauri::async_runtime::spawn(async move {
+        let mut exit = WorkerExit::new(&RECOMMENDATION_WORK);
         let mut next_start = tokio::time::Instant::now();
         loop {
             // Coalesce bursts during the gap instead of allocating a task per turn.
@@ -5873,7 +6135,11 @@ fn spawn_provider_enhancement(app: AppHandle, pending: PendingGeneration, provid
                 if work.next_start(now) > now {
                     continue;
                 }
-                work.next()
+                let next = work.next();
+                if next.is_none() {
+                    exit.disarm();
+                }
+                next
             };
             let Some((pending, provider)) = next else {
                 return;
@@ -6783,29 +7049,22 @@ fn update_check_outcome(
 
 fn prepare_to_relaunch(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<AppState>();
-    let mut operation = state
-        .app_operation
-        .try_lock()
-        .map_err(|_| "Wait for the current meeting operation to finish.")?;
-    if *operation {
-        return Err("Savvy is already updating or reopening.".into());
-    }
-    if state
+    // Enter Relaunching first so no meeting can start between the check and the restart.
+    state.app_gate.begin_relaunch()?;
+    let meeting_active = state
         .live_meeting
         .lock()
         .map_err(|_| "meeting lock poisoned")?
-        .is_some()
-    {
+        .is_some();
+    if meeting_active {
+        state.app_gate.cancel_relaunch();
         return Err("Stop the meeting before updating or reopening Savvy.".into());
     }
-    *operation = true;
     Ok(())
 }
 
 fn cancel_relaunch(app: &AppHandle) {
-    if let Ok(mut operation) = app.state::<AppState>().app_operation.lock() {
-        *operation = false;
-    }
+    app.state::<AppState>().app_gate.cancel_relaunch();
 }
 
 fn finish_relaunch(app: &AppHandle) -> Result<(), String> {
@@ -6922,7 +7181,6 @@ pub fn run() {
                                 let _ = window.show();
                                 let _ = window.set_focus();
                             }
-                            let _ = handle.emit("managed://refresh", ());
                             return;
                         }
                         let meeting_active = handle
@@ -6973,11 +7231,7 @@ pub fn run() {
                 }
             }
             let storage = Storage::open(&app_data.join("savvy-v2.sqlite"))?;
-            if let Some(mut session) = storage.latest_active_session()? {
-                session.state = MeetingState::Interrupted;
-                session.ended_at = Some(Utc::now());
-                storage.save_session(&session)?;
-            }
+            interrupt_previous_session(&storage)?;
             match cleanup_expired_meetings(&storage, &recordings, Utc::now()) {
                 Ok(count) if count > 0 => log::info!("removed {count} expired meetings"),
                 Err(error) => log::warn!("expired meeting cleanup failed: {error}"),
@@ -6991,37 +7245,15 @@ pub fn run() {
             if let Err(error) = storage.compact() {
                 log::warn!("storage compaction failed: {error}");
             }
-            #[cfg(any(target_os = "macos", target_os = "windows"))]
-            let mut microphone = MicrophoneCapture::new();
-            #[cfg(any(target_os = "macos", target_os = "windows"))]
-            microphone.configure(
-                settings.selected_microphone.clone(),
-                settings.selected_channel,
-            )?;
-            #[cfg(target_os = "windows")]
-            let system_audio = {
-                let mut capture = SystemAudioCapture::new();
-                capture.configure(settings.selected_system_output_device.clone())?;
-                capture
-            };
             app.manage(AppState {
                 storage: Mutex::new(storage),
                 live_meeting: Mutex::new(None),
                 settings: Mutex::new(settings.clone()),
-                app_operation: Mutex::new(false),
+                app_gate: AppGate::new(),
+                meeting_control: Mutex::new(()),
                 settings_path,
                 granted_paths: Mutex::default(),
                 provider_health: Mutex::new(provider_health),
-                #[cfg(any(target_os = "macos", target_os = "windows"))]
-                microphone: Mutex::new(microphone),
-                #[cfg(target_os = "macos")]
-                system_audio: Mutex::new(SystemAudioCapture::new()),
-                #[cfg(target_os = "windows")]
-                system_audio: Mutex::new(system_audio),
-                #[cfg(any(target_os = "macos", target_os = "windows"))]
-                transcription_stop: Mutex::new(None),
-                #[cfg(any(target_os = "macos", target_os = "windows"))]
-                transcription_assembly: Mutex::new(None),
                 #[cfg(any(target_os = "macos", target_os = "windows"))]
                 codex_server: Mutex::new(None),
                 #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -7220,18 +7452,11 @@ mod tests {
                 ),
                 live_meeting: Mutex::new(None),
                 settings: Mutex::new(settings),
-                app_operation: Mutex::new(false),
+                app_gate: AppGate::new(),
+                meeting_control: Mutex::new(()),
                 settings_path: fixture.directory.join("settings.json"),
                 granted_paths: Mutex::default(),
                 provider_health: Mutex::new(Vec::new()),
-                #[cfg(any(target_os = "macos", target_os = "windows"))]
-                microphone: Mutex::new(MicrophoneCapture::new()),
-                #[cfg(any(target_os = "macos", target_os = "windows"))]
-                system_audio: Mutex::new(SystemAudioCapture::new()),
-                #[cfg(any(target_os = "macos", target_os = "windows"))]
-                transcription_stop: Mutex::new(None),
-                #[cfg(any(target_os = "macos", target_os = "windows"))]
-                transcription_assembly: Mutex::new(None),
                 #[cfg(any(target_os = "macos", target_os = "windows"))]
                 codex_server: Mutex::new(None),
                 #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -7392,6 +7617,9 @@ mod tests {
                     provider_warning_sent: false,
                     started_monotonic: std::time::Instant::now(),
                     brief: brief.clone(),
+                    mode: ServiceMode::Byok,
+                    capture: idle_capture(),
+                    phase: LivePhase::Recording(idle_stream()),
                 });
             }
             for answer in [expected, alternative] {
@@ -7719,11 +7947,11 @@ mod tests {
 
     #[test]
     fn context_removal_rejects_active_work_and_holds_both_lifecycle_guards() {
-        let operation = Mutex::new(false);
+        let operation = AppGate::new();
         let scope = Some(Uuid::new_v4());
         let mut removed = false;
         {
-            let _starting_meeting = operation.lock().unwrap();
+            let _starting_meeting = operation.try_begin().unwrap();
             assert!(with_context_removal(&operation, scope, || {
                 removed = true;
                 Ok(())
@@ -7731,9 +7959,9 @@ mod tests {
             .is_err());
         }
         assert!(!removed);
-        *operation.lock().unwrap() = true;
+        operation.begin_relaunch().unwrap();
         assert!(with_context_removal(&operation, scope, || Ok(())).is_err());
-        *operation.lock().unwrap() = false;
+        operation.cancel_relaunch();
         BRIEF_SCOPES
             .lock()
             .unwrap()
@@ -7748,7 +7976,7 @@ mod tests {
         drop(generation);
         with_context_removal(&operation, scope, || {
             assert!(
-                operation.try_lock().is_err(),
+                operation.try_begin().is_err(),
                 "meeting start must remain excluded"
             );
             assert!(
@@ -7760,7 +7988,7 @@ mod tests {
         })
         .unwrap();
         assert!(removed);
-        assert!(operation.try_lock().is_ok());
+        assert!(operation.try_begin().is_ok());
         assert!(BRIEF_SCOPES.try_lock().is_ok());
     }
 
@@ -7821,7 +8049,92 @@ mod tests {
             provider_warning_sent: false,
             #[cfg(any(target_os = "macos", target_os = "windows"))]
             started_monotonic: std::time::Instant::now(),
+            mode: ServiceMode::Byok,
+            capture: idle_capture(),
+            phase: LivePhase::Recording(idle_stream()),
         }
+    }
+
+    /// Capture objects with no device open; every real device call on them fails.
+    fn idle_capture() -> Capture {
+        Capture {
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
+            microphone: MicrophoneCapture::new(),
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
+            system_audio: None,
+        }
+    }
+
+    /// A stream whose tasks finish at once, with a receiver that observes the stop signal.
+    fn stopped_stream() -> (TranscriptionStream, tokio::sync::watch::Receiver<bool>) {
+        let (stop, stopped) = tokio::sync::watch::channel(false);
+        let stream = TranscriptionStream {
+            stop,
+            sources: vec![tauri::async_runtime::spawn(async {})],
+            assembly: tauri::async_runtime::spawn(async {}),
+        };
+        (stream, stopped)
+    }
+
+    fn idle_stream() -> TranscriptionStream {
+        stopped_stream().0
+    }
+
+    #[test]
+    fn live_phase_legal_transitions() {
+        // Recording -> Paused hands the stream back, already told to stop.
+        let (stream, stopped) = stopped_stream();
+        let mut phase = LivePhase::Recording(stream);
+        assert!(phase.is_recording());
+        assert_eq!(phase.meeting_state(), MeetingState::Recording);
+        let stream = phase.pause().unwrap();
+        assert!(*stopped.borrow(), "pause must signal the stream to stop");
+        assert!(!phase.is_recording());
+        assert_eq!(phase.meeting_state(), MeetingState::Paused);
+        stream.finish().unwrap();
+        // Paused -> Recording with the stream opened for it.
+        phase.resume(idle_stream()).unwrap();
+        assert!(phase.is_recording());
+        // Recording -> Stopping releases the stream once.
+        let (stream, stopped) = stopped_stream();
+        let mut phase = LivePhase::Recording(stream);
+        let StopEntry::Recording(stream) = phase.begin_stop() else {
+            panic!("a recording meeting hands its stream to the stop");
+        };
+        assert!(*stopped.borrow());
+        stream.finish().unwrap();
+        assert_eq!(phase.meeting_state(), MeetingState::Completed);
+        // Paused -> Stopping has no stream to finish.
+        let mut phase = LivePhase::Paused;
+        assert!(matches!(phase.begin_stop(), StopEntry::Paused));
+        assert_eq!(phase.meeting_state(), MeetingState::Completed);
+        // Stopping -> Stopping is a retry: nothing is released twice.
+        assert!(matches!(phase.begin_stop(), StopEntry::Retry));
+    }
+
+    #[test]
+    fn live_phase_illegal_transitions_leave_the_phase_unchanged() {
+        let mut phase = LivePhase::Paused;
+        assert_eq!(phase.pause().unwrap_err(), "meeting is already paused");
+        assert_eq!(phase.meeting_state(), MeetingState::Paused);
+
+        let (stream, _) = stopped_stream();
+        let mut phase = LivePhase::Recording(stream);
+        let (refused, stopped) = stopped_stream();
+        assert_eq!(
+            phase.resume(refused).unwrap_err(),
+            "meeting is already recording"
+        );
+        assert!(phase.is_recording(), "the running stream stays in place");
+        assert!(*stopped.borrow(), "the refused stream is told to stop");
+
+        let mut phase = LivePhase::Stopping;
+        assert_eq!(phase.pause().unwrap_err(), "meeting is stopping");
+        assert_eq!(phase.meeting_state(), MeetingState::Completed);
+        let (refused, stopped) = stopped_stream();
+        assert_eq!(phase.resume(refused).unwrap_err(), "meeting is stopping");
+        assert!(*stopped.borrow());
+        assert_eq!(phase.meeting_state(), MeetingState::Completed);
     }
 
     #[test]
@@ -7836,9 +8149,9 @@ mod tests {
         let mut live = scan_meeting(&[10_000, 12_000]);
         assert!(!scan_is_due(&live, 29_999));
         assert!(scan_is_due(&live, 30_000));
-        live.session.state = MeetingState::Paused;
-        assert!(!scan_is_due(&live, 30_000));
-        live.session.state = MeetingState::Recording;
+        let stream = live.phase.pause().unwrap();
+        assert!(!scan_is_due(&live, 30_000), "a paused meeting never scans");
+        live.phase.resume(stream).unwrap();
         let question = live.coordinator.start_generation(Trigger::Question);
         assert!(!scan_is_due(&live, 30_000));
         assert!(live.coordinator.finish_generation(question));
@@ -8020,6 +8333,52 @@ mod tests {
         assert!(work.enqueue(pending(10_001), "codex".into()));
         assert_eq!(work.next_start(now), now);
         assert_eq!(work.next().unwrap().0.token.generation_id, 10_001);
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    #[test]
+    fn panicking_recommendation_worker_releases_the_slot_for_the_next_enqueue() {
+        static WORK: std::sync::LazyLock<Mutex<RecommendationWork>> =
+            std::sync::LazyLock::new(|| Mutex::new(RecommendationWork::default()));
+        let request = synthetic_opportunity_request(&["What is the price?"]);
+        let pending = |generation_id| PendingGeneration {
+            token: GenerationToken {
+                session_id: request.session_id,
+                generation_id,
+                transcript_revision: 1,
+            },
+            recommendation_id: Uuid::new_v4(),
+            request: request.clone(),
+            local: None,
+        };
+        assert!(WORK.lock().unwrap().enqueue(pending(1), "codex".into()));
+        let worker = std::thread::spawn(|| {
+            let _exit = WorkerExit::new(&WORK);
+            let next = WORK.lock().unwrap().next();
+            assert!(next.is_some());
+            panic!("provider exploded mid-generation");
+        });
+        assert!(worker.join().is_err());
+        let mut work = WORK.lock().unwrap_or_else(|error| error.into_inner());
+        assert!(!work.running, "panicked worker still owns the slot");
+        assert!(work.active.is_none());
+        assert!(
+            work.enqueue(pending(2), "codex".into()),
+            "next enqueue must start a worker"
+        );
+        // A worker that drained normally disarms its guard before releasing the lock, so a
+        // worker started by a concurrent enqueue keeps the slot.
+        let mut exit = WorkerExit::new(&WORK);
+        assert!(work.next().is_some());
+        assert!(work.next().is_none());
+        exit.disarm();
+        assert!(work.enqueue(pending(3), "codex".into()));
+        drop(work);
+        drop(exit);
+        assert!(
+            WORK.lock().unwrap().running,
+            "disarmed guard must not release a newer worker"
+        );
     }
 
     #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -8340,128 +8699,219 @@ mod tests {
     }
 
     #[test]
-    fn failed_final_save_retains_stopped_session_and_runs_hosted_cleanup() {
-        let mut live = Some(scan_meeting(&[]));
-        let mut session = live.as_ref().unwrap().session.clone();
-        session.state = MeetingState::Completed;
-        session.ended_at = Some(Utc::now());
-        let cleanup_calls = std::cell::Cell::new(0);
-        let error = persist_stopped_meeting(
-            &mut live,
-            &session,
-            || cleanup_calls.set(cleanup_calls.get() + 1),
-            |_| {
-                assert_eq!(cleanup_calls.get(), 1);
-                Err("injected disk failure".into())
-            },
-        )
-        .unwrap_err();
-        assert_eq!(error, "injected disk failure");
-        let retained = &live.as_ref().unwrap().session;
-        assert_eq!(retained.state, MeetingState::Completed);
-        assert_eq!(retained.id, session.id);
-        assert_eq!(retained.ended_at, session.ended_at);
-        let directory = std::env::temp_dir().join(format!("savvy-stop-retry-{}", Uuid::new_v4()));
+    fn hosted_session_end_waits_for_meeting_control_not_the_app_gate() {
+        let gate = AppGate::new();
+        let control = std::sync::Arc::new(Mutex::new(()));
+        // A long application operation (source refresh, rescan) holds the gate: the stop
+        // still runs instead of failing with "already in progress".
+        let refresh = gate.try_begin().unwrap();
+        assert_eq!(
+            wait_for_meeting_control(&control, &gate, || "stopped"),
+            Some("stopped")
+        );
+        drop(refresh);
+        // A pause still finishing delays the stop until it is done.
+        let (held_tx, held_rx) = std::sync::mpsc::channel();
+        let holder_control = control.clone();
+        let holder = std::thread::spawn(move || {
+            let _pause = holder_control.lock().unwrap();
+            held_tx.send(()).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        });
+        held_rx.recv().unwrap();
+        assert_eq!(
+            wait_for_meeting_control(&control, &gate, || "stopped"),
+            Some("stopped"),
+            "stop must run once the previous meeting command is released"
+        );
+        holder.join().unwrap();
+        gate.begin_exit();
+        let ran = std::cell::Cell::new(false);
+        assert!(wait_for_meeting_control(&control, &gate, || ran.set(true)).is_none());
+        assert!(!ran.get(), "a relaunch or exit already stops the meeting");
+    }
+
+    #[test]
+    fn paused_session_from_a_previous_run_is_interrupted_at_startup() {
+        let directory = std::env::temp_dir().join(format!("savvy-startup-{}", Uuid::new_v4()));
         fs::create_dir(&directory).unwrap();
         let storage = Storage::open(&directory.join("history.sqlite")).unwrap();
-        persist_stopped_meeting(
-            &mut live,
-            &session,
-            || cleanup_calls.set(cleanup_calls.get() + 1),
-            |session| {
-                storage
-                    .save_session(session)
-                    .map_err(|error| error.to_string())
-            },
-        )
-        .unwrap();
-        assert!(live.is_none());
+        let mut session = scan_meeting(&[]).session;
+        session.state = MeetingState::Paused;
+        storage.save_session(&session).unwrap();
+        assert_eq!(
+            interrupt_previous_session(&storage).unwrap(),
+            Some(session.id)
+        );
         let saved = storage.get_session(session.id).unwrap().unwrap();
-        assert_eq!(saved.state, MeetingState::Completed);
-        assert_eq!(saved.ended_at, session.ended_at);
-        assert_eq!(cleanup_calls.get(), 2);
+        assert_eq!(saved.state, MeetingState::Interrupted);
+        assert!(saved.ended_at.is_some());
+        // Nothing is left for resume_meeting to find, so no hosted command can target it.
+        assert!(storage.latest_active_session().unwrap().is_none());
+        assert_eq!(interrupt_previous_session(&storage).unwrap(), None);
         drop(storage);
         fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
-    fn concurrent_resume_is_rejected_before_authorization_and_cleanup() {
-        let (started_tx, started_rx) = std::sync::mpsc::channel();
-        let (finish_tx, finish_rx) = std::sync::mpsc::channel();
-        let first = std::thread::spawn(move || {
-            run_resume_operation(|| {
-                started_tx.send(()).unwrap();
-                finish_rx.recv().unwrap();
-                Ok("resumed")
-            })
-        });
-        started_rx.recv().unwrap();
-        let second = run_resume_operation(|| -> Result<(), String> {
-            panic!("overlapping resume must not authorize or clean up a hosted session");
-        });
+    fn failed_final_save_keeps_the_meeting_stopping_until_the_write_succeeds() {
+        let mut live = Some(scan_meeting(&[]));
+        let mut session = live.as_ref().unwrap().session.clone();
+        // A stop that has not begun cannot finish: capture and the hosted session are
+        // released on the way into Stopping, never by the history write.
         assert_eq!(
-            second.unwrap_err(),
-            "a meeting resume is already in progress"
+            finish_stop(&mut live, &session, |_| panic!("must not persist")).unwrap_err(),
+            "meeting has not begun stopping"
         );
-        finish_tx.send(()).unwrap();
-        assert_eq!(first.join().unwrap().unwrap(), "resumed");
+        let StopEntry::Recording(stream) = live.as_mut().unwrap().phase.begin_stop() else {
+            panic!("the first stop releases the stream");
+        };
+        stream.finish().unwrap();
+        session.state = MeetingState::Completed;
+        session.ended_at = Some(Utc::now());
+        let error =
+            finish_stop(&mut live, &session, |_| Err("injected disk failure".into())).unwrap_err();
+        assert_eq!(error, "injected disk failure");
+        let retained = live.as_ref().unwrap();
+        assert_eq!(retained.phase.meeting_state(), MeetingState::Completed);
+        assert_eq!(retained.session.id, session.id);
+        assert_eq!(retained.session.ended_at, session.ended_at);
+        // Stop again: the hosted session and capture are not released a second time, only
+        // the history write runs again.
+        assert!(matches!(
+            live.as_mut().unwrap().phase.begin_stop(),
+            StopEntry::Retry
+        ));
+        let directory = std::env::temp_dir().join(format!("savvy-stop-retry-{}", Uuid::new_v4()));
+        fs::create_dir(&directory).unwrap();
+        let storage = Storage::open(&directory.join("history.sqlite")).unwrap();
+        finish_stop(&mut live, &session, |session| {
+            storage
+                .save_session(session)
+                .map_err(|error| error.to_string())
+        })
+        .unwrap();
         assert!(
-            run_resume_operation(|| -> Result<(), String> { Err("prepare failed".into()) })
-                .is_err()
+            live.is_none(),
+            "a written stop drops the meeting and its capture"
         );
-        assert!(run_resume_operation(|| Ok(())).is_ok());
+        let saved = storage.get_session(session.id).unwrap().unwrap();
+        assert_eq!(saved.state, MeetingState::Completed);
+        assert_eq!(saved.ended_at, session.ended_at);
+        drop(storage);
+        fs::remove_dir_all(directory).unwrap();
     }
 
+    /// Records the capture calls a resume makes and fails them on demand.
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    struct ScriptedCapture {
+        calls: Vec<&'static str>,
+        fail_resume: bool,
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    impl CaptureControl for ScriptedCapture {
+        fn resume(&mut self) -> Result<AudioSources, String> {
+            self.calls.push("resume");
+            if self.fail_resume {
+                return Err("microphone is not running".into());
+            }
+            let (_, microphone) = flume::bounded(1);
+            Ok(AudioSources {
+                microphone,
+                system: SystemSource::Off,
+            })
+        }
+
+        fn pause(&mut self) -> Result<(), String> {
+            self.calls.push("pause");
+            Ok(())
+        }
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     #[test]
-    fn failed_resume_rolls_capture_back_and_failed_pause_stays_paused() {
+    fn resume_rolls_capture_back_and_a_failed_stream_leaves_the_meeting_paused() {
         let mut session = scan_meeting(&[]).session;
         session.state = MeetingState::Paused;
-        let mut capture = Vec::new();
-        let failure = commit_listening_state(
+        let mut phase = LivePhase::Paused;
+        let mut capture = ScriptedCapture {
+            calls: Vec::new(),
+            fail_resume: false,
+        };
+        // History refuses the resume: capture is paused again and nothing is recording.
+        let failure = resume_live_phase(
+            &mut phase,
             &mut session,
-            true,
-            |enabled| {
-                capture.push(enabled);
-                Ok(())
-            },
+            &mut capture,
             |_| Err("disk full".into()),
+            |_| panic!("no stream opens before history accepts the resume"),
         );
         assert_eq!(failure.unwrap_err(), "disk full");
-        assert_eq!(capture, [true, false]);
+        assert_eq!(capture.calls, ["resume", "pause"]);
+        assert!(!phase.is_recording());
         assert_eq!(session.state, MeetingState::Paused);
-        // A retry can commit once persistence works again.
-        commit_listening_state(&mut session, true, |_| Ok(()), |_| Ok(())).unwrap();
-        assert_eq!(session.state, MeetingState::Recording);
-        capture.clear();
-        assert!(commit_listening_state(
+        // Capture refuses: history is untouched.
+        capture.calls.clear();
+        capture.fail_resume = true;
+        let failure = resume_live_phase(
+            &mut phase,
             &mut session,
-            false,
-            |enabled| {
-                capture.push(enabled);
+            &mut capture,
+            |_| panic!("capture failure must not persist recording"),
+            |_| panic!("capture failure must not open a stream"),
+        );
+        assert!(failure.is_err());
+        assert_eq!(capture.calls, ["resume"]);
+        assert_eq!(session.state, MeetingState::Paused);
+        // The stream cannot open: Recording was written, so Paused is written again and
+        // capture is paused, which is the only way a meeting can lack transcription.
+        capture.calls.clear();
+        capture.fail_resume = false;
+        let mut saved = Vec::new();
+        let outcome = resume_live_phase(
+            &mut phase,
+            &mut session,
+            &mut capture,
+            |session| {
+                saved.push(session.state);
                 Ok(())
             },
-            |_| Err("disk full".into())
+            |_| Err("provider refused the API key".into()),
         )
-        .is_err());
-        assert_eq!(capture, [false]);
+        .unwrap();
+        assert!(matches!(outcome, ResumeOutcome::StreamUnavailable(_)));
+        assert_eq!(capture.calls, ["resume", "pause"]);
+        assert_eq!(saved, [MeetingState::Recording, MeetingState::Paused]);
+        assert!(!phase.is_recording());
         assert_eq!(session.state, MeetingState::Paused);
-        capture.clear();
-        assert!(commit_listening_state(
+        // Everything works: Recording owns the stream.
+        capture.calls.clear();
+        let outcome = resume_live_phase(
+            &mut phase,
             &mut session,
-            true,
-            |enabled| {
-                capture.push(enabled);
-                if enabled {
-                    Err("capture failed".into())
-                } else {
-                    Ok(())
-                }
-            },
-            |_| panic!("capture failure must not persist recording")
+            &mut capture,
+            |_| Ok(()),
+            |_| Ok(idle_stream()),
         )
-        .is_err());
-        assert_eq!(capture, [true, false]);
-        assert_eq!(session.state, MeetingState::Paused);
+        .unwrap();
+        assert!(matches!(outcome, ResumeOutcome::Recording));
+        assert_eq!(capture.calls, ["resume"]);
+        assert!(phase.is_recording());
+        assert_eq!(session.state, MeetingState::Recording);
+        // Recording again is refused before any device or history call.
+        assert_eq!(
+            resume_live_phase(
+                &mut phase,
+                &mut session,
+                &mut capture,
+                |_| panic!("no history write"),
+                |_| panic!("no stream"),
+            )
+            .unwrap_err(),
+            "meeting is already recording"
+        );
+        assert_eq!(capture.calls, ["resume"]);
     }
 
     #[test]

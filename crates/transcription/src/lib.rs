@@ -88,6 +88,9 @@ where
 pub enum TranscriptionError {
     #[error("transcription failed: {0}")]
     Failed(String),
+    /// The provider refused the credential. Reconnecting with the same key cannot succeed.
+    #[error("transcription rejected: {0}")]
+    Rejected(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -491,7 +494,7 @@ pub async fn stream_transcription(
     source: AudioSource,
 ) -> Result<(), TranscriptionError> {
     if api_key.trim().is_empty() {
-        return Err(TranscriptionError::Failed("API key is empty".into()));
+        return Err(TranscriptionError::Rejected("API key is empty".into()));
     }
     let url = streaming_url(provider, model, language);
     let mut request = url
@@ -504,7 +507,7 @@ pub async fn stream_transcription(
     request.headers_mut().insert(
         "Authorization",
         HeaderValue::from_str(&authorization)
-            .map_err(|_| TranscriptionError::Failed("invalid API key".into()))?,
+            .map_err(|_| TranscriptionError::Rejected("invalid API key".into()))?,
     );
     stream_provider_socket(
         request,
@@ -538,6 +541,14 @@ async fn stream_provider_socket(
     let (socket, _) = connection
         .map_err(|_| TranscriptionError::Failed("provider connection timed out".into()))?
         .map_err(|error| {
+            if let tokio_tungstenite::tungstenite::Error::Http(response) = &error {
+                if let 401 | 403 = response.status().as_u16() {
+                    return TranscriptionError::Rejected(format!(
+                        "provider refused the API key: {}",
+                        response.status()
+                    ));
+                }
+            }
             TranscriptionError::Failed(format!("provider connection failed: {error}"))
         })?;
     let (mut writer, mut reader) = socket.split();
@@ -586,7 +597,11 @@ async fn stream_provider_socket(
                 match message {
                     Some(Ok(Message::Text(text))) => {
                         if let Some(error) = parse_provider_error(text.as_ref()) {
-                            return Err(TranscriptionError::Failed(error));
+                            return Err(if refuses_credentials(&error) {
+                                TranscriptionError::Rejected(error)
+                            } else {
+                                TranscriptionError::Failed(error)
+                            });
                         }
                         if let Some(transcript) = parse_provider_message(provider, text.as_ref(), language, source) {
                             if !deliver_transcript(&transcripts, transcript, connection_epoch, &mut stop).await? { return Ok(()); }
@@ -818,6 +833,13 @@ fn take_streaming_chunk(buffer: &mut Vec<u8>) -> Option<Vec<u8>> {
     }
     let remaining = buffer.split_off(STREAMING_CHUNK_BYTES);
     Some(std::mem::replace(buffer, remaining))
+}
+
+/// AssemblyAI accepts the upgrade, then refuses keys, tokens and accounts with close code 1008
+/// and `Unauthorized Connection:` text. That code also carries its session-start rate limit,
+/// which is the only one worth retrying.
+fn refuses_credentials(error: &str) -> bool {
+    error.starts_with("Unauthorized Connection:") && !error.contains("Too many concurrent sessions")
 }
 
 fn parse_provider_error(message: &str) -> Option<String> {
@@ -1065,6 +1087,120 @@ pub fn resample_linear(samples: &[f32], source_rate: u32, target_rate: u32) -> V
 
 #[cfg(test)]
 mod tests {
+
+    #[tokio::test]
+    async fn rejected_api_key_is_a_terminal_error_not_a_reconnect() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            // Windows resets a socket closed with unread data, which would hide the 401.
+            let mut request = Vec::new();
+            let mut chunk = [0_u8; 1024];
+            while !request.windows(4).any(|end| end == b"\r\n\r\n") {
+                let read = socket.read(&mut chunk).await.unwrap();
+                if read == 0 {
+                    break;
+                }
+                request.extend_from_slice(&chunk[..read]);
+            }
+            socket
+                .write_all(b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n")
+                .await
+                .unwrap();
+            socket.shutdown().await.unwrap();
+        });
+        let (_frames, frames) = flume::bounded(1);
+        let (_stop, stop) = tokio::sync::watch::channel(false);
+        let (transcripts, _) = tokio::sync::mpsc::channel(1);
+        let request = format!("ws://{address}/v1/listen");
+        let error = super::stream_provider_socket(
+            tokio_tungstenite::tungstenite::client::IntoClientRequest::into_client_request(
+                request.as_str(),
+            )
+            .unwrap(),
+            super::StreamingProvider::Deepgram,
+            "en",
+            frames,
+            stop,
+            transcripts,
+            super::AudioSource::Microphone,
+        )
+        .await
+        .unwrap_err();
+        server.await.unwrap();
+        match error {
+            super::TranscriptionError::Rejected(reason) => assert!(reason.contains("401")),
+            super::TranscriptionError::Failed(reason) => {
+                panic!("a refused key must not be retried: {reason}")
+            }
+        }
+        let (_frames, frames) = flume::bounded(1);
+        let (_stop, stop) = tokio::sync::watch::channel(false);
+        let (transcripts, _) = tokio::sync::mpsc::channel(1);
+        let empty = super::stream_transcription(
+            super::StreamingProvider::Deepgram,
+            "nova-3",
+            "en",
+            "   ",
+            frames,
+            stop,
+            transcripts,
+            super::AudioSource::Microphone,
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(empty, super::TranscriptionError::Rejected(_)));
+    }
+
+    async fn assemblyai_error_after_upgrade(error: &'static str) -> super::TranscriptionError {
+        use futures_util::SinkExt;
+        use tokio_tungstenite::tungstenite::Message;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            let mut socket = tokio_tungstenite::accept_async(socket).await.unwrap();
+            let frame = serde_json::json!({"type": "Error", "error_code": 1008, "error": error});
+            socket
+                .send(Message::Text(frame.to_string().into()))
+                .await
+                .unwrap();
+            let _ = socket.close(None).await;
+        });
+        let (_frames, frames) = flume::bounded(1);
+        let (_stop, stop) = tokio::sync::watch::channel(false);
+        let (transcripts, _) = tokio::sync::mpsc::channel(1);
+        let request = format!("ws://{address}/v3/ws");
+        let outcome = super::stream_provider_socket(
+            tokio_tungstenite::tungstenite::client::IntoClientRequest::into_client_request(
+                request.as_str(),
+            )
+            .unwrap(),
+            super::StreamingProvider::AssemblyAi,
+            "en",
+            frames,
+            stop,
+            transcripts,
+            super::AudioSource::Microphone,
+        )
+        .await
+        .unwrap_err();
+        server.await.unwrap();
+        outcome
+    }
+
+    #[tokio::test]
+    async fn assemblyai_refused_key_is_terminal_but_its_rate_limit_retries() {
+        let refused =
+            assemblyai_error_after_upgrade("Unauthorized Connection: Invalid API key").await;
+        assert!(matches!(refused, super::TranscriptionError::Rejected(_)));
+        let limited =
+            assemblyai_error_after_upgrade("Unauthorized Connection: Too many concurrent sessions")
+                .await;
+        assert!(matches!(limited, super::TranscriptionError::Failed(_)));
+    }
 
     #[tokio::test]
     async fn rejected_managed_handshake_does_not_report_recovery() {

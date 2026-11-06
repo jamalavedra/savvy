@@ -1381,6 +1381,8 @@ fn access_token() -> Result<String, String> {
         let body: serde_json::Value =
             bounded_json(response, MAX_AUTH_RESPONSE_BYTES).unwrap_or_default();
         if status.as_u16() == 400 && body["error"] == "invalid_grant" {
+            // Keep identity and brief recovery: same-account sign-in must resume mid-meeting
+            // and reuse paid brief keys. A different account clears them via changed_identity.
             delete_refresh_token()?;
             return Err(sign_in_required_error());
         }
@@ -2152,18 +2154,11 @@ mod issuer_tests {
                 ),
                 live_meeting: Mutex::new(None),
                 settings: Mutex::new(crate::AppSettings::default()),
-                app_operation: Mutex::new(false),
+                app_gate: crate::AppGate::new(),
+                meeting_control: Mutex::new(()),
                 settings_path: directory.join("settings.json"),
                 provider_health: Mutex::new(Vec::new()),
                 granted_paths: Mutex::default(),
-                #[cfg(any(target_os = "macos", target_os = "windows"))]
-                microphone: Mutex::new(crate::MicrophoneCapture::new()),
-                #[cfg(any(target_os = "macos", target_os = "windows"))]
-                system_audio: Mutex::new(crate::SystemAudioCapture::new()),
-                #[cfg(any(target_os = "macos", target_os = "windows"))]
-                transcription_stop: Mutex::new(None),
-                #[cfg(any(target_os = "macos", target_os = "windows"))]
-                transcription_assembly: Mutex::new(None),
                 #[cfg(any(target_os = "macos", target_os = "windows"))]
                 codex_server: Mutex::new(None),
                 #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -2774,8 +2769,22 @@ mod issuer_tests {
             .lock()
             .unwrap()
             .push_back((400, serde_json::json!({"error":"invalid_grant"})));
+        let identity_before = ACCOUNT_IDENTITY.lock().unwrap().clone();
+        BRIEF_RETRY
+            .lock()
+            .unwrap()
+            .insert("pending-brief".into(), "paid-key".into());
         assert!(access_token().unwrap_err().contains("sign_in_required"));
         assert!(stored_refresh_token().unwrap().is_none());
+        assert_eq!(*ACCOUNT_IDENTITY.lock().unwrap(), identity_before);
+        assert_eq!(
+            BRIEF_RETRY
+                .lock()
+                .unwrap()
+                .remove("pending-brief")
+                .as_deref(),
+            Some("paid-key")
+        );
         for error in ["access_denied", "expired_token"] {
             let flow = start_device_authorization().unwrap();
             responses
