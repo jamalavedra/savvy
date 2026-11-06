@@ -8,6 +8,13 @@ import type {
 
 export type ThinkingPhase = "checking" | "thinking";
 
+export type ThinkingState = {
+  trigger: RecommendationTrigger;
+  /** Null while a manual request waits for the backend to assign a generation. */
+  generationId: number | null;
+  phase: ThinkingPhase;
+};
+
 export type GenerationCursor = {
   sessionId: string;
   generationId: number;
@@ -23,12 +30,7 @@ type StaleCursor = Pick<
 
 export type MeetingEventEffect =
   | { kind: "ignored" }
-  | {
-      kind: "transcript";
-      cursor: GenerationCursor;
-      turn: TranscriptTurn;
-      newSession: boolean;
-    }
+  | { kind: "transcript"; cursor: GenerationCursor; turn: TranscriptTurn }
   | {
       kind: "started";
       cursor: GenerationCursor;
@@ -69,7 +71,6 @@ export function reduceMeetingEvent(
         terminalGenerationId: sameSession ? current.terminalGenerationId : 0,
       },
       turn: event.turn,
-      newSession: !sameSession,
     };
   }
   if (event.type === "recommendationStarted") {
@@ -134,14 +135,188 @@ export function meetingEventIsStale(event: MeetingEvent, current: StaleCursor) {
   );
 }
 
-export function startsNewMeeting(
-  session: Pick<MeetingSession, "id" | "state">,
-  currentSessionId: string,
+/**
+ * Everything the live-meeting surface shows. `cursor.sessionId` is the meeting
+ * whose events are accepted; it can be set before `session` when the first
+ * transcript event beats the session event. `endedSessionId` rejects events
+ * that arrive late from the meeting that just finished.
+ */
+export type MeetingState = {
+  session: MeetingSession | null;
+  stopped: boolean;
+  endedSessionId: string | null;
+  cursor: GenerationCursor;
+  turns: TranscriptTurn[];
+  thinking: ThinkingState | null;
+  recommendation: Recommendation | null;
+};
+
+export type MeetingAction =
+  | { type: "session"; session: MeetingSession }
+  | { type: "commandResult"; session: MeetingSession }
+  | {
+      type: "seed";
+      session: MeetingSession | null;
+      recommendation: Recommendation | null;
+    }
+  | { type: "stopped"; sessionId: string }
+  | { type: "event"; event: MeetingEvent }
+  | { type: "recommendationRequested" }
+  | { type: "recommendationRequestFailed" }
+  | { type: "thinkingExpired" };
+
+export const idleMeeting: MeetingState = {
+  session: null,
+  stopped: false,
+  endedSessionId: null,
+  cursor: {
+    sessionId: "",
+    generationId: 0,
+    sequence: 0,
+    terminalGenerationId: 0,
+  },
+  turns: [],
+  thinking: null,
+  recommendation: null,
+};
+
+/**
+ * Folds a backend event or the result of one of the app's own meeting
+ * commands into the live-meeting state. Both windows run this over the same
+ * events, so it depends on nothing outside its own state. Returns the same
+ * object when the action is rejected.
+ */
+export function reduceMeeting(
+  state: MeetingState,
+  action: MeetingAction,
+): MeetingState {
+  switch (action.type) {
+    case "session":
+      return reduceSession(state, action.session);
+    case "commandResult":
+      // Rust emits meeting://session before a command returns, and the reply
+      // travels on another channel, so a live reply only introduces a meeting
+      // the events have not; it never overrides a newer state for the same one.
+      if (isLive(action.session) && state.session?.id === action.session.id) {
+        return state;
+      }
+      return reduceSession(state, action.session);
+    case "seed":
+      return seedSession(state, action.session, action.recommendation);
+    case "stopped":
+      if (state.session?.id !== action.sessionId) return state;
+      return { ...state, stopped: true, thinking: null };
+    case "event":
+      return reduceEvent(state, action.event);
+    case "recommendationRequested":
+      if (!state.session || state.stopped) return state;
+      return {
+        ...state,
+        thinking: { trigger: "manual", generationId: null, phase: "checking" },
+        recommendation: null,
+      };
+    case "recommendationRequestFailed":
+      if (state.thinking?.generationId !== null) return state;
+      return { ...state, thinking: null };
+    case "thinkingExpired":
+      if (!state.thinking) return state;
+      return { ...state, thinking: null };
+  }
+}
+
+function reduceSession(state: MeetingState, session: MeetingSession) {
+  if (session.state === "preparing" || session.id === state.endedSessionId) {
+    return state;
+  }
+  const current = state.cursor.sessionId === session.id;
+  if (session.state === "completed" || session.state === "interrupted") {
+    // With nothing shown, remember the ending so a later seed cannot revive it.
+    if (!current) {
+      return state.session ? state : { ...state, endedSessionId: session.id };
+    }
+    return { ...idleMeeting, endedSessionId: session.id };
+  }
+  const thinking = session.state === "paused" ? null : state.thinking;
+  if (current) return { ...state, session, thinking };
+  return {
+    ...idleMeeting,
+    session,
+    endedSessionId: state.session?.id ?? state.endedSessionId,
+    cursor: { ...idleMeeting.cursor, sessionId: session.id },
+  };
+}
+
+function isLive(session: MeetingSession) {
+  return session.state === "recording" || session.state === "paused";
+}
+
+/**
+ * A window that reloads mid-meeting gets no session event until the next
+ * pause, resume or stop, so it reads the running meeting once at mount. The
+ * read only fills an empty slot: anything the events already established wins.
+ */
+function seedSession(
+  state: MeetingState,
+  session: MeetingSession | null,
+  recommendation: Recommendation | null,
 ) {
-  return (
-    (session.state === "recording" || session.state === "paused") &&
-    session.id !== currentSessionId
-  );
+  if (
+    !session ||
+    !isLive(session) ||
+    state.session ||
+    session.id === state.endedSessionId ||
+    (state.cursor.sessionId !== "" && state.cursor.sessionId !== session.id)
+  ) {
+    return state;
+  }
+  return {
+    ...state,
+    session,
+    cursor: { ...state.cursor, sessionId: session.id },
+    recommendation: state.recommendation ?? recommendation,
+  };
+}
+
+function reduceEvent(state: MeetingState, event: MeetingEvent) {
+  if (event.sessionId === state.endedSessionId) return state;
+  if (state.cursor.sessionId && event.sessionId !== state.cursor.sessionId) {
+    return state;
+  }
+  const effect = reduceMeetingEvent(state.cursor, event);
+  switch (effect.kind) {
+    case "ignored":
+      return state;
+    case "transcript":
+      return {
+        ...state,
+        cursor: effect.cursor,
+        turns: mergeTranscriptTurn(state.turns, effect.turn),
+      };
+    case "started":
+      return {
+        ...state,
+        cursor: effect.cursor,
+        thinking: effect.thinking,
+        recommendation:
+          effect.card === undefined ? state.recommendation : effect.card,
+      };
+    case "phase":
+      return {
+        ...state,
+        cursor: effect.cursor,
+        thinking:
+          state.thinking && state.thinking.generationId === effect.generationId
+            ? { ...state.thinking, phase: "thinking" as const }
+            : state.thinking,
+      };
+    case "finished":
+      return {
+        ...state,
+        cursor: effect.cursor,
+        thinking: null,
+        recommendation: effect.recommendation ?? state.recommendation,
+      };
+  }
 }
 
 export function mergeTranscriptTurn(
