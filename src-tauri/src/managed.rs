@@ -2154,18 +2154,11 @@ mod issuer_tests {
                 ),
                 live_meeting: Mutex::new(None),
                 settings: Mutex::new(crate::AppSettings::default()),
-                app_operation: Mutex::new(false),
+                app_gate: crate::AppGate::new(),
+                meeting_control: Mutex::new(()),
                 settings_path: directory.join("settings.json"),
                 provider_health: Mutex::new(Vec::new()),
                 granted_paths: Mutex::default(),
-                #[cfg(any(target_os = "macos", target_os = "windows"))]
-                microphone: Mutex::new(crate::MicrophoneCapture::new()),
-                #[cfg(any(target_os = "macos", target_os = "windows"))]
-                system_audio: Mutex::new(crate::SystemAudioCapture::new()),
-                #[cfg(any(target_os = "macos", target_os = "windows"))]
-                transcription_stop: Mutex::new(None),
-                #[cfg(any(target_os = "macos", target_os = "windows"))]
-                transcription_assembly: Mutex::new(None),
                 #[cfg(any(target_os = "macos", target_os = "windows"))]
                 codex_server: Mutex::new(None),
                 #[cfg(any(target_os = "macos", target_os = "windows"))]
