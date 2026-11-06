@@ -272,3 +272,58 @@ it("uses the shared chooser to switch apps and reset the available record type",
   fireEvent.click(screen.getByRole("option", { name: "Gmail" }));
   expect(kind).toHaveTextContent("Thread");
 });
+
+it("drops the pagination cursor when the query changes", async () => {
+  vi.spyOn(api, "sourceConnections").mockResolvedValue([
+    { provider: "salesforce", accountId: "account-1", connected: true },
+  ]);
+  const record: SourceRecord = {
+    provider: "salesforce",
+    kind: "account",
+    accountId: "account-1",
+    recordId: "record-1",
+    title: "Acme",
+    url: "https://example.test/acme",
+    modifiedAt: null,
+  };
+  const search = vi
+    .spyOn(api, "sourceSearch")
+    .mockResolvedValue({ records: [record], nextCursor: "page-2" });
+  render(
+    <ConnectedSources
+      client={
+        {
+          id: "client-1",
+          name: "Acme",
+          folderPath: "/tmp/acme",
+          indexStatus: "ready",
+          documentCount: 0,
+          lastIndexedAt: null,
+          activeBriefId: null,
+          excludedPaths: [],
+          connectedSources: [],
+        } as ClientWorkspace
+      }
+      disabled={false}
+      refreshes={[]}
+      onClientChange={vi.fn()}
+    />,
+  );
+  const input = await screen.findByRole("textbox", { name: "Search records" });
+  fireEvent.change(input, { target: { value: "Acme" } });
+  fireEvent.submit(input.closest("form")!);
+  await screen.findByRole("button", { name: "More results" });
+  fireEvent.change(input, { target: { value: "Beta" } });
+  expect(
+    screen.queryByRole("button", { name: "More results" }),
+  ).not.toBeInTheDocument();
+  fireEvent.submit(input.closest("form")!);
+  await waitFor(() => expect(search).toHaveBeenCalledTimes(2));
+  expect(search).toHaveBeenLastCalledWith(
+    "salesforce",
+    "account",
+    "account-1",
+    "Beta",
+    undefined,
+  );
+});

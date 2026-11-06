@@ -227,6 +227,7 @@ export default function ConnectedSources({
               onChange={(event) => {
                 setQuery(event.target.value);
                 setSearched(false);
+                setCursor(null);
               }}
             />
           </label>
