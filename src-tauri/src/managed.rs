@@ -1720,6 +1720,10 @@ pub struct SessionView {
     pub warning: Option<String>,
     #[serde(default)]
     pub funding: Option<FundingChoice>,
+    /// Why the service paused the session: `user`, `exhausted`, `provider_failure` or
+    /// `disconnected`. `None` while active.
+    #[serde(default)]
+    pub pause_reason: Option<String>,
 }
 
 /// Creates or reattaches the hosted session for a local meeting. Idempotent,

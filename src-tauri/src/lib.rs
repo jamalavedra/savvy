@@ -4879,11 +4879,7 @@ fn spawn_managed_stream(
             let authorization = tauri::async_runtime::spawn_blocking(move || {
                 let session = managed::create_session(&id)?;
                 if session.state != "active" {
-                    return Err(if session.meeting_ms_available == 0 {
-                        "quota_exhausted: assistance paused; add time and explicitly resume"
-                    } else {
-                        "assistance_paused: service paused assistance; explicitly resume when available"
-                    }.to_owned());
+                    return Err(paused_session_error(&session).to_owned());
                 }
                 let (url, token) = managed::relay_credentials()?;
                 Ok((session, url, token))
@@ -5059,6 +5055,15 @@ fn pause_without_transcription(app: AppHandle, id: Uuid) {
             log::warn!("meeting could not pause after transcription stopped: {error}");
         }
     });
+}
+
+/// The terminal message for a hosted session the service will not stream for.
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
+fn paused_session_error(session: &managed::SessionView) -> &'static str {
+    match session.pause_reason.as_deref() {
+        Some("exhausted") => "quota_exhausted: assistance paused; add time and explicitly resume",
+        _ => "assistance_paused: service paused assistance; explicitly resume when available",
+    }
 }
 
 /// Quota, authorization, and session conflicts are decisions, not outages:
@@ -7931,6 +7936,30 @@ mod tests {
         let message = super::managed_stream_message("capture_unavailable", "system audio");
         assert!(message.contains("system audio capture"));
         assert!(message.contains("resume the meeting"));
+    }
+
+    #[test]
+    fn paused_session_message_follows_the_service_pause_reason() {
+        let paused = |reason: Option<&str>, available: i64| -> super::managed::SessionView {
+            serde_json::from_value(serde_json::json!({
+                "sessionId": "s", "state": "paused", "leaseVersion": 1, "settledMs": 0,
+                "meetingMsAvailable": available, "warning": null, "pauseReason": reason,
+            }))
+            .unwrap()
+        };
+        assert!(super::paused_session_error(&paused(Some("exhausted"), 0))
+            .starts_with("quota_exhausted:"));
+        for reason in [
+            Some("user"),
+            Some("disconnected"),
+            Some("provider_failure"),
+            None,
+        ] {
+            assert!(
+                super::paused_session_error(&paused(reason, 0)).starts_with("assistance_paused:"),
+                "{reason:?} with no time left is not a quota pause"
+            );
+        }
     }
 
     #[test]
