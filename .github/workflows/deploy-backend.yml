@@ -28,7 +28,7 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ github.event.workflow_run.head_sha }}
-      - uses: tailscale/github-action@99a8333667fff04fdd6cffb46dfd409f8329a7bf # v4
+      - uses: tailscale/github-action@064b10558093f38325e838ddea35486bdc6b1d5c # v4
         with:
           oauth-client-id: ${{ vars.TS_CI_CLIENT_ID }}
           audience: ${{ vars.TS_CI_AUDIENCE }}
