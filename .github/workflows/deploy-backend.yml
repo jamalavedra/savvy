@@ -7,7 +7,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 concurrency:
   group: deploy-savvy-backend
@@ -28,12 +27,32 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ github.event.workflow_run.head_sha }}
-      - uses: tailscale/github-action@99a8333667fff04fdd6cffb46dfd409f8329a7bf # v4
-        with:
-          oauth-client-id: ${{ vars.TS_CI_CLIENT_ID }}
-          audience: ${{ vars.TS_CI_AUDIENCE }}
-          tags: tag:deploy-epistoma
+      - name: Install cloudflared
+        env:
+          CLOUDFLARED_VERSION: "2026.11.0"
+          CLOUDFLARED_SHA256: 51f7c68b57ed7269164075d7e789efce5b59355982f06392deeb037d982a51fd
+        run: |
+          curl -fsSL -o /tmp/cloudflared "https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/cloudflared-linux-amd64"
+          echo "${CLOUDFLARED_SHA256}  /tmp/cloudflared" | sha256sum -c -
+          sudo install -m 0755 /tmp/cloudflared /usr/local/bin/cloudflared
+      - name: Configure SSH to epistoma
+        env:
+          DEPLOY_KEY: ${{ secrets.EPISTOMA_DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.EPISTOMA_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/epistoma_deploy
+          chmod 600 ~/.ssh/epistoma_deploy
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+      # SSH through Cloudflare Access (alamaslabs/infra zero-trust/ssh_hostnames.tf): the
+      # service token passes Access, the deploy key (restricted in ~jaume/.ssh/authorized_keys) logs in.
       - name: Deploy checked backend
         env:
           DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
-        run: tailscale ssh jaume@epistoma "bash -s -- $DEPLOY_SHA" < deploy/epistoma-main.sh
+          TUNNEL_SERVICE_TOKEN_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          TUNNEL_SERVICE_TOKEN_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: >-
+          ssh -i ~/.ssh/epistoma_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes
+          -o BatchMode=yes -o ServerAliveInterval=30
+          -o ProxyCommand="cloudflared access ssh --hostname %h"
+          jaume@ssh-epistoma.fort.dev "bash -s -- $DEPLOY_SHA" < deploy/epistoma-main.sh
