@@ -41,11 +41,11 @@ savvy-storage = { path = "../crates/storage" }
 reqwest = { version = "0.13.4", features = ["json", "form", "blocking"] }
 serde.workspace = true
 serde_json.workspace = true
-sha2 = "0.10"
+sha2 = "0.11"
 uuid.workspace = true
 tauri-plugin-updater = "2.14.1"
 tauri-plugin-deep-link = "2"
-base64 = "0.22"
+base64 = "0.23"
 tokio = { workspace = true, features = ["process", "io-util"] }
 
 [target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
