@@ -5,7 +5,11 @@ targets = [{ triple = "aarch64-apple-darwin" }, { triple = "x86_64-pc-windows-ms
 version = 2
 # The `[graph]` target above already excludes Tauri's Linux GTK3 stack, whose
 # unmaintained crates are unreachable in a macOS build.
-ignore = []
+ignore = [
+  # chrono is unmaintained, not vulnerable, and has no successor release. Replacing it with jiff
+  # touches serialized domain types, so it is a separate change.
+  { id = "RUSTSEC-2026-0543", reason = "chrono unmaintained; no vulnerability; jiff migration pending" },
+]
 
 [licenses]
 version = 2
