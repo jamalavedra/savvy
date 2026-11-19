@@ -152,12 +152,16 @@ fixtures. Stripe-hosted return pages trigger refresh and never prove payment.
 ## Upgrade, backup and rollback
 
 The `Deploy backend` GitHub workflow runs after a successful main-branch
-`Verify` run. Its Tailscale federated identity uses the repository variables
-`TS_CI_CLIENT_ID` and `TS_CI_AUDIENCE` to reach Epistoma and run
-`deploy/epistoma-main.sh` for that exact commit. The script builds a new release,
-stops the backend, snapshots both databases with the running release's
-`build/backup.js`, switches the release link, migrates, and checks readiness. A
-failure before migration restores the previous release. After a successful deploy
+`Verify` run, in the protected `epistoma` environment, whose secrets hold the SSH
+target, key and known host. It runs `deploy/epistoma-main.sh` for that exact
+commit as an unprivileged build account. The script builds and packages the
+release in that account's home, then hands the package to the host's
+`savvy-install-release`, the only command the account may run as root. The
+installer is maintained with the host, not in this repository. It copies the
+release, stops the backend, snapshots both databases with the running release's
+`build/backup.js`, switches the release link, migrates, and checks readiness; the
+release's own code runs only as the `savvy` user. A failure before migration
+restores the previous release. After a successful deploy
 it keeps the 14 newest snapshots in `/var/backups/savvy` and, besides the current
 and previous release, the 3 newest production releases under `/opt/savvy/releases`.
 Named staging releases are left alone.
@@ -168,6 +172,9 @@ The snapshot directory must exist before the first deploy:
 There is no nightly backup. The daily job stopped the production backend every
 night, so it was removed from Epistoma on 2 November 2026 (see the host's Ansible
 repository). The newest snapshot is therefore from the latest deploy.
+
+`deploy/savvy-backend.service` documents the unit; the host installs its own
+copy, so a change to it here needs the same change on the host.
 
 To upgrade by hand, stop the unit, take a backup, point `/opt/savvy/current` at the
 new release, run `node build/migrate.js service` and `node build/migrate.js`, and
@@ -189,7 +196,7 @@ backup without making the VPS files publicly readable:
 
 ```sh
 umask 077
-ssh jaume@epistoma 'sudo tar -C /var/backups/savvy/EXACT_SNAPSHOT -czf - auth.sqlite service.sqlite manifest.json' > savvy-backup.tar.gz
+ssh <you>@<host> 'sudo tar -C /var/backups/savvy/EXACT_SNAPSHOT -czf - auth.sqlite service.sqlite manifest.json' > savvy-backup.tar.gz
 ```
 
 Do not copy staging state to production or restore an older ledger over newer
@@ -210,22 +217,24 @@ Check `/ready` using `CF-Connecting-IP: 127.0.0.1`, signing key IDs, refresh rot
 and current payments/allowances/usage/purchases. Stop the clone normally afterward.
 
 Roll back using the current release controller and current financial state.
-The installed `/usr/local/libexec/savvy-release.mjs` runs the CURRENT backend's
-packaged `rollback-preflight.js` before atomically switching `/opt/savvy/current`.
+`deploy/savvy-release.mjs`, packaged with each release, runs the CURRENT backend's
+`rollback-preflight.js`; `check` only reads, and the switch of
+`/opt/savvy/current` happens only after it passes.
 It checks the database floor, acquisition flag and team payment records against
 the candidate's built `service-capabilities.json`. Missing metadata means 0.
 A bootstrap from a legacy release uses the new checkpoint's guard; later changes
 use the current guard, including when the candidate itself has no guard.
 
-With the backend stopped, run:
+With the backend stopped, check as `savvy`, then switch the link only if that passed:
 
 ```sh
-sudo /opt/node-v22.23.4-linux-x64/bin/node /usr/local/libexec/savvy-release.mjs check /opt/savvy/current /opt/savvy/releases/<candidate-sha> /var/lib/savvy/service.sqlite
-sudo /opt/node-v22.23.4-linux-x64/bin/node /usr/local/libexec/savvy-release.mjs switch /opt/savvy/current /opt/savvy/releases/<candidate-sha> /var/lib/savvy/service.sqlite
+sudo runuser -u savvy -- /opt/node-v22.23.4-linux-x64/bin/node /opt/savvy/current/deploy/savvy-release.mjs check /opt/savvy/current /opt/savvy/releases/<candidate-sha> /var/lib/savvy/service.sqlite \
+  && sudo ln -sfn /opt/savvy/releases/<candidate-sha> /opt/savvy/current.next \
+  && sudo mv -T /opt/savvy/current.next /opt/savvy/current
 ```
 
 Only restart after a successful switch and readiness check. An incompatible
-candidate leaves the link unchanged. The deploy script uses this path for both
+candidate leaves the link unchanged. The installer uses the same check for both
 upgrade and automatic rollback before migration. A failed post-migration deploy
 still requires stopped-state investigation and a guarded compatible candidate.
 Never restore an older financial database or erase pending payment intents to
