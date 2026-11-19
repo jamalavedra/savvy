@@ -21,6 +21,7 @@ jobs:
       github.event.workflow_run.head_repository.full_name == github.repository &&
       github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
+    environment: epistoma
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -44,15 +45,15 @@ jobs:
           printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/epistoma_deploy
           chmod 600 ~/.ssh/epistoma_deploy
           printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
-      # SSH through Cloudflare Access (alamaslabs/infra zero-trust/ssh_hostnames.tf): the
-      # service token passes Access, the deploy key (restricted in ~jaume/.ssh/authorized_keys) logs in.
+      # The Access service token passes Cloudflare; the restricted deploy key logs in.
       - name: Deploy checked backend
         env:
           DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
+          SSH_TARGET: ${{ secrets.EPISTOMA_SSH_TARGET }}
           TUNNEL_SERVICE_TOKEN_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           TUNNEL_SERVICE_TOKEN_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: >-
           ssh -i ~/.ssh/epistoma_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes
           -o BatchMode=yes -o ServerAliveInterval=30
           -o ProxyCommand="cloudflared access ssh --hostname %h"
-          jaume@ssh-epistoma.fort.dev "bash -s -- $DEPLOY_SHA" < deploy/epistoma-main.sh
+          "$SSH_TARGET" "bash -s -- $DEPLOY_SHA" < deploy/epistoma-main.sh
