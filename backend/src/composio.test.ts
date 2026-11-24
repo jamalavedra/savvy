@@ -16,7 +16,11 @@ function fixture(t: TestContext, issuer = ISSUER) {
   db.prepare(
     "INSERT INTO accounts(id,issuer,subject,created_at_ms) VALUES(1,'test','one',0),(2,'test','two',0)",
   ).run();
-  const state = { config: { issuer }, db, clock: () => 1_000n } as ServiceState;
+  const state = {
+    config: { issuer },
+    db,
+    clock: () => 1_000n,
+  } as unknown as ServiceState;
   const service = new ComposioSources(state, "synthetic");
   const calls: Array<{ user: string; cursor?: string }> = [];
   const proxyCalls: Array<{
@@ -699,7 +703,7 @@ for (const [name, secondIssuer] of [
           config: { issuer: secondIssuer },
           db: h.db,
           clock: () => 1_000n,
-        } as ServiceState,
+        } as unknown as ServiceState,
         "synthetic",
       ),
     ];
