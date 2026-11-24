@@ -1,6 +1,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { DoSqlite } from "../src/do-sqlite.ts";
 import { requiredCapability } from "../src/rollback-preflight.ts";
+import { recentErrors } from "../src/recent-errors.ts";
 import {
   differences,
   eventLine,
@@ -17,6 +18,7 @@ import {
 
 export const ADMIN_PREFIX = "/__admin/";
 export const SEALED = "import-sealed";
+export const LAST_ALARM = "last-alarm-at";
 const IMPORT = "import-manifest";
 const PART_BYTES = 8 * 1024 * 1024;
 
@@ -264,9 +266,71 @@ async function exportToBucket(context: AdminContext) {
   });
 }
 
+const PAGING = [
+  "stale_session_reservations",
+  "stale_provider_requests",
+  "billing_events_pending_5m",
+  "negative_allowances",
+  "reasoning_http_errors_5m",
+  "transcription_provider_failures_5m",
+  "billing_retries_5m",
+  "reconcile_failures_5m",
+] as const;
+
+function invariants(storage: Storage, now: number) {
+  const count = (sql: string, ...params: number[]) =>
+    storage.sql.exec<{ n: number }>(sql, ...params).one().n;
+  return {
+    stale_session_reservations: count(
+      "SELECT count(*) AS n FROM managed_sessions WHERE reserved_ms>0 AND (state!='active' OR lease_expires_ms IS NULL OR lease_expires_ms<?)",
+      now - 60_000,
+    ),
+    stale_provider_requests: count(
+      "SELECT count(*) AS n FROM provider_requests WHERE state='pending' AND (deadline_ms IS NULL OR deadline_ms<?)",
+      now - 60_000,
+    ),
+    billing_events_pending_5m: count(
+      "SELECT count(*) AS n FROM billing_events WHERE status='pending' AND created_at_ms<?",
+      now - 300_000,
+    ),
+    provider_operations_failed_5m: count(
+      "SELECT count(*) AS n FROM provider_requests WHERE state='failed' AND created_at_ms>=?",
+      now - 300_000,
+    ),
+    negative_allowances: count(
+      "SELECT count(*) AS n FROM allowance_grants WHERE meeting_ms_used<0 OR meeting_ms_reserved<0 OR briefs_used<0 OR briefs_reserved<0 OR meeting_ms_used+meeting_ms_reserved>meeting_ms_total OR briefs_used+briefs_reserved>briefs_total",
+    ),
+    ...recentErrors(now),
+  };
+}
+
+/**
+ * Aggregate soak health with no identities: the alarm's schedule and last run,
+ * and the `deploy/savvy-monitor.py` invariants. Failed provider operations
+ * include cancellations, so they are reported without failing the check.
+ */
+async function status({ storage }: AdminContext) {
+  const now = Date.now();
+  const sealed = Boolean(await storage.get(SEALED));
+  const counts = sealed ? invariants(storage, now) : undefined;
+  const failures = counts
+    ? PAGING.filter((name) => counts[name] > 0)
+    : ["not_sealed"];
+  return {
+    checkedAtMs: now,
+    sealed,
+    alarmAtMs: await storage.getAlarm(),
+    lastAlarmAtMs: (await storage.get<number>(LAST_ALARM)) ?? null,
+    ...counts,
+    failures,
+    healthy: failures.length === 0,
+  };
+}
+
 const routes: Record<string, (context: AdminContext, body: never) => unknown> =
   {
     "GET manifest": ({ storage }) => manifest(storage),
+    "GET status": status,
     "POST export": exportToBucket,
     "POST import/begin": begin,
     "POST import/rows": rows,

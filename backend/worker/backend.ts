@@ -10,9 +10,10 @@ import { createHandler, createState, recover } from "../src/app.ts";
 import { pruneResults } from "../src/advice.ts";
 import { reconcile } from "../src/stripe.ts";
 import { expireStaleSessions } from "../src/sessions.ts";
+import { noteError } from "../src/recent-errors.ts";
 import type { ServiceState } from "../src/state.ts";
 import { createAudio, isAudioUpgrade } from "./audio.ts";
-import { admin, ADMIN_PREFIX, SEALED } from "./admin.ts";
+import { admin, ADMIN_PREFIX, LAST_ALARM, SEALED } from "./admin.ts";
 
 const PORT = 8788;
 const ACTIVE_TICK_MS = 1000;
@@ -169,13 +170,17 @@ export class SavvyBackend extends DurableObject<Env> {
       );
     } finally {
       await this.ctx.storage.setAlarm(Date.now() + this.#cadence());
+      await this.ctx.storage.put(LAST_ALARM, Date.now());
     }
   }
 
   #reconcile() {
     this.#reconciledAt = Date.now();
     this.#reconciling = reconcile(this.state)
-      .catch((error) => console.error("billing reconcile failed", error))
+      .catch((error) => {
+        console.error("billing reconcile failed", error);
+        noteError("reconcile_failures_5m");
+      })
       .finally(() => {
         this.#reconciling = null;
       });

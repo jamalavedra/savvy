@@ -1,6 +1,7 @@
 import type { ServiceState } from "./state.js";
 import { ApiError, readLimited } from "./errors.js";
 import { pauseSession } from "./sessions.js";
+import { noteError } from "./recent-errors.js";
 
 export function requestBody(
   state: ServiceState,
@@ -73,6 +74,7 @@ export async function post(
     if (!response.ok) {
       // Supplier error bodies can echo customer context or credentials.
       console.error(`reasoning provider returned ${response.status}`);
+      noteError("reasoning_http_errors_5m");
       await response.body?.cancel().catch(() => {});
       // A rejected request shape fails only this caller; it must not trip the
       // shared circuit breaker that pauses every account.

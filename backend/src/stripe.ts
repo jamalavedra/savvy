@@ -7,6 +7,7 @@ import type { ServiceState } from "./state.js";
 import { transition } from "./transition.js";
 import type { Db } from "./db.js";
 import { ApiError, readLimited } from "./errors.js";
+import { noteError } from "./recent-errors.js";
 import {
   reserveAttempt,
   insertGrant,
@@ -980,6 +981,7 @@ function logRetry(phase: string, error: unknown) {
   console.warn(
     `billing ${phase} requires retry code=${error instanceof ApiError ? error.code : "internal"}`,
   );
+  noteError("billing_retries_5m");
 }
 
 export async function reconcile(state: ServiceState) {

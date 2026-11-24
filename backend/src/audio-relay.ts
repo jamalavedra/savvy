@@ -1,6 +1,7 @@
 import { assertFunding, fundingForRow } from "./funding.js";
 import type { ServiceState } from "./state.js";
 import { ApiError } from "./errors.js";
+import { noteError } from "./recent-errors.js";
 import { reserveAttempt } from "./billing.js";
 import {
   attachSource,
@@ -397,8 +398,10 @@ class Relay {
     if (this.stopping) return;
     this.stopping = true;
     this.logClosed(reason);
-    if (this.supplierFailure)
+    if (this.supplierFailure) {
       console.warn("transcription provider unavailable");
+      noteError("transcription_provider_failures_5m");
+    }
     clearInterval(this.monitor);
     this.queue.length = 0;
     let abandoned = false;

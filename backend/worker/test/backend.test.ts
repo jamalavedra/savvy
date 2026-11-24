@@ -21,6 +21,7 @@ const worker = () => server.getWorker();
 before(async () => {
   await server.listen();
   await sealEmpty(server.fetch);
+  objectId = (await probe<{ id: string }>("alarm")).id;
 });
 after(() => server.close());
 
@@ -71,7 +72,6 @@ async function eventually(check: () => Promise<boolean>, ms: number) {
 const alarmIn = async () => (await probe<{ inMs: number }>("alarm")).inMs;
 
 test("ready, readyz and JWKS answer from the Durable Object", async () => {
-  objectId = (await probe<{ id: string }>("alarm")).id;
   const ready = await server.fetch("/ready");
   assert.equal(ready.status, 200);
   assert.equal(ready.headers.get("cache-control"), "no-store");
@@ -85,6 +85,60 @@ test("ready, readyz and JWKS answer from the Durable Object", async () => {
   const jwks = await server.fetch("/api/auth/jwks");
   assert.equal(jwks.status, 200);
   assert.ok(((await jwks.json()) as { keys: unknown[] }).keys.length > 0);
+});
+
+test("the admin status route reports alarm runs and monitor invariants", async () => {
+  const status = async (authorization = `Bearer ${ADMIN_TOKEN}`) => {
+    const response = await server.fetch("/__admin/status", {
+      headers: { authorization },
+    });
+    return { code: response.status, body: (await response.json()) as Row };
+  };
+  assert.equal((await status("")).code, 401);
+  assert.equal((await status("Bearer wrong")).code, 401);
+  const fired = Date.now();
+  await probe("fire");
+  await eventually(
+    async () => Number((await status()).body.lastAlarmAtMs) >= fired,
+    5000,
+  );
+  const healthy = await status();
+  assert.equal(healthy.code, 200);
+  assert.equal(healthy.body.healthy, true, JSON.stringify(healthy.body));
+  assert.deepEqual(healthy.body.failures, []);
+  assert.ok(Number(healthy.body.alarmAtMs) > fired);
+  for (const name of [
+    "stale_session_reservations",
+    "stale_provider_requests",
+    "billing_events_pending_5m",
+    "provider_operations_failed_5m",
+    "negative_allowances",
+    "reasoning_http_errors_5m",
+    "transcription_provider_failures_5m",
+    "billing_retries_5m",
+    "reconcile_failures_5m",
+  ])
+    assert.equal(healthy.body[name], 0, name);
+  await sql(
+    "INSERT INTO accounts(issuer,subject,created_at_ms) VALUES('status','stale',0)",
+  );
+  const leased = Date.now() + 600_000;
+  const lapsed = Date.now() - 120_000;
+  await sql(
+    `WITH v(local,state,reserved,lease) AS (VALUES ('paused-held','paused',1000,${leased}),('stopped-held','stopped',500,${leased}),('lapsed','active',1000,${lapsed}),('paused-clear','paused',0,${leased}),('live','active',1000,${leased})) INSERT INTO managed_sessions(account_id,local_session_id,state,reserved_ms,lease_expires_ms,created_at_ms,updated_at_ms) SELECT id,local,v.state,reserved,lease,0,0 FROM accounts, v WHERE subject='stale'`,
+  );
+  try {
+    const stale = await status();
+    assert.equal(stale.body.healthy, false);
+    assert.equal(stale.body.stale_session_reservations, 3);
+    assert.deepEqual(stale.body.failures, ["stale_session_reservations"]);
+    assert.doesNotMatch(JSON.stringify(stale.body), /stale"|status"/);
+  } finally {
+    await sql(
+      "DELETE FROM managed_sessions WHERE account_id=(SELECT id FROM accounts WHERE subject='stale')",
+    );
+    await sql("DELETE FROM accounts WHERE subject='stale'");
+  }
 });
 
 test("unknown paths and audio without an upgrade get 404", async () => {
