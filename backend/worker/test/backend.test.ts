@@ -249,3 +249,35 @@ test("the alarm re-arms after a throwing tick", async () => {
     await sql("DROP TRIGGER forced_tick_failure");
   }
 });
+
+test("each client IP gets its own limit of 3 sign-in code requests a minute", async () => {
+  let sent = 0;
+  const send = async (ip: string) => {
+    sent += 1;
+    const response = await server.fetch(
+      "/api/auth/email-otp/send-verification-otp",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "cf-connecting-ip": ip,
+          origin: "http://127.0.0.1:8788",
+        },
+        body: JSON.stringify({
+          email: `limit-${sent}@example.com`,
+          type: "sign-in",
+        }),
+      },
+    );
+    await response.text();
+    return response.status;
+  };
+  const first: number[] = [];
+  for (let i = 0; i < 4; i++) first.push(await send("198.51.100.41"));
+  assert.deepEqual(
+    first.map((status) => status === 429),
+    [false, false, false, true],
+    String(first),
+  );
+  assert.notEqual(await send("203.0.113.42"), 429);
+});
