@@ -12,7 +12,12 @@
     "html_handling": "none",
   },
   "durable_objects": {
-    "bindings": [{ "name": "BACKEND", "class_name": "SavvyBackend" }],
+    "bindings": [
+      { "name": "BACKEND", "class_name": "SavvyBackend" },
+      { "name": "DEEPGRAM", "class_name": "FakeDeepgram" },
+    ],
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["SavvyBackend"] }],
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["SavvyBackend", "FakeDeepgram"] },
+  ],
 }

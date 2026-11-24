@@ -11,6 +11,7 @@ import { pruneResults } from "../src/advice.ts";
 import { reconcile } from "../src/stripe.ts";
 import { expireStaleSessions } from "../src/sessions.ts";
 import type { ServiceState } from "../src/state.ts";
+import { createAudio, isAudioUpgrade } from "./audio.ts";
 
 const PORT = 8788;
 const ACTIVE_TICK_MS = 1000;
@@ -32,6 +33,7 @@ export class SavvyBackend extends DurableObject<Env> {
   state!: ServiceState;
   auth!: ReturnType<typeof createAuth>;
   #handle!: RequestListener;
+  #audio!: (request: Request) => Promise<Response>;
   #reconciling: Promise<void> | null = null;
   #reconciledAt = 0;
 
@@ -52,6 +54,9 @@ export class SavvyBackend extends DurableObject<Env> {
       Promise.reject(new Error("Invitation delivery is not configured")),
     );
     recover(this.state);
+    this.#audio = createAudio(this.state, (url, init) =>
+      this.supplierFetch(url, init),
+    );
     this.#handle = createHandler(this.state, auth, {
       trustsPeer: () => true,
       proxyIpHeader: "x-savvy-proxy-ip",
@@ -61,6 +66,10 @@ export class SavvyBackend extends DurableObject<Env> {
       readUi: (path) => this.#readUi(path),
     });
     await this.#arm();
+  }
+
+  protected supplierFetch(url: string, init: RequestInit) {
+    return fetch(url, init);
   }
 
   async #readUi(path: string) {
@@ -87,7 +96,9 @@ export class SavvyBackend extends DurableObject<Env> {
 
   override async fetch(request: Request) {
     listener = this.#handle;
-    const response = await handleAsNodeRequest(PORT, request);
+    const response = isAudioUpgrade(request)
+      ? await this.#audio(request)
+      : await handleAsNodeRequest(PORT, request);
     await this.#arm();
     return response;
   }

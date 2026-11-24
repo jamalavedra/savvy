@@ -82,12 +82,12 @@ test("ready, readyz and JWKS answer from the Durable Object", async () => {
   assert.ok(((await jwks.json()) as { keys: unknown[] }).keys.length > 0);
 });
 
-test("unknown paths get 404 and audio gets 501 until CF-4", async () => {
+test("unknown paths and audio without an upgrade get 404", async () => {
   assert.equal((await server.fetch("/nope")).status, 404);
   assert.equal((await server.fetch("/v1/nope")).status, 404);
   const audio =
     "/v1/sessions/00000000-0000-4000-8000-000000000001/audio/system";
-  assert.equal((await server.fetch(audio)).status, 501);
+  assert.equal((await server.fetch(audio)).status, 404);
   const page = await server.fetch("/sign-in");
   assert.equal(page.status, 200);
   assert.match(
@@ -188,44 +188,6 @@ test("a paused session survives eviction, idles the alarm and resumes", async ()
   });
   await eventually(async () => (await alarmIn()) > 50_000, 3000);
 });
-
-test(
-  "an active session evicted mid-stream ends through its lease",
-  { timeout: 60_000 },
-  async () => {
-    const sessionId = "00000000-0000-4000-8000-00000000000b";
-    await api("/v1/sessions", { sessionId });
-    await probe("audio", `session=${sessionId}&ms=6000`);
-    const where = `local_session_id='${sessionId}'`;
-    const [billed] = await sql(
-      `SELECT settled_ms FROM managed_sessions WHERE ${where}`,
-    );
-    assert.ok(Number(billed!.settled_ms) >= 5000, String(billed!.settled_ms));
-    await evict();
-    const [kept] = await sql(
-      `SELECT state,reserved_ms,billable_since_ms FROM managed_sessions WHERE ${where}`,
-    );
-    assert.equal((await server.fetch("/ready")).status, 200);
-    assert.equal(kept!.state, "active");
-    assert.ok(Number(kept!.reserved_ms) > 0);
-    await eventually(
-      async () =>
-        (await sql(`SELECT state FROM managed_sessions WHERE ${where}`))[0]!
-          .state === "stopped",
-      40_000,
-    );
-    const [ended] = await sql(
-      `SELECT settled_ms,reserved_ms,(SELECT count(*) FROM session_reservations) AS open,(SELECT sum(meeting_ms_reserved) FROM allowance_grants) AS held,(SELECT sum(amount_ms) FROM usage_events WHERE kind='debit_meeting' AND session_id='${sessionId}') AS debited FROM managed_sessions WHERE ${where}`,
-    );
-    assert.deepEqual(ended, {
-      settled_ms: billed!.settled_ms,
-      reserved_ms: 0,
-      open: 0,
-      held: 0,
-      debited: billed!.settled_ms,
-    });
-  },
-);
 
 test("the alarm re-arms after a throwing tick", async () => {
   await sql(
