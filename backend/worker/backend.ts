@@ -37,6 +37,7 @@ export class SavvyBackend extends DurableObject<Env> {
   #audio!: (request: Request) => Promise<Response>;
   #reconciling: Promise<void> | null = null;
   #reconciledAt = 0;
+  #frozen = false;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -97,7 +98,12 @@ export class SavvyBackend extends DurableObject<Env> {
       await this.ctx.storage.setAlarm(next);
   }
 
+  #reset() {
+    this.ctx.abort("Frozen by the admin; retry on the fresh instance");
+  }
+
   override async fetch(request: Request) {
+    if (this.#frozen) this.#reset();
     if (new URL(request.url).pathname.startsWith(ADMIN_PREFIX))
       return admin(
         {
@@ -106,6 +112,10 @@ export class SavvyBackend extends DurableObject<Env> {
           bucket: (this.env as { BACKUPS?: R2Bucket }).BACKUPS,
           blockConcurrencyWhile: (fn) => this.ctx.blockConcurrencyWhile(fn),
           sealed: () => this.ctx.blockConcurrencyWhile(() => this.#boot()),
+          frozen: () => {
+            this.#frozen = true;
+            setTimeout(() => this.#reset(), 0);
+          },
         },
         request,
       );
@@ -127,6 +137,7 @@ export class SavvyBackend extends DurableObject<Env> {
   }
 
   override async alarm() {
+    if (this.#frozen) this.#reset();
     if (!this.state) return;
     try {
       if (!this.#reconciling && Date.now() - this.#reconciledAt >= RECONCILE_MS)

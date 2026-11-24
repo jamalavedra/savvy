@@ -48,6 +48,13 @@ export class SavvyBackend extends Backend {
       await this.ctx.storage.setAlarm(Date.now());
       return Response.json(null);
     }
+    if (probe === "sql")
+      try {
+        const sql = await request.text();
+        return Response.json(this.ctx.storage.sql.exec(sql).toArray());
+      } catch (error) {
+        return Response.json({ error: String(error) }, { status: 400 });
+      }
     if (probe === "reset") this.ctx.abort("reset by the test harness");
     if (probe === "hold-auth") {
       await this.#holdAuth(Number(query.get("ms")));

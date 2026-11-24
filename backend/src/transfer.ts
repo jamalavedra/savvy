@@ -1,10 +1,11 @@
 import Database from "better-sqlite3";
-import { createReadStream, existsSync, realpathSync } from "node:fs";
+import { createReadStream, existsSync, realpathSync, rmSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
 import { assertDistinctDatabases, openPrivateDatabase } from "./db.js";
 import {
   assertSafeIntegers,
+  assertValidText,
   databaseOf,
   decodeHex,
   differences,
@@ -65,7 +66,6 @@ function merge(parts: { role: Role; manifest: Manifest }[]): Manifest {
     }
   }
   return {
-    format: 1,
     schema: parts.flatMap((p) => p.manifest.schema),
     tables: parts.flatMap((p) => p.manifest.tables),
   };
@@ -78,6 +78,7 @@ export function sourceManifest(paths: Paths): Manifest {
     return merge(
       sources.map(({ role, query }) => {
         assertSafeIntegers(query);
+        assertValidText(query);
         return { role, manifest: scan(query) };
       }),
     );
@@ -161,7 +162,6 @@ function verifyRestored(db: Database.Database, role: Role, manifest: Manifest) {
   if ((db.pragma("foreign_key_check") as unknown[]).length)
     throw new Error(`Restored ${role} database has foreign key violations`);
   const expected: Manifest = {
-    format: 1,
     schema: manifest.schema.filter((entry) => roleOf(entry) === role),
     tables: manifest.tables.filter((table) => table.database === role),
   };
@@ -180,7 +180,8 @@ type Line =
 
 /**
  * Writes an object export back into the two-file VPS layout: auth tables into
- * `paths.auth`, service tables into `paths.service`. Both files must not exist.
+ * `paths.auth`, service tables into `paths.service`. Both files must not exist,
+ * and on any failure both are removed again with their -wal and -shm files.
  * Each is checked against the export's manifest before this returns.
  */
 export async function restoreExport(file: string, paths: Paths) {
@@ -188,17 +189,28 @@ export async function restoreExport(file: string, paths: Paths) {
   for (const role of ROLES)
     if (existsSync(paths[role]))
       throw new Error(`${paths[role]} exists; restore writes only new files`);
-  const dbs = {
-    auth: openPrivateDatabase(paths.auth),
-    service: openPrivateDatabase(paths.service),
-  };
+  try {
+    return await writeExport(file, paths);
+  } catch (error) {
+    for (const role of ROLES)
+      for (const suffix of ["", "-wal", "-shm"])
+        rmSync(paths[role] + suffix, { force: true });
+    throw error;
+  }
+}
+
+async function writeExport(file: string, paths: Paths) {
+  const dbs: Partial<Record<Role, Database.Database>> = {};
   let insert: Database.Statement | undefined;
   let manifest: Manifest | undefined;
   try {
-    for (const db of Object.values(dbs)) {
+    for (const role of ROLES) {
+      const db = openPrivateDatabase(paths[role]);
+      dbs[role] = db;
       db.pragma("foreign_keys = OFF");
       db.exec("BEGIN");
     }
+    const target = dbs as Record<Role, Database.Database>;
     for await (const text of createInterface({
       input: createReadStream(file),
     })) {
@@ -206,9 +218,9 @@ export async function restoreExport(file: string, paths: Paths) {
       if (Array.isArray(line)) insert!.run(...line.map(nodeValue));
       else if ("schema" in line)
         for (const entry of schemaStatements(line.schema, "tables"))
-          dbs[roleOf(entry)].exec(entry.sql!);
+          target[roleOf(entry)].exec(entry.sql!);
       else if ("table" in line)
-        insert = dbs[databaseOf(line.table)].prepare(
+        insert = target[databaseOf(line.table)].prepare(
           `INSERT INTO ${quoteName(line.table)} (${line.columns.map(quoteName).join(",")}) VALUES (${line.columns.map(() => "?").join(",")})`,
         );
       else manifest = line.manifest;
@@ -216,11 +228,11 @@ export async function restoreExport(file: string, paths: Paths) {
     if (!manifest)
       throw new Error("The export has no manifest line; it is truncated");
     for (const entry of schemaStatements(manifest.schema, "rest"))
-      dbs[roleOf(entry)].exec(entry.sql!);
+      target[roleOf(entry)].exec(entry.sql!);
     for (const role of ROLES) {
-      dbs[role].exec("COMMIT");
-      dbs[role].pragma("foreign_keys = ON");
-      verifyRestored(dbs[role], role, manifest);
+      target[role].exec("COMMIT");
+      target[role].pragma("foreign_keys = ON");
+      verifyRestored(target[role], role, manifest);
     }
     return manifest;
   } finally {

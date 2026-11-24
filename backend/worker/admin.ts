@@ -27,6 +27,7 @@ export interface AdminContext {
   bucket: R2Bucket | undefined;
   blockConcurrencyWhile<T>(fn: () => Promise<T>): Promise<T>;
   sealed(): Promise<void>;
+  frozen(): void;
 }
 
 class Refusal extends Error {
@@ -82,12 +83,12 @@ async function begin({ storage }: AdminContext, expected: Manifest) {
       "not_empty",
       "Import needs an empty object; this one already has schema or an import",
     );
+  await storage.put(IMPORT, expected);
   storage.sql.exec("PRAGMA foreign_keys = OFF");
   storage.transactionSync(() => {
     for (const entry of schemaStatements(expected.schema, "tables"))
       storage.sql.exec(entry.sql!);
   });
-  await storage.put(IMPORT, expected);
   return { tables: expected.tables.length };
 }
 
@@ -127,12 +128,24 @@ function foreignKeyFaults(storage: Storage, tables: string[]) {
   );
 }
 
-async function seal(context: AdminContext, expected: Manifest) {
+/**
+ * Seals against the manifest stored at begin, or, with no import pending, the
+ * manifest in the body. The marker is written only after the backend boots, so
+ * a boot failure leaves the import pending and abortable.
+ */
+async function seal(context: AdminContext, given: Manifest | undefined) {
   const { storage } = context;
   await requireUnsealed(storage);
   const pending = await storage.get<Manifest>(IMPORT);
+  const expected = pending ?? given;
+  if (!expected)
+    throw new Refusal(
+      400,
+      "no_manifest",
+      "No import is pending; send the expected manifest in the body",
+    );
+  storage.sql.exec("PRAGMA foreign_keys = ON");
   if (pending) {
-    storage.sql.exec("PRAGMA foreign_keys = OFF");
     const existing = new Set(scan(query(storage)).schema.map((e) => e.name));
     storage.transactionSync(() => {
       for (const entry of schemaStatements(pending.schema, "rest"))
@@ -153,40 +166,73 @@ async function seal(context: AdminContext, expected: Manifest) {
       "mismatch",
       `Seal refused; differs from the expected manifest in: ${found.join(", ")}`,
     );
+  await context.sealed();
   await storage.put(SEALED, { at: new Date().toISOString() });
   await storage.delete(IMPORT);
-  await context.sealed();
   return actual;
+}
+
+async function abortImport({ storage }: AdminContext) {
+  await requireUnsealed(storage);
+  if (!(await storage.get(IMPORT)))
+    throw new Refusal(
+      409,
+      "no_import",
+      "No import is pending; abort deletes only a pending import",
+    );
+  await storage.deleteAll();
+  return { aborted: true };
+}
+
+/**
+ * Unseals a serving object and resets its instance, so every non-admin request
+ * gets 503 and an export sees no write in flight. Re-sealing with the object's
+ * own manifest resumes it.
+ */
+async function freeze(context: AdminContext) {
+  const { storage } = context;
+  if (!(await storage.get(SEALED)))
+    throw new Refusal(409, "not_sealed", "Only a sealed object can be frozen");
+  await storage.delete(SEALED);
+  await storage.sync();
+  context.frozen();
+  return { frozen: true };
 }
 
 class PartWriter {
   #parts: R2UploadedPart[] = [];
-  #buffer: string[] = [];
+  #part = new Uint8Array(PART_BYTES);
   #size = 0;
+  #encoder = new TextEncoder();
   constructor(readonly upload: R2MultipartUpload) {}
 
-  write(line: string) {
-    this.#buffer.push(line, "\n");
-    this.#size += line.length + 1;
+  async write(line: string) {
+    let bytes = this.#encoder.encode(`${line}\n`);
+    while (bytes.length) {
+      const take = Math.min(bytes.length, PART_BYTES - this.#size);
+      this.#part.set(bytes.subarray(0, take), this.#size);
+      this.#size += take;
+      bytes = bytes.subarray(take);
+      if (this.#size === PART_BYTES) await this.#send();
+    }
   }
 
-  async flush(final = false) {
-    if (!final && this.#size < PART_BYTES) return;
-    const body = new TextEncoder().encode(this.#buffer.join(""));
-    this.#buffer = [];
+  async #send() {
+    const body = this.#part.slice(0, this.#size);
     this.#size = 0;
     this.#parts.push(
       await this.upload.uploadPart(this.#parts.length + 1, body),
     );
   }
 
-  complete() {
+  async complete() {
+    if (this.#size > 0 || !this.#parts.length) await this.#send();
     return this.upload.complete(this.#parts);
   }
 }
 
 /**
- * Streams the export to R2 in 8 MiB parts, ending with the manifest line. The
+ * Streams the export to R2 in parts of exactly 8 MiB but the last, ending with the manifest line. The
  * object takes no other event until it ends, so the file is one consistent
  * snapshot; the 30 s limit of blockConcurrencyWhile bounds its size.
  */
@@ -205,18 +251,15 @@ async function exportToBucket(context: AdminContext) {
     const writer = new PartWriter(await bucket.createMultipartUpload(key));
     const events = scanEvents(query(storage));
     let step = events.next();
-    for (; !step.done; step = events.next()) {
-      writer.write(eventLine(step.value));
-      await writer.flush();
-    }
+    for (; !step.done; step = events.next())
+      await writer.write(eventLine(step.value));
     const exported: Manifest = {
       ...step.value,
       createdAt,
       bookmark,
       requiredFundingSchema: requiredCapability(new DoSqlite(storage)),
     };
-    writer.write(JSON.stringify({ manifest: exported }));
-    await writer.flush(true);
+    await writer.write(JSON.stringify({ manifest: exported }));
     await writer.complete();
     return { key, manifest: exported };
   });
@@ -228,7 +271,9 @@ const routes: Record<string, (context: AdminContext, body: never) => unknown> =
     "POST export": exportToBucket,
     "POST import/begin": begin,
     "POST import/rows": rows,
+    "POST import/abort": abortImport,
     "POST seal": seal,
+    "POST freeze": freeze,
   };
 
 export async function admin(context: AdminContext, request: Request) {

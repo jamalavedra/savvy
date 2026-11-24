@@ -12,7 +12,7 @@ export async function sealEmpty(
   const response = await fetch("/__admin/seal", {
     method: "POST",
     headers: { authorization: `Bearer ${ADMIN_TOKEN}` },
-    body: JSON.stringify({ format: 1, schema: [], tables: [] }),
+    body: JSON.stringify({ schema: [], tables: [] }),
   });
   assert.equal(response.status, 200, await response.text());
 }

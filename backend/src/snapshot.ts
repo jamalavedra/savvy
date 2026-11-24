@@ -24,7 +24,6 @@ export interface TableManifest {
   sha256: string;
 }
 export interface Manifest {
-  format: 1;
   schema: SchemaEntry[];
   tables: TableManifest[];
   createdAt?: string;
@@ -100,6 +99,24 @@ export function assertSafeIntegers(query: Query) {
     }
 }
 
+/**
+ * Refuses the first text that is not valid UTF-8: reading it replaces the bad
+ * bytes, so two different values would hash alike and import rewritten.
+ */
+export function assertValidText(query: Query) {
+  for (const table of tables(readSchema(query)))
+    for (const column of columnsOf(query, table)) {
+      const c = quoteName(column);
+      for (const { v, h } of query(
+        `SELECT ${c} AS v, hex(CAST(${c} AS BLOB)) AS h FROM ${quoteName(table)} WHERE typeof(${c})='text'`,
+      ))
+        if (Buffer.from(String(v)).toString("hex").toUpperCase() !== h)
+          throw new Error(
+            `${table}.${column} holds text that is not valid UTF-8, which the transfer cannot copy exactly; refusing the import`,
+          );
+    }
+}
+
 /** The export file's lines in order: the schema, then each table header and its rows. */
 export type ScanEvent =
   | { schema: SchemaEntry[] }
@@ -133,7 +150,7 @@ export function* scanEvents(query: Query): Generator<ScanEvent, Manifest> {
       sha256: hash.digest("hex"),
     });
   }
-  return { format: 1, schema, tables: manifests };
+  return { schema, tables: manifests };
 }
 
 export const eventLine = (event: ScanEvent) =>

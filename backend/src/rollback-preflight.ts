@@ -59,11 +59,13 @@ async function requiredFromObject(origin: string) {
   const response = await fetch(new URL("/__admin/manifest", origin), {
     headers: { authorization: `Bearer ${token}` },
   });
-  const body = (await response.json()) as { requiredFundingSchema?: unknown };
-  if (!response.ok || !Number.isSafeInteger(body.requiredFundingSchema))
+  if (!response.ok)
     throw new Error(
-      `The object's manifest answered ${response.status} without a funding requirement`,
+      `The object's manifest answered ${response.status}: ${await response.text()}`,
     );
+  const body = (await response.json()) as { requiredFundingSchema?: unknown };
+  if (!Number.isSafeInteger(body.requiredFundingSchema))
+    throw new Error("The object's manifest has no funding requirement");
   return body.requiredFundingSchema as number;
 }
 

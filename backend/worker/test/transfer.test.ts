@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
 import { once } from "node:events";
-import { copyFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { createServer as createHttpServer } from "node:http";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -24,6 +31,7 @@ import {
   type Paths,
   type Send,
 } from "../../src/transfer.ts";
+import { admin as adminRoute, type AdminContext } from "../admin.ts";
 import { addBulk, buildFixture, FIXTURE_SECRET } from "./fixture.ts";
 import { ADMIN_TOKEN } from "./seal.ts";
 
@@ -154,7 +162,122 @@ test("integers at or beyond 2^53 are refused before anything is sent", async () 
   assert.deepEqual(sent, []);
 });
 
-test("a tampered chunk fails the seal, and a non-empty object refuses a new import", async () => {
+async function sql(text: string) {
+  const response = await server.fetch("/__probe/sql", {
+    method: "POST",
+    body: text,
+  });
+  return { status: response.status, body: (await response.json()) as never };
+}
+
+function copySource(tag: string): Paths {
+  const copy = {
+    auth: join(directory, `${tag}-auth.sqlite`),
+    service: join(directory, `${tag}-service.sqlite`),
+  };
+  copyFileSync(source.auth, copy.auth);
+  copyFileSync(source.service, copy.service);
+  return copy;
+}
+
+async function exportAndRestore(tag: string) {
+  const exported = (await send("export", {})) as { key: string };
+  const env = await server.getWorker<{ BACKUPS: R2Bucket }>().getEnv();
+  const object = await env.BACKUPS.get(exported.key);
+  const file = join(directory, `${tag}.ndjson`);
+  writeFileSync(file, await object!.text());
+  const restored = {
+    auth: join(directory, `${tag}-restored-auth.sqlite`),
+    service: join(directory, `${tag}-restored-service.sqlite`),
+  };
+  await restoreExport(file, restored);
+  return { size: object!.size, restored };
+}
+
+function assertSameFiles(actual: Paths, expected: Paths) {
+  for (const role of ["auth", "service"] as const)
+    assert.deepEqual(
+      fileManifest(actual[role]),
+      fileManifest(expected[role]),
+      role,
+    );
+}
+
+test("admin routes answer 403 while ADMIN_TOKEN is unset", async () => {
+  const response = await adminRoute(
+    { token: undefined } as AdminContext,
+    new Request("https://backend/__admin/manifest", {
+      headers: { authorization: `Bearer ${ADMIN_TOKEN}` },
+    }),
+  );
+  assert.equal(response.status, 403);
+});
+
+test("text that is not valid UTF-8 is refused before anything is sent", async () => {
+  const copy = copySource("utf8");
+  const db = new Database(copy.service);
+  db.exec(
+    "UPDATE billing_events SET event_type=CAST(x'41ff42' AS TEXT) WHERE rowid=1",
+  );
+  db.close();
+  const sent: string[] = [];
+  await assert.rejects(
+    importFiles(copy, async (path) => sent.push(path)),
+    /billing_events\.event_type holds text that is not valid UTF-8/,
+  );
+  assert.deepEqual(sent, []);
+});
+
+test("a failed restore leaves no file behind", async () => {
+  const file = join(directory, "truncated.ndjson");
+  const schema = [
+    { type: "table", name: "t", tbl_name: "t", sql: "CREATE TABLE t(a)" },
+  ];
+  writeFileSync(
+    file,
+    [{ schema }, { table: "t", columns: ["a"] }, ["i1"]]
+      .map((line) => JSON.stringify(line))
+      .join("\n"),
+  );
+  const target = {
+    auth: join(directory, "truncated-auth.sqlite"),
+    service: join(directory, "truncated-service.sqlite"),
+  };
+  await assert.rejects(restoreExport(file, target), /truncated/);
+  for (const path of Object.values(target))
+    for (const suffix of ["", "-wal", "-shm"])
+      assert.equal(existsSync(path + suffix), false, path + suffix);
+});
+
+test("the rollback preflight reports a non-JSON error answer", async () => {
+  const proxy = createHttpServer((_, res) =>
+    res.writeHead(502).end("<html>bad gateway</html>"),
+  ).listen(0, "127.0.0.1");
+  await once(proxy, "listening");
+  const { port } = proxy.address() as { port: number };
+  try {
+    await assert.rejects(
+      promisify(execFile)(
+        process.execPath,
+        [
+          "--import",
+          "tsx",
+          "src/rollback-preflight.ts",
+          "--url",
+          `http://127.0.0.1:${port}`,
+          "--candidate",
+          join(directory, "none.json"),
+        ],
+        { cwd: backend, env: { ...process.env, SAVVY_ADMIN_TOKEN: "t" } },
+      ),
+      /manifest answered 502: <html>bad gateway/,
+    );
+  } finally {
+    proxy.close();
+  }
+});
+
+test("a refused seal is aborted, and a fresh import seals with foreign keys on", async () => {
   const tampering: Send = (path, body) => {
     const chunk = body as { table?: string; rows?: (string | null)[][] };
     if (chunk.table === "usage_events") chunk.rows![0]![6] = "i6";
@@ -166,9 +289,70 @@ test("a tampered chunk fails the seal, and a non-empty object refuses a new impo
   );
   assert.equal((await server.fetch("/ready")).status, 503);
   const expected = sourceManifest(source);
+  const own = await send("manifest");
+  await assert.rejects(send("seal", own), /seal answered 409: .*mismatch/);
   const again = await admin("import/begin", expected);
   assert.equal(again.status, 409);
   assert.equal((again.body as { error: string }).error, "not_empty");
+
+  assert.equal((await admin("import/abort", {})).status, 200);
+  await importFiles(source, send);
+  assert.equal((await server.fetch("/ready")).status, 200);
+  assert.deepEqual((await sql("PRAGMA foreign_keys")).body, [
+    { foreign_keys: 1 },
+  ]);
+  const orphan = await sql(
+    "INSERT INTO stripe_payments(payment_id,invoice_id,account_id) VALUES('orphan','i',987654321)",
+  );
+  assert.equal(orphan.status, 400);
+  assert.match(JSON.stringify(orphan.body), /FOREIGN KEY constraint failed/);
+  const sealed = await admin("import/abort", {});
+  assert.equal(sealed.status, 409);
+  assert.equal((sealed.body as { error: string }).error, "sealed");
+});
+
+test("a backend that fails to boot stays unsealed and its import can be aborted", async () => {
+  await server.reset();
+  send = adminSender((await server.listen()).url.href, ADMIN_TOKEN);
+  const broken = copySource("boot");
+  const db = new Database(broken.service);
+  db.exec(
+    "CREATE TRIGGER refuse_boot BEFORE INSERT ON service_capabilities BEGIN SELECT RAISE(ABORT, 'boot refused'); END",
+  );
+  db.close();
+  await assert.rejects(importFiles(broken, send), /seal answered 5\d\d/);
+  assert.equal((await server.fetch("/ready")).status, 503);
+  assert.equal((await admin("import/abort", {})).status, 200);
+  await importFiles(source, send);
+  assert.equal((await server.fetch("/ready")).status, 200);
+});
+
+test("freeze stops traffic, exports what was sealed and resumes on re-seal", async () => {
+  await server.reset();
+  send = adminSender((await server.listen()).url.href, ADMIN_TOKEN);
+  const unsealed = await admin("freeze", {});
+  assert.equal((unsealed.body as { error: string }).error, "not_sealed");
+  await importFiles(source, send);
+  assert.deepEqual(await send("freeze", {}), { frozen: true });
+  assert.equal((await server.fetch("/ready")).status, 503);
+  const pending = await admin("import/abort", {});
+  assert.equal((pending.body as { error: string }).error, "no_import");
+
+  const { restored } = await exportAndRestore("frozen");
+  assertSameFiles(restored, source);
+  await send("seal", await send("manifest"));
+  assert.equal((await server.fetch("/ready")).status, 200);
+});
+
+test("an export over 16 MiB uploads equal parts and restores to the source", async () => {
+  await server.reset();
+  send = adminSender((await server.listen()).url.href, ADMIN_TOKEN);
+  const large = copySource("large");
+  addBulk(large.service, 7000, 5000);
+  await importFiles(large, send);
+  const { size, restored } = await exportAndRestore("large");
+  assert.ok(size > 16 * 1024 * 1024, String(size));
+  assertSameFiles(restored, large);
 });
 
 test("VPS files import into the object, export to R2 and restore to files the Node backend serves", async () => {
