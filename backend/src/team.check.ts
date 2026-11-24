@@ -215,7 +215,6 @@ test(
     };
     const instance = createAuth(env);
     await migrate(instance);
-    instance.mail.close();
     instance.db.close();
     const seed = openServiceDatabase(env.SAVVY_DB_PATH);
     seed

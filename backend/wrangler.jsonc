@@ -1,6 +1,6 @@
 // The top level is the dev Worker. Staging and production set workers_dev to
 // false and are reached only through the route CF-8 and CF-9 add by hand.
-// Bindings are not inherited, so each env lists its own; the top-level
+// Bindings and vars are not inherited, so each env lists its own; the top-level
 // migrations are, and each Worker gets its own SavvyBackend namespace.
 {
   "name": "savvy-api-dev",
@@ -26,6 +26,13 @@
       "jurisdiction": "eu",
     },
   ],
+  "send_email": [
+    {
+      "name": "EMAIL",
+      "allowed_sender_addresses": ["noreply@savvycopilot.com"],
+    },
+  ],
+  "vars": { "SAVVY_EMAIL_FROM": "noreply@savvycopilot.com" },
   "observability": { "enabled": true },
   "env": {
     "staging": {
@@ -42,6 +49,13 @@
           "jurisdiction": "eu",
         },
       ],
+      "send_email": [
+        {
+          "name": "EMAIL",
+          "allowed_sender_addresses": ["noreply@savvycopilot.com"],
+        },
+      ],
+      "vars": { "SAVVY_EMAIL_FROM": "noreply@savvycopilot.com" },
     },
     "production": {
       "name": "savvy-api",
@@ -57,6 +71,13 @@
           "jurisdiction": "eu",
         },
       ],
+      "send_email": [
+        {
+          "name": "EMAIL",
+          "allowed_sender_addresses": ["noreply@savvycopilot.com"],
+        },
+      ],
+      "vars": { "SAVVY_EMAIL_FROM": "noreply@savvycopilot.com" },
     },
   },
 }

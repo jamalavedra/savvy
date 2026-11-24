@@ -20,5 +20,11 @@
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["SavvyBackend", "FakeDeepgram"] },
   ],
+  "send_email": [
+    {
+      "name": "EMAIL",
+      "allowed_sender_addresses": ["noreply@savvycopilot.com"],
+    },
+  ],
   "r2_buckets": [{ "binding": "BACKUPS", "bucket_name": "savvy-backups-test" }],
 }

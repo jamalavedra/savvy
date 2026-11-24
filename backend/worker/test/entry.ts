@@ -9,7 +9,7 @@ const SECOND_OF_AUDIO = 32_000;
 type TestEnv = Env & { DEEPGRAM: DurableObjectNamespace };
 
 // The production object plus probes the tests use to mint tokens, read the
-// alarm, hold a Better Auth transaction and reset the object.
+// alarm, send an invitation, hold a Better Auth transaction and reset the object.
 export class SavvyBackend extends Backend {
   protected override supplierFetch(url: string, init: RequestInit) {
     const fake = (this.env as TestEnv).DEEPGRAM.getByName("fake");
@@ -55,6 +55,13 @@ export class SavvyBackend extends Backend {
       } catch (error) {
         return Response.json({ error: String(error) }, { status: 400 });
       }
+    if (probe === "invite") {
+      await this.state.bindings.sendInvitation!(
+        query.get("email")!,
+        query.get("link")!,
+      );
+      return Response.json(null);
+    }
     if (probe === "reset") this.ctx.abort("reset by the test harness");
     if (probe === "hold-auth") {
       await this.#holdAuth(Number(query.get("ms")));

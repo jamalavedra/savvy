@@ -1,7 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { handleAsNodeRequest } from "cloudflare:node";
 import { createServer, type RequestListener } from "node:http";
-import { createAuth } from "../src/auth.ts";
+import { createAuth, invitationSender, type MailSender } from "../src/auth.ts";
 import { configuration, systemClock } from "../src/config.ts";
 import { migrateService } from "../src/db.ts";
 import { DoSqlite } from "../src/do-sqlite.ts";
@@ -24,10 +24,23 @@ const RECONCILE_MS = 60_000;
 let listener: RequestListener | undefined;
 createServer((req, res) => listener?.(req, res)).listen(PORT);
 
-function stringVars(env: object): NodeJS.ProcessEnv {
+function stringVars(env: object) {
   return Object.fromEntries(
     Object.entries(env).filter(([, value]) => typeof value === "string"),
-  );
+  ) as NodeJS.ProcessEnv;
+}
+
+function emailService(env: {
+  EMAIL?: SendEmail;
+  SAVVY_EMAIL_FROM?: string;
+}): MailSender | null {
+  const { EMAIL: binding, SAVVY_EMAIL_FROM: from } = env;
+  if (!binding || !from) return null;
+  return {
+    async send(message) {
+      await binding.send({ from, ...message });
+    },
+  };
 }
 
 export class SavvyBackend extends DurableObject<Env> {
@@ -50,12 +63,17 @@ export class SavvyBackend extends DurableObject<Env> {
     const vars = stringVars(this.env);
     const config = configuration(vars);
     const service = new DoSqlite(this.ctx.storage).defaultSafeIntegers(true);
-    const auth = createAuth(vars, new DoSqlite(this.ctx.storage));
+    const mail = emailService(this.env);
+    const auth = createAuth(vars, new DoSqlite(this.ctx.storage), mail);
     this.auth = auth;
     await migrate(auth);
     migrateService(service);
-    this.state = createState(config, service, systemClock(), auth, () =>
-      Promise.reject(new Error("Invitation delivery is not configured")),
+    this.state = createState(
+      config,
+      service,
+      systemClock(),
+      auth,
+      invitationSender(mail),
     );
     recover(this.state);
     this.#audio = createAudio(this.state, (url, init) =>
@@ -66,7 +84,7 @@ export class SavvyBackend extends DurableObject<Env> {
       proxyIpHeader: "x-savvy-proxy-ip",
       authBase: config.issuer,
       google: Boolean(vars.GOOGLE_CLIENT_ID && vars.GOOGLE_CLIENT_SECRET),
-      email: false,
+      email: Boolean(mail),
       readUi: (path) => this.#readUi(path),
     });
     await this.#arm();

@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { isIP } from "node:net";
-import { createAuth } from "./auth.js";
+import { createAuth, invitationSender } from "./auth.js";
 import { configuration, systemClock } from "./config.js";
 import { openServiceDatabase } from "./db.js";
 import { createHandler, createState, recover } from "./app.js";
@@ -16,23 +16,14 @@ const proxyIpHeader =
 if (!["x-savvy-proxy-ip", "cf-connecting-ip"].includes(proxyIpHeader))
   throw new Error("Invalid trusted proxy header");
 const auth = createAuth();
-const { db, mail, mailFrom } = auth;
+const { db, mail } = auth;
 const serviceDb = openServiceDatabase(config.serviceDatabase);
 export const state = createState(
   config,
   serviceDb,
   systemClock(),
   auth,
-  async (email, link) => {
-    if (!process.env.SMTP_HOST || !mailFrom)
-      throw new Error("Invitation delivery is not configured");
-    await mail.sendMail({
-      from: mailFrom,
-      to: email,
-      subject: "Join your team on Savvy",
-      text: `You have been invited to join a Savvy team. Open this link and sign in with this email address:\n\n${link}\n\nThis invitation expires in 7 days. Your recordings, documents and connected sources stay private to your own account.`,
-    });
-  },
+  invitationSender(mail),
 );
 recover(state);
 const trustedProxies = (process.env.SAVVY_AUTH_TRUSTED_PROXIES ?? "")
@@ -48,7 +39,7 @@ const server = createServer(
     google: Boolean(
       process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET,
     ),
-    email: Boolean(process.env.SMTP_HOST && process.env.SMTP_FROM),
+    email: Boolean(mail),
     readUi: (path) =>
       readFile(new URL(`../dist${path}`, import.meta.url)).catch(
         (error: NodeJS.ErrnoException) => {
