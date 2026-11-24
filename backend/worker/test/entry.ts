@@ -32,6 +32,10 @@ export class SavvyBackend extends Backend {
         inMs: alarm === null ? null : alarm - Date.now(),
       });
     }
+    if (probe === "clear-alarm") {
+      await this.ctx.storage.deleteAlarm();
+      return Response.json(null);
+    }
     if (probe === "fire") {
       await this.ctx.storage.setAlarm(Date.now());
       return Response.json(null);

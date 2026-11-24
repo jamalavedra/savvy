@@ -6,7 +6,8 @@ import { test, type TestContext } from "node:test";
 import { openServiceDatabase } from "./db.js";
 import { ServiceState } from "./state.js";
 import { configuration } from "./config.js";
-import { insertGrant, balance } from "./billing.js";
+import { insertGrant, balance, reserveBrief } from "./billing.js";
+import { recover } from "./app.js";
 import {
   createSession,
   requireSession,
@@ -849,4 +850,24 @@ test("pause and stop right after a one-second frame bill the forwarded second", 
     h.advance(100n);
     assert.equal(lifecycle(h.state, 1n, ID, action, 1n, 1n).settledMs, 1000n);
   }
+});
+
+test("restart recovery releases briefs whose supplier request never finished", (t) => {
+  const h = fixture(t);
+  const reserved = () =>
+    h.db
+      .prepare<[], { held: bigint }>(
+        "SELECT sum(briefs_reserved) AS held FROM allowance_grants",
+      )
+      .get()!.held;
+  h.db
+    .transaction(() => reserveBrief(h.db, 1n, "unfinished", 1_700_000_000_000n))
+    .immediate();
+  assert.equal(reserved(), 1n);
+  recover(h.state);
+  assert.equal(reserved(), 0n);
+  assert.equal(
+    h.db.prepare("SELECT 1 FROM provider_requests WHERE state='pending'").get(),
+    undefined,
+  );
 });

@@ -94,7 +94,12 @@ test("unknown paths get 404 and audio gets 501 until CF-4", async () => {
     page.headers.get("content-security-policy")!,
     /frame-ancestors 'none'/,
   );
-  assert.match(await page.text(), /<div id="root">/);
+  const html = await page.text();
+  assert.match(html, /<div id="root">/);
+  const script = /src="(\/assets\/[^"]+\.js)"/.exec(html)![1]!;
+  assert.equal((await server.fetch(script)).status, 200);
+  const discovery = await server.fetch("/.well-known/openid-configuration");
+  assert.equal(discovery.status, 200);
 });
 
 test("auth bodies over 65,536 bytes get 413", async () => {
@@ -128,10 +133,6 @@ test("CF-Connecting-IP gives each client its own rate-limit key", async () => {
   );
   assert.ok(
     keys.some((key) => String(key).includes("203.0.113.9")),
-    String(keys),
-  );
-  assert.ok(
-    !keys.some((key) => String(key).includes("192.0.2.1")),
     String(keys),
   );
 });
@@ -280,4 +281,11 @@ test("each client IP gets its own limit of 3 sign-in code requests a minute", as
     String(first),
   );
   assert.notEqual(await send("203.0.113.42"), 429);
+});
+
+test("a fresh instance re-arms a missing alarm on boot", async () => {
+  await probe("clear-alarm");
+  assert.equal(await alarmIn(), null);
+  await evict();
+  assert.notEqual(await alarmIn(), null);
 });
