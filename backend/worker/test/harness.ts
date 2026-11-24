@@ -397,17 +397,14 @@ async function call(stub: Stub, path: string) {
 async function concurrency(env: Env) {
   const stub = env.HARNESS.get(env.HARNESS.idFromName(crypto.randomUUID()));
   await call(stub, "/auth-setup");
-  const started = Date.now();
   const held = call(stub, "/hold-auth?ms=300");
   await sleep(50);
   await Promise.all([held, call(stub, "/ledger-write")]);
-  const waited = Date.now() - started;
   await call(stub, "/ledger-write");
   const observed = await call(stub, "/observe");
   assert.deepEqual(observed.log, ["hold:begin", "hold:end", "write", "write"]);
   assert.equal(observed.grants, 2);
   assert.equal(observed.held, 0);
-  assert.ok(waited >= 300, `the concurrent write finished after ${waited} ms`);
 }
 
 export default {

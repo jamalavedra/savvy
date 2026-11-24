@@ -48,7 +48,9 @@ type QueryRow = Record<string, unknown>;
  * better-sqlite3's surface, as `Db` describes it, over a SQLite-backed Durable
  * Object. Integers come back as Numbers, or as BigInts after
  * `defaultSafeIntegers(true)`. An integer beyond ±2^53, bound or read, throws:
- * Durable Object SQL converts at the boundary through a double.
+ * Durable Object SQL converts at the boundary through a double, so every bound
+ * number or BigInt reaches SQLite as REAL: `7 / ?` gives 3.5 and `'k:' || ?`
+ * gives `k:5.0`. Keep bound integers out of arithmetic and string concatenation.
  */
 export class DoSqlite implements Db {
   #safeIntegers = false;
@@ -129,7 +131,7 @@ export class DoSqlite implements Db {
       )
     )
       throw new Error(
-        `PRAGMA ${pragma} is not supported on Durable Object SQL. Supported: journal_mode, busy_timeout and foreign_keys assignments (ignored: Durable Objects use WAL, never wait on a lock and always enforce foreign keys), reading foreign_keys, and table_info, foreign_key_list or foreign_key_check of one table`,
+        `PRAGMA ${pragma} is not supported on Durable Object SQL. Supported: journal_mode, busy_timeout and foreign_keys assignments (ignored: Durable Objects use WAL and never wait on a lock, and a foreign_keys assignment takes effect only before an event's first write), reading foreign_keys, and table_info, foreign_key_list or foreign_key_check of one table`,
       );
     const { rows } = this.query(`PRAGMA ${pragma}`, []);
     return options.simple ? Object.values(rows[0] ?? {})[0] : rows;
@@ -229,7 +231,8 @@ class DoSqliteDriver implements Driver {
 /**
  * Kysely over a `DoSqlite` handle. A Kysely transaction runs inside
  * `storage.transaction()`, so a rollback undoes its writes, and the object
- * takes no other request until it ends.
+ * takes no other request until it ends. A transaction open for 30 s resets the
+ * object, so its callback must not wait on network I/O.
  */
 export class DoSqliteDialect implements Dialect {
   constructor(private readonly db: DoSqlite) {}

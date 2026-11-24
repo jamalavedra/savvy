@@ -143,13 +143,17 @@ function addLifecycleConstraints(db: Db) {
   const normalise = (sql: string) =>
     sql.replace(/["`]/g, "").replace(/\s+/g, " ").trim();
   const lifecycleTables = Object.keys(LIFECYCLES);
-  const canonical = canonicalDefinitions(db, lifecycleTables);
+  const canonical = canonicalDefinitions(lifecycleTables);
   const pending = lifecycleTables.filter(
     (table) =>
       normalise(tableDefinition(db, table)) !==
       normalise(canonical.get(table)!),
   );
   if (pending.length === 0) return;
+  if (Number(db.pragma("foreign_keys", { simple: true })) === 1)
+    throw new Error(
+      `Lifecycle tables ${pending.join(", ")} need a rebuild, which requires foreign keys off; this database enforces them, so rebuild them with a dedicated migration`,
+    );
   const rebuilt = new Set(pending);
   for (const [table, column, values] of CONSTRAINED_COLUMNS) {
     if (!rebuilt.has(table)) continue;
@@ -205,26 +209,15 @@ function tableDefinition(db: Db, table: string): string {
     )
     .get(table)!.sql;
 }
-/**
- * Reads the definitions SCHEMA gives `tables` on a fresh database: inside a
- * savepoint that is always rolled back, the live tables move aside and SCHEMA
- * recreates them. One connection suffices, so this also runs where no scratch
- * database can be opened (a Durable Object).
- */
-function canonicalDefinitions(db: Db, tables: string[]): Map<string, string> {
+/** The CREATE TABLE statement SCHEMA gives each table, as sqlite_master stores it. */
+function canonicalDefinitions(tables: string[]): Map<string, string> {
   const definitions = new Map<string, string>();
-  const discard = new Error("discard the scratch schema");
-  try {
-    db.transaction(() => {
-      for (const table of tables)
-        db.exec(`ALTER TABLE ${table} RENAME TO scratch_${table}`);
-      db.exec(SCHEMA);
-      for (const table of tables)
-        definitions.set(table, tableDefinition(db, table));
-      throw discard;
-    })();
-  } catch (error) {
-    if (error !== discard) throw error;
+  for (const table of tables) {
+    const match = new RegExp(
+      `CREATE TABLE IF NOT EXISTS (${table} \\([\\s\\S]*?\\));`,
+    ).exec(SCHEMA);
+    if (!match) throw new Error(`SCHEMA defines no table ${table}`);
+    definitions.set(table, `CREATE TABLE ${match[1]}`);
   }
   return definitions;
 }
