@@ -31,16 +31,33 @@ test("the preflight flags each missing secret by name", () => {
   assert.throws(() => secretNames('{"name":"x"}'), /\[\{ name \}\]/);
 });
 
+test("the preflight requires every name a deployed Worker reads", () => {
+  assert.deepEqual([...REQUIRED_SECRETS].sort(), [
+    "ADMIN_TOKEN",
+    "BETTER_AUTH_SECRET",
+    "BETTER_AUTH_URL",
+    "SAVVY_DEEPGRAM_API_KEY",
+    "SAVVY_FIREWORKS_API_KEY",
+    "SAVVY_OIDC_AUDIENCE",
+    "SAVVY_OIDC_CLIENT_ID",
+    "SAVVY_STRIPE_PRICE_MONTHLY",
+    "SAVVY_STRIPE_PRICE_PACK",
+    "SAVVY_STRIPE_SECRET_KEY",
+    "SAVVY_STRIPE_WEBHOOK_SECRET",
+  ]);
+});
+
 test("the required secrets are enough for a public, metered configuration", () => {
   const config = configuration(placeholders(REQUIRED_SECRETS));
   assert.equal(config.issuer, "https://api.example.test");
+  assert.equal(config.audience, "x".repeat(32));
   assert.equal(config.aiProvider, "fireworks");
   assert.notEqual(config.billing, null);
 });
 
 test("configuration refuses to boot without any secret it reads", () => {
-  for (const name of REQUIRED_SECRETS.filter((name) =>
-    name.startsWith("SAVVY_"),
+  for (const name of REQUIRED_SECRETS.filter(
+    (name) => name.startsWith("SAVVY_") && !name.startsWith("SAVVY_OIDC_"),
   ))
     assert.throws(
       () =>

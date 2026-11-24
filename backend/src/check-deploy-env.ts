@@ -7,7 +7,8 @@ import { unstable_readConfig, type Unstable_Config } from "wrangler";
  * Secrets a staging or production Worker needs to boot and be operated.
  * `configuration()` needs the Fireworks, Deepgram and four Stripe names on a
  * public issuer; `createAuth()` needs BETTER_AUTH_SECRET; the issuer is
- * BETTER_AUTH_URL; the deploy's export and the seal need ADMIN_TOKEN.
+ * BETTER_AUTH_URL; the deploy's export and the seal need ADMIN_TOKEN. The OIDC
+ * audience and client id default to production values, so staging must set them.
  */
 export const REQUIRED_SECRETS = [
   "BETTER_AUTH_URL",
@@ -19,6 +20,8 @@ export const REQUIRED_SECRETS = [
   "SAVVY_STRIPE_PRICE_MONTHLY",
   "SAVVY_STRIPE_PRICE_PACK",
   "ADMIN_TOKEN",
+  "SAVVY_OIDC_AUDIENCE",
+  "SAVVY_OIDC_CLIENT_ID",
 ] as const;
 
 export function missingSecrets(listed: readonly string[]) {

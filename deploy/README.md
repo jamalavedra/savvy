@@ -325,8 +325,10 @@ pnpm --dir backend exec wrangler r2 bucket create savvy-api-backups --jurisdicti
 
 Each Worker needs these secrets, set with `wrangler secret put <NAME> --env <env>`:
 `BETTER_AUTH_URL`, `BETTER_AUTH_SECRET`, `SAVVY_FIREWORKS_API_KEY`,
-`SAVVY_DEEPGRAM_API_KEY`, the four `SAVVY_STRIPE_*` names and `ADMIN_TOKEN`.
-The object does not boot without the supplier keys. `pnpm --dir backend build &&
+`SAVVY_DEEPGRAM_API_KEY`, the four `SAVVY_STRIPE_*` names, `ADMIN_TOKEN`,
+`SAVVY_OIDC_AUDIENCE` and `SAVVY_OIDC_CLIENT_ID`. The object does not boot without the
+supplier keys, and without the two OIDC names it falls back to production's audience
+and client id, so staging would refuse every staging sign-in. `pnpm --dir backend build &&
 pnpm --dir backend check-deploy-env <env>` lists any that are missing.
 
 `.github/workflows/deploy-cloudflare.yml` deploys staging after each green `Verify`
