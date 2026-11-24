@@ -5,34 +5,29 @@ on:
   workflow_run: # zizmor: ignore[dangerous-triggers]
     workflows: [Verify]
     types: [completed]
-  workflow_dispatch:
 
 permissions:
   contents: read
 
-concurrency:
-  group: deploy-savvy-cloudflare
-  cancel-in-progress: false
-
 env:
-  DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+  DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
 
 jobs:
   staging:
     if: >-
       github.repository == 'jamalavedra/savvy' &&
-      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' ||
       github.event.workflow_run.event == 'push' &&
       github.event.workflow_run.head_branch == 'main' &&
       github.event.workflow_run.head_repository.full_name == github.repository &&
-      github.event.workflow_run.conclusion == 'success')
+      github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     environment: staging
+    concurrency:
+      group: deploy-savvy-cloudflare-staging
+      cancel-in-progress: false
     timeout-minutes: 30
     env:
       WORKER_ENV: staging
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       API_URL: ${{ vars.API_URL }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -48,8 +43,14 @@ jobs:
       - name: Install and build
         run: pnpm --dir backend install --frozen-lockfile && pnpm --dir backend build
       - name: Check Worker secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: pnpm --dir backend check-deploy-env "$WORKER_ENV"
       - name: Deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: >-
           pnpm --dir backend exec wrangler deploy --env "$WORKER_ENV"
           --durable-objects-code-update-mode immediate
@@ -68,11 +69,12 @@ jobs:
     if: vars.PRODUCTION_LIVE == 'true'
     runs-on: ubuntu-latest
     environment: production
+    concurrency:
+      group: deploy-savvy-cloudflare-production
+      cancel-in-progress: false
     timeout-minutes: 30
     env:
       WORKER_ENV: production
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       API_URL: ${{ vars.API_URL }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -88,6 +90,9 @@ jobs:
       - name: Install and build
         run: pnpm --dir backend install --frozen-lockfile && pnpm --dir backend build
       - name: Check Worker secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: pnpm --dir backend check-deploy-env "$WORKER_ENV"
       - name: Export the database to R2
         env:
@@ -101,6 +106,9 @@ jobs:
           curl -fsS -o /dev/null -w 'export %{http_code}\n' --max-time 300 -X POST \
             -H "authorization: Bearer $ADMIN_TOKEN" "${API_URL%/}/__admin/export"
       - name: Deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: >-
           pnpm --dir backend exec wrangler deploy --env "$WORKER_ENV"
           --durable-objects-code-update-mode immediate

@@ -181,5 +181,6 @@ jobs:
           pnpm --dir backend install --frozen-lockfile
           pnpm --dir backend typecheck
           pnpm --dir backend test
+          pnpm --dir backend test:workerd
           pnpm --dir backend build
           pnpm --dir backend test:package
