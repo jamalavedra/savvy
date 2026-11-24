@@ -12,6 +12,7 @@ import { reconcile } from "../src/stripe.ts";
 import { expireStaleSessions } from "../src/sessions.ts";
 import type { ServiceState } from "../src/state.ts";
 import { createAudio, isAudioUpgrade } from "./audio.ts";
+import { admin, ADMIN_PREFIX, SEALED } from "./admin.ts";
 
 const PORT = 8788;
 const ACTIVE_TICK_MS = 1000;
@@ -39,7 +40,9 @@ export class SavvyBackend extends DurableObject<Env> {
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
-    void ctx.blockConcurrencyWhile(() => this.#boot());
+    void ctx.blockConcurrencyWhile(async () => {
+      if (await ctx.storage.get(SEALED)) await this.#boot();
+    });
   }
 
   async #boot() {
@@ -95,6 +98,26 @@ export class SavvyBackend extends DurableObject<Env> {
   }
 
   override async fetch(request: Request) {
+    if (new URL(request.url).pathname.startsWith(ADMIN_PREFIX))
+      return admin(
+        {
+          storage: this.ctx.storage,
+          token: (this.env as { ADMIN_TOKEN?: string }).ADMIN_TOKEN,
+          bucket: (this.env as { BACKUPS?: R2Bucket }).BACKUPS,
+          blockConcurrencyWhile: (fn) => this.ctx.blockConcurrencyWhile(fn),
+          sealed: () => this.ctx.blockConcurrencyWhile(() => this.#boot()),
+        },
+        request,
+      );
+    if (!this.state)
+      return Response.json(
+        {
+          error: "import_pending",
+          message:
+            "This backend is not sealed yet: an import is pending or has not started",
+        },
+        { status: 503, headers: { "retry-after": "60" } },
+      );
     listener = this.#handle;
     const response = isAudioUpgrade(request)
       ? await this.#audio(request)
@@ -104,6 +127,7 @@ export class SavvyBackend extends DurableObject<Env> {
   }
 
   override async alarm() {
+    if (!this.state) return;
     try {
       if (!this.#reconciling && Date.now() - this.#reconciledAt >= RECONCILE_MS)
         this.#reconcile();

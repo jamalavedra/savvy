@@ -4,12 +4,14 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { after, before, test } from "node:test";
 import { WebSocket } from "ws";
 import { createTestHarness } from "wrangler";
+import { ADMIN_TOKEN, sealEmpty } from "./seal.ts";
 
 const configPath = new URL("./entry.wrangler.jsonc", import.meta.url);
 const secrets = {
   BETTER_AUTH_SECRET: "workerd-secret-workerd-secret-0123456789",
   SAVVY_ANTHROPIC_API_KEY: "synthetic",
   SAVVY_DEEPGRAM_API_KEY: "synthetic",
+  ADMIN_TOKEN,
 };
 const server = createTestHarness({ workers: [{ configPath, secrets }] });
 const FRAME = 3200;
@@ -21,6 +23,7 @@ let objectId: string;
 
 before(async () => {
   base = (await server.listen()).url;
+  await sealEmpty(server.fetch);
   objectId = (await probe<{ id: string }>("alarm")).id;
 });
 after(() => server.close());

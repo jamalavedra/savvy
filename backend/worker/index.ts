@@ -1,11 +1,13 @@
 import { isServedPath } from "../src/app.ts";
+import { ADMIN_PREFIX } from "./admin.ts";
 
 export { SavvyBackend } from "./backend.ts";
 
 export default {
   fetch(request, env) {
     const path = new URL(request.url).pathname;
-    if (!isServedPath(path)) return new Response(null, { status: 404 });
+    if (!isServedPath(path) && !path.startsWith(ADMIN_PREFIX))
+      return new Response(null, { status: 404 });
     const forwarded = new Request(request);
     forwarded.headers.delete("x-savvy-proxy-ip");
     const client = request.headers.get("cf-connecting-ip");

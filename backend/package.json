@@ -22,6 +22,7 @@
     "test:web-return": "pnpm --dir ../www build && tsx --test src/return.check.ts",
     "capability": "node build/capability.js",
     "rollback-preflight": "node build/rollback-preflight.js",
+    "transfer": "node build/transfer.js",
     "test:workerd": "pnpm build:ui && tsx --test worker/test/*.test.ts"
   },
   "dependencies": {

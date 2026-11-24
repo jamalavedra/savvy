@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { setTimeout as sleep } from "node:timers/promises";
 import { after, before, test } from "node:test";
 import { createTestHarness } from "wrangler";
+import { ADMIN_TOKEN, sealEmpty } from "./seal.ts";
 
 const server = createTestHarness({
   workers: [
@@ -11,12 +12,16 @@ const server = createTestHarness({
         BETTER_AUTH_SECRET: "workerd-secret-workerd-secret-0123456789",
         SAVVY_ANTHROPIC_API_KEY: "synthetic",
         SAVVY_DEEPGRAM_API_KEY: "synthetic",
+        ADMIN_TOKEN,
       },
     },
   ],
 });
 const worker = () => server.getWorker();
-before(() => server.listen());
+before(async () => {
+  await server.listen();
+  await sealEmpty(server.fetch);
+});
 after(() => server.close());
 
 type Row = Record<string, unknown>;
