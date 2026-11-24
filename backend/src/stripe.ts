@@ -82,7 +82,7 @@ async function request(
             ...(key === undefined ? {} : { "Idempotency-Key": key }),
           },
           body: form,
-          redirect: "error",
+          redirect: "manual",
           signal: AbortSignal.any([
             AbortSignal.timeout(10_000),
             ...(billingDeadline.getStore()

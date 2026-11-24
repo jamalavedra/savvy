@@ -62,4 +62,17 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    files: ["backend/src/**/*.ts", "backend/worker/**/*.ts"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "Property[key.name='redirect'][value.value='error']",
+          message:
+            "Workers fetch throws on redirect: \"error\". Use \"manual\" and treat any 3xx as a failure.",
+        },
+      ],
+    },
+  },
 );

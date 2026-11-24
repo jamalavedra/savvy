@@ -172,7 +172,7 @@ if (
                 Authorization: `Bearer ${key}`,
                 "Stripe-Version": "2025-06-30.basil",
               },
-              redirect: "error",
+              redirect: "manual",
               signal: AbortSignal.timeout(10_000),
             },
           );

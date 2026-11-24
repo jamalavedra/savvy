@@ -434,7 +434,7 @@ export class ComposioSources {
           "connected source returned an unsafe download URL",
         );
       const response = await fetch(url, {
-        redirect: "error",
+        redirect: "manual",
         signal: AbortSignal.timeout(15_000),
       });
       if (

@@ -67,7 +67,7 @@ export async function post(
         },
         body: JSON.stringify(body),
         signal: deadline,
-        redirect: "error",
+        redirect: "manual",
       },
     );
     if (!response.ok) {
