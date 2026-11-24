@@ -33,20 +33,21 @@ export function problems(
 
 async function poll(origin: string, token: string) {
   const signal = AbortSignal.timeout(15_000);
-  const ready = await fetch(`${origin}/ready`, { signal }).then(
-    async (response) => (await response.body?.cancel(), response.status),
-    (error: unknown) => `unreachable:${String(error)}`,
-  );
+  const unreachable = (error: unknown) => `unreachable:${String(error)}`;
+  const ready = await fetch(`${origin}/ready`, { signal, redirect: "manual" })
+    .then(async (response) => (await response.body?.cancel(), response.status))
+    .catch(unreachable);
   const status = await fetch(`${origin}/__admin/status`, {
     headers: { authorization: `Bearer ${token}` },
     signal,
-  }).then(
-    async (response) =>
+    redirect: "manual",
+  })
+    .then(async (response) =>
       response.ok
         ? ((await response.json()) as Status & Record<string, unknown>)
         : (await response.body?.cancel(), String(response.status)),
-    (error: unknown) => `unreachable:${String(error)}`,
-  );
+    )
+    .catch(unreachable);
   const now = Date.now();
   const found = problems(ready, status, now);
   return {

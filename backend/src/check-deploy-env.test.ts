@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { unstable_readConfig } from "wrangler";
@@ -72,7 +73,7 @@ test("configuration refuses to boot without any secret it reads", () => {
 test("staging and production each carry their own mail binding and sender", () => {
   const config = (env: string) =>
     unstable_readConfig({
-      config: new URL("../wrangler.jsonc", import.meta.url).pathname,
+      config: fileURLToPath(new URL("../wrangler.jsonc", import.meta.url)),
       env,
     });
   for (const env of ["staging", "production"])

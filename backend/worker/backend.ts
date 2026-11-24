@@ -10,7 +10,7 @@ import { createHandler, createState, recover } from "../src/app.ts";
 import { pruneResults } from "../src/advice.ts";
 import { reconcile } from "../src/stripe.ts";
 import { expireStaleSessions } from "../src/sessions.ts";
-import { noteError } from "../src/recent-errors.ts";
+import { noteError, persistErrorsIn } from "../src/recent-errors.ts";
 import type { ServiceState } from "../src/state.ts";
 import { createAudio, isAudioUpgrade } from "./audio.ts";
 import { admin, ADMIN_PREFIX, LAST_ALARM, SEALED } from "./admin.ts";
@@ -61,6 +61,7 @@ export class SavvyBackend extends DurableObject<Env> {
   }
 
   async #boot() {
+    persistErrorsIn(this.ctx.storage.kv);
     const vars = stringVars(this.env);
     const config = configuration(vars);
     const service = new DoSqlite(this.ctx.storage).defaultSafeIntegers(true);
@@ -163,6 +164,7 @@ export class SavvyBackend extends DurableObject<Env> {
         this.#reconcile();
       expireStaleSessions(this.state);
       pruneResults(this.state);
+      await this.ctx.storage.put(LAST_ALARM, Date.now());
     } catch (error) {
       console.error(
         "maintenance tick failed; retrying on the next alarm",
@@ -170,7 +172,6 @@ export class SavvyBackend extends DurableObject<Env> {
       );
     } finally {
       await this.ctx.storage.setAlarm(Date.now() + this.#cadence());
-      await this.ctx.storage.put(LAST_ALARM, Date.now());
     }
   }
 

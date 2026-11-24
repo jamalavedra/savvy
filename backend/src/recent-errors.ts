@@ -14,14 +14,33 @@ export const RECENT_ERRORS = [
 ] as const;
 type Kind = (typeof RECENT_ERRORS)[number];
 
-// ponytail: per isolate, so a deploy or eviction forgets the window; persist if the soak needs it.
 const seen = new Map<Kind, number[]>();
 
+interface Store {
+  get(key: string): unknown;
+  put(key: string, value: unknown): void;
+}
+let store: Store | null = null;
+
+/** Keeps the window in `kv`, so a deploy or an evicted isolate does not reset it. */
+export function persistErrorsIn(kv: Store) {
+  store = kv;
+  for (const kind of RECENT_ERRORS) {
+    const times = kv.get(`recent-errors:${kind}`);
+    if (Array.isArray(times))
+      seen.set(
+        kind,
+        times.filter((at): at is number => typeof at === "number"),
+      );
+  }
+}
+
 export function noteError(kind: Kind, now = Date.now()) {
-  const times = seen.get(kind) ?? [];
+  const times = (seen.get(kind) ?? []).filter((at) => at >= now - WINDOW_MS);
   times.push(now);
   if (times.length > LIMIT) times.shift();
   seen.set(kind, times);
+  store?.put(`recent-errors:${kind}`, times);
 }
 
 export function recentErrors(now = Date.now()) {

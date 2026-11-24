@@ -340,6 +340,14 @@ deploying and fails if the export fails. Set the environment variable `API_URL` 
 Worker's route origin once the route exists. Staging skips its `/ready` check with a
 notice until then; production refuses to deploy without it.
 
+Email Service sign-in failures to watch. A suppressed address (soft bounce for 24 h,
+hard bounce for 7 days or permanently, complaint permanently) fails with
+`E_RECIPIENT_SUPPRESSED`, and the user sees "Email delivery failed. Try again later."
+Each retry also spends the 30 s resend cooldown. Keep **Drop suppressed recipients**
+off for the sending domain: with it on, the send succeeds and no code ever arrives.
+`E_DAILY_LIMIT_EXCEEDED` blocks every email sign-in for the account until the quota
+resets, and new accounts start with a low quota. Find both codes in Workers Logs.
+
 A new object refuses traffic with 503 until it is sealed. After the first deploy,
 either run `transfer import` with the VPS databases (it seals against their manifest), or
 seal an empty object:

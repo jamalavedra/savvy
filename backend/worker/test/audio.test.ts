@@ -273,6 +273,14 @@ test("a supplier close ends the stream on the supplier-failure path", async () =
   const closing = await diagnostic(m.id);
   assert.equal(closing.reason, "supplier_closed");
   assert.equal(closing.supplierFailure, true);
+  const status = await server.fetch("/__admin/status", {
+    headers: { authorization: `Bearer ${ADMIN_TOKEN}` },
+  });
+  const counts = (await status.json()) as Record<string, number>;
+  assert.ok(
+    counts.transcription_provider_failures_5m! >= 1,
+    JSON.stringify(counts),
+  );
   const kept = await row(m.id);
   assert.equal(kept.state, "active");
   await stop(m);
