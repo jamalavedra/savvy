@@ -103,7 +103,9 @@ export async function readObject(
   let value: unknown;
   const raw = await readBody(req);
   try {
-    value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(raw));
+    value = JSON.parse(
+      new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(raw),
+    );
   } catch {
     throw new ApiError("invalid_request", "invalid JSON body");
   }

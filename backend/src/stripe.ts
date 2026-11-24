@@ -954,7 +954,9 @@ export async function webhook(
     .immediate();
   let event: unknown;
   try {
-    event = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(body));
+    event = JSON.parse(
+      new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(body),
+    );
   } catch {
     throw new ApiError("invalid_request", "invalid webhook JSON");
   }

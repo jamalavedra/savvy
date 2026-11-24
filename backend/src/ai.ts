@@ -96,7 +96,9 @@ export async function post(
     );
     let value: unknown;
     try {
-      value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(raw));
+      value = JSON.parse(
+        new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(raw),
+      );
     } catch {
       throw new ApiError(
         "provider_unavailable",

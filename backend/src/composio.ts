@@ -458,7 +458,12 @@ export class ComposioSources {
           "record exceeds the 256 KiB import limit",
         ),
       );
-      return { text: new TextDecoder("utf-8", { fatal: true }).decode(bytes) };
+      return {
+        text: new TextDecoder("utf-8", {
+          fatal: true,
+          ignoreBOM: false,
+        }).decode(bytes),
+      };
     }
     if (typeof result.data === "string")
       return { text: sourceText(result.data) };
