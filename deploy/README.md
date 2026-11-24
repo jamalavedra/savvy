@@ -304,6 +304,51 @@ readiness must also be observed every minute from a separate machine during the
 leaving production unattended. A failed monitor does not stop or restart the
 backend automatically.
 
+## Cloudflare Workers (migration in progress)
+
+The backend is moving to one SQLite-backed Durable Object per Worker in the EU
+jurisdiction. `backend/wrangler.jsonc` defines three Workers:
+
+| Env             | Worker              | Reached through | Backups bucket (EU)         |
+| --------------- | ------------------- | --------------- | --------------------------- |
+| top level (dev) | `savvy-api-dev`     | workers.dev     | `savvy-api-dev-backups`     |
+| `staging`       | `savvy-api-staging` | its route only  | `savvy-api-staging-backups` |
+| `production`    | `savvy-api`         | its route only  | `savvy-api-backups`         |
+
+Staging and production have no route in the file; add it by hand at cutover.
+Create each bucket once, before the first deploy of its Worker:
+
+```sh
+pnpm --dir backend exec wrangler r2 bucket create savvy-api-staging-backups --jurisdiction eu
+pnpm --dir backend exec wrangler r2 bucket create savvy-api-backups --jurisdiction eu
+```
+
+Each Worker needs these secrets, set with `wrangler secret put <NAME> --env <env>`:
+`BETTER_AUTH_URL`, `BETTER_AUTH_SECRET`, `SAVVY_FIREWORKS_API_KEY`,
+`SAVVY_DEEPGRAM_API_KEY`, the four `SAVVY_STRIPE_*` names and `ADMIN_TOKEN`.
+The object does not boot without the supplier keys. `pnpm --dir backend build &&
+pnpm --dir backend check-deploy-env <env>` lists any that are missing.
+
+`.github/workflows/deploy-cloudflare.yml` deploys staging after each green `Verify`
+on main, then production once the `production` environment approves it. Both GitHub
+environments hold `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`; production also
+holds `ADMIN_TOKEN`, which the workflow uses to call `POST /__admin/export` before
+deploying and fails if the export fails. Set the environment variable `API_URL` to the
+Worker's route origin once the route exists; until then the export and the `/ready`
+check are skipped with a notice.
+
+A new object refuses traffic with 503 until it is sealed. After the first deploy,
+either run `transfer import` with the VPS databases (it seals against their manifest), or
+seal an empty object:
+
+```sh
+curl -fsS -X POST -H "authorization: Bearer $ADMIN_TOKEN" \
+  -d '{"schema":[],"tables":[]}' "$API_URL/__admin/seal"
+```
+
+The VPS workflow, `deploy-backend.yml`, keeps deploying production until the
+cutover and is removed when Savvy leaves the VPS.
+
 ## Acceptance still required
 
 Follow [`backend/e2e/managed-acceptance.md`](../backend/e2e/managed-acceptance.md)
