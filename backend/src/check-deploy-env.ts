@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
+import { unstable_readConfig, type Unstable_Config } from "wrangler";
 
 /**
  * Secrets a staging or production Worker needs to boot and be operated.
@@ -22,6 +23,22 @@ export const REQUIRED_SECRETS = [
 
 export function missingSecrets(listed: readonly string[]) {
   return REQUIRED_SECRETS.filter((name) => !listed.includes(name));
+}
+
+/**
+ * Email codes are the only sign-in besides optional Google, so a public Worker
+ * needs the EMAIL binding and a SAVVY_EMAIL_FROM var the binding may send from.
+ */
+export function missingMail(
+  config: Pick<Unstable_Config, "send_email" | "vars">,
+) {
+  const from = config.vars.SAVVY_EMAIL_FROM;
+  if (typeof from !== "string" || !from) return "the SAVVY_EMAIL_FROM var";
+  const binding = config.send_email.find(({ name }) => name === "EMAIL");
+  if (!binding) return "the send_email binding EMAIL";
+  if (!binding.allowed_sender_addresses?.includes(from))
+    return `${from} in EMAIL's allowed_sender_addresses`;
+  return null;
 }
 
 /** Reads the names from `wrangler secret list --format json` output. */
@@ -55,7 +72,14 @@ if (
       throw new Error(
         `${env} is missing secrets: ${missing.join(", ")}. Set each with wrangler secret put <NAME> --env ${env}`,
       );
-    console.log(`${env} has all ${REQUIRED_SECRETS.length} required secrets`);
+    const mail = missingMail(unstable_readConfig({ env: env! }));
+    if (mail)
+      throw new Error(
+        `${env} cannot send sign-in codes: wrangler.jsonc env.${env} lacks ${mail}`,
+      );
+    console.log(
+      `${env} has all ${REQUIRED_SECRETS.length} required secrets and mail`,
+    );
   } catch (error) {
     console.error(
       error instanceof Error ? error.message : "Secrets preflight failed",

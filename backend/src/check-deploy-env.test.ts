@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { unstable_readConfig } from "wrangler";
 import {
   REQUIRED_SECRETS,
+  missingMail,
   missingSecrets,
   secretNames,
 } from "./check-deploy-env.js";
@@ -48,4 +50,26 @@ test("configuration refuses to boot without any secret it reads", () => {
       /Missing required|Stripe is not configured/,
       name,
     );
+});
+
+test("staging and production each carry their own mail binding and sender", () => {
+  const config = (env: string) =>
+    unstable_readConfig({
+      config: new URL("../wrangler.jsonc", import.meta.url).pathname,
+      env,
+    });
+  for (const env of ["staging", "production"])
+    assert.equal(missingMail(config(env)), null, env);
+  const production = config("production");
+  const mail = (send_email: typeof production.send_email, from?: string) =>
+    missingMail({ send_email, vars: from ? { SAVVY_EMAIL_FROM: from } : {} });
+  assert.equal(mail(production.send_email), "the SAVVY_EMAIL_FROM var");
+  assert.equal(
+    mail([], "noreply@savvycopilot.com"),
+    "the send_email binding EMAIL",
+  );
+  assert.equal(
+    mail(production.send_email, "other@savvycopilot.com"),
+    "other@savvycopilot.com in EMAIL's allowed_sender_addresses",
+  );
 });
