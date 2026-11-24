@@ -188,25 +188,32 @@ globalThis.fetch=async (url, options)=>{
   assert.equal(url,'https://api.stripe.com/v1/billing_portal/configurations/bpc_team');
   assert.equal(options.headers.Authorization,'Bearer synthetic');
   assert.equal(options.headers['Stripe-Version'],'2025-06-30.basil');
-  assert.equal(options.redirect,'error');
+  assert.equal(options.redirect,'manual');
+  if (process.env.SAVVY_TEST_PORTAL_REDIRECT === '1') {
+    return Response.redirect('https://example.invalid/portal');
+  }
   return Response.json({id:'bpc_team',active:true,features:{subscription_update:{enabled:false},subscription_cancel:{enabled:true}}});
 };
 `,
       );
-      await run(
-        process.execPath,
-        [
-          "--import",
-          portalFixture,
-          ...capabilityCommand,
-          "configure-team-portal",
-          "--db",
-          dbPath,
-          "--configuration",
-          "bpc_team",
-        ],
-        options,
+      const configurePortal = [
+        "--import",
+        portalFixture,
+        ...capabilityCommand,
+        "configure-team-portal",
+        "--db",
+        dbPath,
+        "--configuration",
+        "bpc_team",
+      ];
+      await assert.rejects(
+        run(process.execPath, configurePortal, {
+          ...options,
+          env: { ...env, SAVVY_TEST_PORTAL_REDIRECT: "1" },
+        }),
+        /Unable to retrieve team portal configuration/,
       );
+      await run(process.execPath, configurePortal, options);
       const activated = JSON.parse(
         (await run(process.execPath, activate, options)).stdout,
       );
