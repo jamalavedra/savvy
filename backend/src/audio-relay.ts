@@ -30,6 +30,10 @@ export const CLOSED = 3;
 // ponytail: one-process ceiling of 128 audio sockets; raise only after load checks.
 const MAX_SOCKETS = 128;
 const MONITOR_MS = 100;
+// A blocked object (an open storage transaction) runs no timers and receives no
+// frames. That time is not the client going idle, and the audio the client
+// sent meanwhile is dropped unbilled, since pacing cannot catch it up.
+const FREEZE_MS = 1000;
 
 /** A text frame arrives as a string, a binary frame as bytes. */
 export type Frame = string | Uint8Array;
@@ -304,6 +308,9 @@ class Relay {
   lastRefresh: bigint;
   tokenExpiry: bigint;
   monitor: ReturnType<typeof setInterval> | undefined;
+  lastTick = performance.now();
+  frozenBytes = 0;
+  droppedBytes = 0;
   finishResolve!: () => void;
   finished = new Promise<void>((resolve) => {
     this.finishResolve = resolve;
@@ -357,6 +364,7 @@ class Relay {
           this.lastReceived === null ? null : Number(now - this.lastReceived),
         receivedBytes: this.receivedBytes,
         deliveredBytes: this.deliveredBytes,
+        droppedBytes: this.droppedBytes,
         tokenRemainingMs: Number(this.tokenExpiry - now),
         queuedBytes: this.queuedBytes,
         outputBytes: this.outputBytes,
@@ -586,6 +594,12 @@ class Relay {
       return;
     }
     const chunk = frame;
+    this.noticeFreeze();
+    if (this.frozenBytes >= chunk.length) {
+      this.frozenBytes -= chunk.length;
+      this.droppedBytes += chunk.length;
+      return;
+    }
     if (
       !chunk.length ||
       chunk.length % 2 ||
@@ -603,9 +617,19 @@ class Relay {
     this.startPump();
   }
 
+  noticeFreeze() {
+    const tick = performance.now();
+    const frozen = Math.round(tick - this.lastTick - MONITOR_MS);
+    this.lastTick = tick;
+    if (frozen < FREEZE_MS) return;
+    this.lastDelivered += BigInt(frozen);
+    this.frozenBytes += frozen * 32;
+  }
+
   check() {
     if (this.stopping) return;
     const { state, session, upstream } = this;
+    this.noticeFreeze();
     try {
       const now = state.clock();
       const disabled = state.db

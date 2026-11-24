@@ -413,6 +413,7 @@ test("idle and disabled accounts close supplier work without charging a silent t
         "lastReceivedAgeMs",
         "receivedBytes",
         "deliveredBytes",
+        "droppedBytes",
         "tokenRemainingMs",
         "queuedBytes",
         "outputBytes",

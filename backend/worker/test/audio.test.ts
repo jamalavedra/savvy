@@ -33,6 +33,8 @@ interface Diagnostic {
   upstreamBufferedBytes: number | null;
   upstreamWriteFailure: string | null;
   sessionId: string;
+  deliveredBytes: number;
+  droppedBytes: number;
 }
 
 async function probe<T>(name: string, query = ""): Promise<T> {
@@ -365,6 +367,41 @@ test("an abrupt client drop keeps the meeting active for a reconnect", async () 
   await eventually(async () => (await row(m.id)).state === "paused", 5000);
   assertDebits(await row(m.id), 2000);
 });
+
+test(
+  "a stream survives a sign-in transaction held for 6 s",
+  {
+    timeout: 40_000,
+  },
+  async () => {
+    await deepgram("reset");
+    const m = await meeting("held-user");
+    const { ws, messages } = connect(m);
+    await once(ws, "open");
+    const streamed = stream(ws, 14_000);
+    await sleep(2000);
+    const held = probe("hold-auth", "ms=6000");
+    await sleep(500);
+    const before = messages.length;
+    await streamed;
+    await held;
+    assert.equal(ws.readyState, WebSocket.OPEN);
+    assert.ok(messages.length > before + 50, `${before} -> ${messages.length}`);
+    ws.close();
+    await once(ws, "close");
+    await eventually(async () => (await row(m.id)).state === "paused", 5000);
+    const closing = await diagnostic(m.id);
+    assert.equal(closing.reason, "client_closed");
+    assert.ok(
+      Math.abs(closing.droppedBytes / 32 - 6000) <= PACING_TOLERANCE_MS,
+      String(closing.droppedBytes),
+    );
+    assertDebits(await row(m.id), closing.deliveredBytes / 32);
+    assert.ok(
+      closing.deliveredBytes / 32 >= 14_000 - 6000 - PACING_TOLERANCE_MS,
+    );
+  },
+);
 
 test(
   "resetting the object mid-stream ends the session through its lease",
