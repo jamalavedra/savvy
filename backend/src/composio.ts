@@ -1,6 +1,6 @@
 import { Composio } from "@composio/core";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import sourceProviders from "./source-providers.json" with { type: "json" };
 import type { ServiceState } from "./state.js";
 import { ApiError, readLimited } from "./errors.js";
 import { reserveAttempt } from "./billing.js";
@@ -8,9 +8,12 @@ import { reserveAttempt } from "./billing.js";
 export const SOURCE_LIMIT = 256 * 1024;
 // single source of truth for the provider list, shared with the desktop UI
 // (bundled at build time) and the native filename allowlist (include_str!)
-const CATALOG = JSON.parse(
-  readFileSync(new URL("./source-providers.json", import.meta.url), "utf8"),
-) as { id: string; label: string; connectable: boolean; kinds: string[] }[];
+const CATALOG: {
+  id: string;
+  label: string;
+  connectable: boolean;
+  kinds: string[];
+}[] = sourceProviders;
 export const PROVIDERS = CATALOG.filter((entry) => entry.connectable).map(
   (entry) => entry.id,
 );

@@ -24,7 +24,8 @@ class MonitorTests(unittest.TestCase):
         self.database = pathlib.Path(self.directory.name) / "service.sqlite"
         self.db = sqlite3.connect(self.database)
         self.addCleanup(self.db.close)
-        self.db.executescript((ROOT / "backend/src/service-schema.sql").read_text())
+        schema = (ROOT / "backend/src/service-schema.ts").read_text()
+        self.db.executescript(schema[schema.index("`") + 1 : schema.rindex("`")])
         self.db.commit()
         for context in [
             patch.object(monitor, "DATABASE", self.database),

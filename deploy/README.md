@@ -23,7 +23,7 @@ pnpm --dir backend build
 A backend release needs `backend/build/`, `backend/dist/`, `backend/package.json`,
 the lockfile, production `node_modules`, and `config/managed-catalog.json` at the
 release root alongside `backend/`. Preserve that relative path; the compiled catalog
-module reads it. Run migrations with `node build/migrate.js service`, which refuses
+module imports it. Run migrations with `node build/migrate.js service`, which refuses
 without changing anything if existing rows break a schema constraint, then
 `node build/migrate.js`, and start with `node build/server.js` from the package
 working directory. TypeScript tooling is not a runtime requirement. Deploy frontend

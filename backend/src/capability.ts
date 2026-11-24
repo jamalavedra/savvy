@@ -1,9 +1,12 @@
 import { readFileSync, realpathSync, statSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { openPrivateDatabase, type Db } from "./db.js";
+import serviceCapabilities from "./service-capabilities.json" with { type: "json" };
 
 export function manifestCapability(path: string | URL): number {
-  const value: unknown = JSON.parse(readFileSync(path, "utf8"));
+  return fundingSchema(JSON.parse(readFileSync(path, "utf8")));
+}
+function fundingSchema(value: unknown): number {
   if (
     value === null ||
     typeof value !== "object" ||
@@ -14,9 +17,7 @@ export function manifestCapability(path: string | URL): number {
     throw new Error("Invalid funding capability manifest");
   return Number(value.funding_schema);
 }
-export const FUNDING_SCHEMA = manifestCapability(
-  new URL("./service-capabilities.json", import.meta.url),
-);
+export const FUNDING_SCHEMA = fundingSchema(serviceCapabilities);
 
 export function capability(db: Db, key: string): string | undefined {
   return db
