@@ -70,7 +70,7 @@ export default tseslint.config(
         {
           selector: "Property[key.name='redirect'][value.value='error']",
           message:
-            "Workers fetch throws on redirect: \"error\". Use \"manual\" and treat any 3xx as a failure.",
+            'Workers fetch throws on redirect: "error". Use "manual" and treat any 3xx as a failure.',
         },
       ],
     },
