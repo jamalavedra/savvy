@@ -803,25 +803,29 @@ test("a 2 s event-loop block delivers the audio sent during it late", async (t) 
   assert.equal(h.forwarded(), 64_640);
 });
 
-test("empty and odd frames close the relay even right after a long block", async (t) => {
-  for (const [frame, blockMs] of [
-    [Buffer.alloc(0), 0],
-    [Buffer.alloc(3), 4500],
-  ] as const) {
-    const h = await fixture(t),
-      ws = h.connect();
-    await once(ws, "open");
-    const ready = once(ws, "message");
-    ws.send(Buffer.alloc(640));
-    await ready;
-    const closed = once(ws, "close");
-    ws.send(frame);
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, blockMs);
-    await closed;
-    await waitFor(() => h.view().state === "paused");
-    assert.equal(h.forwarded(), 640);
-  }
-});
+test(
+  "empty and odd frames close the relay even right after a long block",
+  { timeout: 20_000 },
+  async (t) => {
+    for (const [frame, blockMs] of [
+      [Buffer.alloc(0), 0],
+      [Buffer.alloc(3), 4500],
+    ] as const) {
+      const h = await fixture(t),
+        ws = h.connect();
+      await once(ws, "open");
+      const ready = once(ws, "message");
+      ws.send(Buffer.alloc(640));
+      await ready;
+      const closed = once(ws, "close");
+      ws.send(frame);
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, blockMs);
+      await closed;
+      await waitFor(() => h.view().state === "paused");
+      assert.equal(h.forwarded(), 640);
+    }
+  },
+);
 
 test("a delayed audio burst survives the old one-second queue limit and settles only delivered audio", async (t) => {
   const h = await fixture(t),

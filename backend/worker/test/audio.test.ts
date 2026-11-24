@@ -396,7 +396,8 @@ test(
     const { ws, messages } = connect(m);
     await once(ws, "open");
     const streamed = stream(ws, 14_000);
-    await sleep(2000);
+    await eventually(async () => messages.length >= 2, 5000);
+    await sleep(500);
     const held = probe("hold-auth", "ms=6000");
     await sleep(500);
     const before = messages.length;
