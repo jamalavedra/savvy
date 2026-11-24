@@ -39,7 +39,7 @@ function emailService(env: {
   if (!binding || !from) return null;
   return {
     async send(message) {
-      await binding.send({ from, ...message });
+      await binding.send({ from: { email: from, name: "Savvy" }, ...message });
     },
   };
 }

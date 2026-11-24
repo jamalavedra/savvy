@@ -7,6 +7,7 @@ import { createTestHarness } from "wrangler";
 import { ADMIN_TOKEN, sealEmpty } from "./seal.ts";
 
 const SENDER = "noreply@savvycopilot.com";
+const FROM = `"Savvy" <${SENDER}>`;
 const ORIGIN = "http://127.0.0.1:8788";
 
 function harness(from: string) {
@@ -117,7 +118,7 @@ test("a sign-in code reaches the recipient once and signs in", async () => {
   const messages = await mailTo(email);
   assert.equal(messages.length, 1);
   const [message] = messages;
-  assert.equal(message!.from, SENDER);
+  assert.equal(message!.from, FROM);
   assert.equal(message!.subject, "Your Savvy sign-in code");
   const otp = /^Your Savvy code is (\d{6})\. /.exec(message!.text)?.[1];
   assert.ok(otp, message!.text);
@@ -142,7 +143,7 @@ test("a team invitation sends one message with the join link", async () => {
   assert.equal(response.status, 200, await response.text());
   const messages = await mailTo(email);
   assert.equal(messages.length, 1);
-  assert.equal(messages[0]!.from, SENDER);
+  assert.equal(messages[0]!.from, FROM);
   assert.equal(messages[0]!.subject, "Join your team on Savvy");
   assert.ok(messages[0]!.text.includes(`\n\n${link}\n\n`), messages[0]!.text);
 });
