@@ -64,6 +64,8 @@ jobs:
 
   production:
     needs: staging
+    # Set to true at cutover (plan CF-9); before then production serves no traffic.
+    if: vars.PRODUCTION_LIVE == 'true'
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 30
@@ -87,14 +89,13 @@ jobs:
         run: pnpm --dir backend install --frozen-lockfile && pnpm --dir backend build
       - name: Check Worker secrets
         run: pnpm --dir backend check-deploy-env "$WORKER_ENV"
-      # Without a route nothing has reached the object, so there is nothing to export.
       - name: Export the database to R2
         env:
           ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
         run: |
           if [ -z "$API_URL" ]; then
-            echo "::warning::API_URL is unset for $WORKER_ENV (no route yet); skipped the pre-deploy export"
-            exit 0
+            echo "::error::API_URL is unset for $WORKER_ENV; refusing to deploy without a pre-deploy export"
+            exit 1
           fi
           # The manifest stays out of the public log; it is in R2 next to the export.
           curl -fsS -o /dev/null -w 'export %{http_code}\n' --max-time 300 -X POST \
@@ -105,9 +106,5 @@ jobs:
           --durable-objects-code-update-mode immediate
       - name: Check /ready
         run: |
-          if [ -z "$API_URL" ]; then
-            echo "::notice::API_URL is unset for $WORKER_ENV (no route yet); skipped /ready"
-            exit 0
-          fi
           curl -fsS -o /dev/null -w '/ready %{http_code}\n' --retry 5 --retry-all-errors \
             --max-time 15 "${API_URL%/}/ready"

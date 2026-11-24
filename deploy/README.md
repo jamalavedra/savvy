@@ -330,12 +330,13 @@ The object does not boot without the supplier keys. `pnpm --dir backend build &&
 pnpm --dir backend check-deploy-env <env>` lists any that are missing.
 
 `.github/workflows/deploy-cloudflare.yml` deploys staging after each green `Verify`
-on main, then production once the `production` environment approves it. Both GitHub
+on main. The production job runs only when the repository variable `PRODUCTION_LIVE`
+is `true` (set at cutover), and then waits for the `production` environment's approval. Both GitHub
 environments hold `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`; production also
 holds `ADMIN_TOKEN`, which the workflow uses to call `POST /__admin/export` before
 deploying and fails if the export fails. Set the environment variable `API_URL` to the
-Worker's route origin once the route exists; until then the export and the `/ready`
-check are skipped with a notice.
+Worker's route origin once the route exists. Staging skips its `/ready` check with a
+notice until then; production refuses to deploy without it.
 
 A new object refuses traffic with 503 until it is sealed. After the first deploy,
 either run `transfer import` with the VPS databases (it seals against their manifest), or
