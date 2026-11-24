@@ -23,7 +23,8 @@
     "capability": "node build/capability.js",
     "rollback-preflight": "node build/rollback-preflight.js",
     "transfer": "node build/transfer.js",
-    "test:workerd": "pnpm build:ui && tsx --test worker/test/*.test.ts"
+    "test:workerd": "pnpm build:ui && tsx --test worker/test/*.test.ts",
+    "check-deploy-env": "node build/check-deploy-env.js"
   },
   "dependencies": {
     "@better-auth/oauth-provider": "1.7.7",

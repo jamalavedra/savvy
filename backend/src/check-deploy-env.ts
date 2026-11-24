@@ -1,0 +1,65 @@
+import { execFileSync } from "node:child_process";
+import { realpathSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+
+/**
+ * Secrets a staging or production Worker needs to boot and be operated.
+ * `configuration()` needs the Fireworks, Deepgram and four Stripe names on a
+ * public issuer; `createAuth()` needs BETTER_AUTH_SECRET; the issuer is
+ * BETTER_AUTH_URL; the deploy's export and the seal need ADMIN_TOKEN.
+ */
+export const REQUIRED_SECRETS = [
+  "BETTER_AUTH_URL",
+  "BETTER_AUTH_SECRET",
+  "SAVVY_FIREWORKS_API_KEY",
+  "SAVVY_DEEPGRAM_API_KEY",
+  "SAVVY_STRIPE_SECRET_KEY",
+  "SAVVY_STRIPE_WEBHOOK_SECRET",
+  "SAVVY_STRIPE_PRICE_MONTHLY",
+  "SAVVY_STRIPE_PRICE_PACK",
+  "ADMIN_TOKEN",
+] as const;
+
+export function missingSecrets(listed: readonly string[]) {
+  return REQUIRED_SECRETS.filter((name) => !listed.includes(name));
+}
+
+/** Reads the names from `wrangler secret list --format json` output. */
+export function secretNames(json: string) {
+  const parsed: unknown = JSON.parse(json);
+  if (
+    !Array.isArray(parsed) ||
+    !parsed.every((entry) => typeof entry?.name === "string")
+  )
+    throw new Error("wrangler secret list did not return [{ name }]");
+  return (parsed as { name: string }[]).map((entry) => entry.name);
+}
+
+if (
+  process.argv[1] &&
+  pathToFileURL(realpathSync(process.argv[1])).href === import.meta.url
+) {
+  try {
+    const [env, ...extra] = process.argv.slice(2);
+    if (!["staging", "production"].includes(env ?? "") || extra.length)
+      throw new Error("Usage: check-deploy-env (staging | production)");
+    const listed = secretNames(
+      execFileSync(
+        "wrangler",
+        ["secret", "list", "--env", env!, "--format", "json"],
+        { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] },
+      ),
+    );
+    const missing = missingSecrets(listed);
+    if (missing.length)
+      throw new Error(
+        `${env} is missing secrets: ${missing.join(", ")}. Set each with wrangler secret put <NAME> --env ${env}`,
+      );
+    console.log(`${env} has all ${REQUIRED_SECRETS.length} required secrets`);
+  } catch (error) {
+    console.error(
+      error instanceof Error ? error.message : "Secrets preflight failed",
+    );
+    process.exitCode = 1;
+  }
+}

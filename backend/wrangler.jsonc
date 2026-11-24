@@ -1,5 +1,7 @@
-// The dev Worker. Staging and production set workers_dev to false and are
-// reached only through their route.
+// The top level is the dev Worker. Staging and production set workers_dev to
+// false and are reached only through the route CF-8 and CF-9 add by hand.
+// Bindings are not inherited, so each env lists its own; the top-level
+// migrations are, and each Worker gets its own SavvyBackend namespace.
 {
   "name": "savvy-api-dev",
   "main": "worker/index.ts",
@@ -25,4 +27,36 @@
     },
   ],
   "observability": { "enabled": true },
+  "env": {
+    "staging": {
+      "name": "savvy-api-staging",
+      "workers_dev": false,
+      "preview_urls": false,
+      "durable_objects": {
+        "bindings": [{ "name": "BACKEND", "class_name": "SavvyBackend" }],
+      },
+      "r2_buckets": [
+        {
+          "binding": "BACKUPS",
+          "bucket_name": "savvy-api-staging-backups",
+          "jurisdiction": "eu",
+        },
+      ],
+    },
+    "production": {
+      "name": "savvy-api",
+      "workers_dev": false,
+      "preview_urls": false,
+      "durable_objects": {
+        "bindings": [{ "name": "BACKEND", "class_name": "SavvyBackend" }],
+      },
+      "r2_buckets": [
+        {
+          "binding": "BACKUPS",
+          "bucket_name": "savvy-api-backups",
+          "jurisdiction": "eu",
+        },
+      ],
+    },
+  },
 }
