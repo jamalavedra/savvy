@@ -84,7 +84,6 @@ async function begin({ storage }: AdminContext, expected: Manifest) {
       "Import needs an empty object; this one already has schema or an import",
     );
   await storage.put(IMPORT, expected);
-  storage.sql.exec("PRAGMA foreign_keys = OFF");
   storage.transactionSync(() => {
     for (const entry of schemaStatements(expected.schema, "tables"))
       storage.sql.exec(entry.sql!);
@@ -167,8 +166,8 @@ async function seal(context: AdminContext, given: Manifest | undefined) {
       `Seal refused; differs from the expected manifest in: ${found.join(", ")}`,
     );
   await context.sealed();
-  await storage.put(SEALED, { at: new Date().toISOString() });
   await storage.delete(IMPORT);
+  await storage.put(SEALED, { at: new Date().toISOString() });
   return actual;
 }
 
@@ -193,7 +192,7 @@ async function freeze(context: AdminContext) {
   const { storage } = context;
   if (!(await storage.get(SEALED)))
     throw new Refusal(409, "not_sealed", "Only a sealed object can be frozen");
-  await storage.delete(SEALED);
+  await storage.delete([SEALED, IMPORT]);
   await storage.sync();
   context.frozen();
   return { frozen: true };
