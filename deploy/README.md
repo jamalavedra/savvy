@@ -349,6 +349,11 @@ curl -fsS -X POST -H "authorization: Bearer $ADMIN_TOKEN" \
   -d '{"schema":[],"tables":[]}' "$API_URL/__admin/seal"
 ```
 
+`GET /__admin/status` (same token) returns aggregate soak health: the alarm's next and
+last run and the `savvy-monitor.py` invariants, with no identities. `ADMIN_TOKEN=... pnpm
+--dir backend soak-probe "$API_URL"` polls it and `/ready` every minute and prints one
+JSON line per poll; `ok: false` names each problem, including an alarm over 3 minutes late.
+
 The VPS workflow, `deploy-backend.yml`, keeps deploying production until the
 cutover and is removed when Savvy leaves the VPS.
 
