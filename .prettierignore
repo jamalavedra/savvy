@@ -9,3 +9,4 @@ www
 .deepsec
 
 backend/build
+backend/worker/worker-configuration.d.ts

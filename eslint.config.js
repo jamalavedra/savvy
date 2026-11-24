@@ -13,6 +13,7 @@ export default tseslint.config(
       "target",
       "www",
       "backend/build",
+      "backend/worker/worker-configuration.d.ts",
       ".deepsec",
     ],
   },

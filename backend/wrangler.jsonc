@@ -1,0 +1,22 @@
+// The dev Worker. Staging and production set workers_dev to false and are
+// reached only through their route.
+{
+  "name": "savvy-api-dev",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-11-16",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "alias": { "better-sqlite3": "./worker/better-sqlite3.js" },
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "run_worker_first": true,
+    "html_handling": "none",
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "BACKEND", "class_name": "SavvyBackend" }],
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["SavvyBackend"] }],
+  "limits": { "cpu_ms": 300000 },
+  "observability": { "enabled": true },
+}

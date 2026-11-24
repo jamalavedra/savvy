@@ -7,7 +7,7 @@
     "start": "node build/server.js",
     "migrate": "node build/migrate.js",
     "backup": "node build/backup.js",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && wrangler types worker/worker-configuration.d.ts > /dev/null && tsc --noEmit -p worker",
     "build": "pnpm build:server && pnpm build:ui",
     "test": "tsx --test src/*.test.ts",
     "test:browser": "pnpm build && tsx --test src/browser.check.ts src/team.check.ts",
@@ -22,7 +22,7 @@
     "test:web-return": "pnpm --dir ../www build && tsx --test src/return.check.ts",
     "capability": "node build/capability.js",
     "rollback-preflight": "node build/rollback-preflight.js",
-    "test:workerd": "tsx --test worker/test/*.test.ts"
+    "test:workerd": "pnpm build:ui && tsx --test worker/test/*.test.ts"
   },
   "dependencies": {
     "@better-auth/oauth-provider": "1.7.7",

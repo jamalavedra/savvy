@@ -1,17 +1,10 @@
 // Test-only Worker that runs the backend's SQLite code inside a Durable Object.
-// CF-1 replaces the module-load asset reads; until then fs.js serves them and
-// import.meta.url gets a placeholder base, as the bundle has no file URL.
 {
   "name": "savvy-do-sqlite-harness",
   "main": "harness.ts",
-  "compatibility_date": "2026-11-01",
+  "compatibility_date": "2026-11-16",
   "compatibility_flags": ["nodejs_compat"],
-  "alias": {
-    "better-sqlite3": "./better-sqlite3.js",
-    "node:fs": "./fs.js",
-  },
-  "define": { "import.meta.url": "\"file:///bundle/src/index.js\"" },
-  "rules": [{ "type": "Text", "globs": ["**/*.sql"], "fallthrough": true }],
+  "alias": { "better-sqlite3": "../better-sqlite3.js" },
   "durable_objects": {
     "bindings": [{ "name": "HARNESS", "class_name": "Harness" }],
   },
