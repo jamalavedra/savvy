@@ -1,6 +1,5 @@
 import Database from "better-sqlite3";
 import {
-  readFileSync,
   openSync,
   closeSync,
   fchmodSync,
@@ -14,11 +13,8 @@ import {
 
 import { resolve, dirname, basename, join } from "node:path";
 import { LIFECYCLES, PAUSE_REASONS } from "./transition.js";
+import { SCHEMA } from "./service-schema.js";
 
-const SCHEMA = readFileSync(
-  new URL("./service-schema.sql", import.meta.url),
-  "utf8",
-);
 /** Columns whose values the schema restricts, as [table, column, values]. */
 const CONSTRAINED_COLUMNS: [string, string, readonly string[]][] = [
   ...Object.entries(LIFECYCLES).map(
