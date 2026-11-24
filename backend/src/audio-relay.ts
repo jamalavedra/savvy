@@ -312,7 +312,7 @@ class Relay {
   monitor: ReturnType<typeof setInterval> | undefined;
   lastTick = performance.now();
   frozenBytes = 0;
-  thawedAt = 0;
+  thawTicks = 0;
   droppedBytes = 0;
   finishResolve!: () => void;
   finished = new Promise<void>((resolve) => {
@@ -602,7 +602,6 @@ class Relay {
       return;
     }
     this.noticeFreeze();
-    if (performance.now() - this.thawedAt > THAW_MS) this.frozenBytes = 0;
     if (this.frozenBytes >= chunk.length) {
       this.frozenBytes -= chunk.length;
       this.droppedBytes += chunk.length;
@@ -629,13 +628,14 @@ class Relay {
     if (frozen < FREEZE_MS) return;
     this.lastDelivered += BigInt(frozen);
     this.frozenBytes += frozen * 32;
-    this.thawedAt = tick;
+    this.thawTicks = THAW_MS / MONITOR_MS;
   }
 
   check() {
     if (this.stopping) return;
     const { state, session, upstream } = this;
     this.noticeFreeze();
+    if (this.frozenBytes && --this.thawTicks < 0) this.frozenBytes = 0;
     try {
       const now = state.clock();
       const disabled = state.db

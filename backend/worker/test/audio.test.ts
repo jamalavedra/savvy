@@ -425,6 +425,36 @@ test(
 );
 
 test(
+  "a stream survives a 1 s transaction queued behind a 6 s hold",
+  {
+    timeout: 40_000,
+  },
+  async () => {
+    await deepgram("reset");
+    const m = await meeting("chained-hold-user");
+    const { ws, messages } = connect(m);
+    await once(ws, "open");
+    const streamed = stream(ws, 14_000);
+    await eventually(async () => messages.length >= 2, 5000);
+    await sleep(500);
+    const held = probe("hold-auth", "ms=6000");
+    await sleep(200);
+    const chained = probe("hold-auth", "ms=1000");
+    await held;
+    await chained;
+    await streamed;
+    await sleep(300);
+    assert.equal(ws.readyState, WebSocket.OPEN);
+    ws.close();
+    await once(ws, "close");
+    await eventually(async () => (await row(m.id)).state === "paused", 5000);
+    const closing = await diagnostic(m.id);
+    assert.equal(closing.reason, "client_closed");
+    assertDebits(await row(m.id), closing.deliveredBytes / 32);
+  },
+);
+
+test(
   "resetting the object mid-stream ends the session through its lease",
   {
     timeout: 60_000,
