@@ -42,7 +42,7 @@ if (trustedProxies.some((ip) => !isIP(ip)))
   throw new Error("Invalid trusted proxy IP");
 const server = createServer(
   createHandler(state, auth, {
-    trustedProxies,
+    trustsPeer: (peer) => trustedProxies.includes(peer),
     proxyIpHeader,
     authBase: process.env.BETTER_AUTH_URL ?? "http://127.0.0.1:8788",
     google: Boolean(

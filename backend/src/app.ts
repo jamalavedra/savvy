@@ -13,7 +13,7 @@ import { recoverRestart } from "./sessions.js";
 type Auth = ReturnType<typeof createAuth>;
 
 export interface HttpOptions {
-  trustedProxies: readonly string[];
+  trustsPeer(peer: string): boolean;
   proxyIpHeader: string;
   authBase: string;
   google: boolean;
@@ -108,8 +108,8 @@ function secureHeaders(res: ServerResponse) {
 
 function clientIp(req: IncomingMessage, options: HttpOptions) {
   const peer = req.socket.remoteAddress ?? "";
-  if (!isIP(peer)) return { status: 400 };
-  if (!options.trustedProxies.includes(peer)) return { ip: peer };
+  if (!options.trustsPeer(peer))
+    return isIP(peer) ? { ip: peer } : { status: 400 };
   const forwarded = req.headers[options.proxyIpHeader];
   if (typeof forwarded !== "string" || !isIP(forwarded))
     return { status: 400, message: "Invalid proxy address" };

@@ -53,7 +53,7 @@ export class SavvyBackend extends DurableObject<Env> {
     );
     recover(this.state);
     this.#handle = createHandler(this.state, auth, {
-      trustedProxies: [],
+      trustsPeer: () => true,
       proxyIpHeader: "x-savvy-proxy-ip",
       authBase: config.issuer,
       google: Boolean(vars.GOOGLE_CLIENT_ID && vars.GOOGLE_CLIENT_SECRET),

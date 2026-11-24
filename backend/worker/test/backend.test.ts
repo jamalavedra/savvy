@@ -111,9 +111,17 @@ test("auth bodies over 65,536 bytes get 413", async () => {
 test("CF-Connecting-IP gives each client its own rate-limit key", async () => {
   for (const ip of ["198.51.100.7", "203.0.113.9"])
     await server.fetch("/api/auth/get-session", {
-      headers: { "cf-connecting-ip": ip, "x-savvy-client-ip": "192.0.2.1" },
+      headers: {
+        "cf-connecting-ip": ip,
+        "x-savvy-client-ip": "192.0.2.1",
+        "x-savvy-proxy-ip": "192.0.2.66",
+      },
     });
   const keys = (await sql("SELECT key FROM rateLimit")).map((r) => r.key);
+  assert.ok(
+    !keys.some((key) => /192\.0\.2\.(1|66)\b/.test(String(key))),
+    String(keys),
+  );
   assert.ok(
     keys.some((key) => String(key).includes("198.51.100.7")),
     String(keys),

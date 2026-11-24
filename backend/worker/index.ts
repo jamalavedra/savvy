@@ -12,6 +12,10 @@ export default {
         status: 501,
       });
     if (!isServedPath(path)) return new Response(null, { status: 404 });
-    return env.BACKEND.jurisdiction("eu").getByName("primary").fetch(request);
+    const forwarded = new Request(request);
+    forwarded.headers.delete("x-savvy-proxy-ip");
+    const client = request.headers.get("cf-connecting-ip");
+    if (client) forwarded.headers.set("x-savvy-proxy-ip", client);
+    return env.BACKEND.jurisdiction("eu").getByName("primary").fetch(forwarded);
   },
 } satisfies ExportedHandler<Env>;
