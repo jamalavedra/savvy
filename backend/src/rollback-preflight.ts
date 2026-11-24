@@ -8,7 +8,8 @@ import {
 } from "./capability.js";
 import type { Db } from "./db.js";
 
-export function rollbackPreflight(db: Db, candidateManifest: string) {
+/** The funding capability a release needs to serve this service database. */
+export function requiredCapability(db: Db): number {
   const hasTable = (name: string) =>
     !!db
       .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?")
@@ -25,6 +26,10 @@ export function rollbackPreflight(db: Db, candidateManifest: string) {
     )
   )
     required = Math.max(2, required);
+  return required;
+}
+
+export function rollbackPreflight(required: number, candidateManifest: string) {
   const available = existsSync(candidateManifest)
     ? manifestCapability(candidateManifest)
     : 0;
@@ -35,35 +40,58 @@ export function rollbackPreflight(db: Db, candidateManifest: string) {
   return { requiredFundingSchema: required, availableFundingSchema: available };
 }
 
+function requiredFromFile(path: string) {
+  const info = lstatSync(path);
+  if (!info.isFile() || info.isSymbolicLink())
+    throw new Error("Expected an existing regular service database");
+  const db = new Database(path, { readonly: true, fileMustExist: true });
+  try {
+    db.defaultSafeIntegers(true);
+    return requiredCapability(db);
+  } finally {
+    db.close();
+  }
+}
+
+async function requiredFromObject(origin: string) {
+  const token = process.env.SAVVY_ADMIN_TOKEN;
+  if (!token) throw new Error("Set SAVVY_ADMIN_TOKEN to read the object");
+  const response = await fetch(new URL("/__admin/manifest", origin), {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  const body = (await response.json()) as { requiredFundingSchema?: unknown };
+  if (!response.ok || !Number.isSafeInteger(body.requiredFundingSchema))
+    throw new Error(
+      `The object's manifest answered ${response.status} without a funding requirement`,
+    );
+  return body.requiredFundingSchema as number;
+}
+
 if (
   process.argv[1] &&
   pathToFileURL(realpathSync(process.argv[1])).href === import.meta.url
 ) {
-  let db: Db | undefined;
   try {
-    const args = process.argv.slice(2);
+    const [source, target, flag, candidate, ...extra] = process.argv.slice(2);
     if (
-      args.length !== 4 ||
-      args[0] !== "--db" ||
-      !args[1] ||
-      args[2] !== "--candidate" ||
-      !args[3]
+      !["--db", "--url"].includes(source ?? "") ||
+      !target ||
+      flag !== "--candidate" ||
+      !candidate ||
+      extra.length
     )
       throw new Error(
-        "Usage: rollback-preflight --db <existing-service.sqlite> --candidate <built-service-capabilities.json>",
+        "Usage: rollback-preflight (--db <existing-service.sqlite> | --url <backend-origin>) --candidate <built-service-capabilities.json>",
       );
-    const info = lstatSync(args[1]);
-    if (!info.isFile() || info.isSymbolicLink())
-      throw new Error("Expected an existing regular service database");
-    db = new Database(args[1], { readonly: true, fileMustExist: true });
-    db.defaultSafeIntegers(true);
-    console.log(JSON.stringify(rollbackPreflight(db, args[3])));
+    const required =
+      source === "--db"
+        ? requiredFromFile(target)
+        : await requiredFromObject(target);
+    console.log(JSON.stringify(rollbackPreflight(required, candidate)));
   } catch (error) {
     console.error(
       error instanceof Error ? error.message : "Funding preflight failed",
     );
     process.exitCode = 1;
-  } finally {
-    db?.close();
   }
 }
