@@ -811,7 +811,8 @@ export function abandonFailedSource(
     entry.recentAudio = [];
   }
 }
-export function recoverRestart(state: ServiceState) {
+/** Ends every open session and releases its reservation before the process exits. */
+export function stopSessionsForShutdown(state: ServiceState) {
   state.db
     .transaction(() => {
       const rows = state.db
@@ -838,6 +839,25 @@ export function recoverRestart(state: ServiceState) {
           },
         );
       }
+    })
+    .immediate();
+  state.sessions.clear();
+}
+
+/**
+ * Runs whenever a fresh process or Durable Object instance takes over the
+ * database. Paused sessions stay paused. Active sessions keep their lease and
+ * reservation, so a reconnect can continue them and `expireStaleSessions` ends
+ * the rest. The uncheckpointed tail before the restart is absorbed, not billed.
+ */
+export function recoverRestart(state: ServiceState) {
+  state.db
+    .transaction(() => {
+      state.db
+        .prepare(
+          "UPDATE managed_sessions SET billable_since_ms=NULL WHERE state='active'",
+        )
+        .run();
       state.db
         .prepare(
           "UPDATE allowance_grants SET revoked=? WHERE kind='unmetered' AND revoked<>?",

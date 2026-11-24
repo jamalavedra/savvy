@@ -13,7 +13,11 @@ import { pruneResults } from "./advice.js";
 import { releaseBrief } from "./billing.js";
 import { attachAudio } from "./transcription.js";
 import { reconcile } from "./stripe.js";
-import { recoverRestart, expireStaleSessions } from "./sessions.js";
+import {
+  recoverRestart,
+  expireStaleSessions,
+  stopSessionsForShutdown,
+} from "./sessions.js";
 
 const config = configuration();
 const proxyIpHeader =
@@ -238,9 +242,7 @@ for (const signal of ["SIGINT", "SIGTERM"])
     clearInterval(sessionTimer);
     for (const requests of state.cancellations.values())
       for (const entry of requests.values()) entry.controller.abort();
-    // Relays settle confirmed delivery first; then release sessions that never
-    // connected and any remaining reservations through the existing recovery path.
-    const audioClosed = closeAudio().then(() => recoverRestart(state));
+    const audioClosed = closeAudio().then(() => stopSessionsForShutdown(state));
     const deadline = setTimeout(() => {
       console.error(
         "backend shutdown deadline exceeded; restart recovery required",

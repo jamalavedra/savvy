@@ -20,6 +20,7 @@ import {
   settleDisconnectedSource,
   expireStaleSessions,
   recoverRestart,
+  LEASE_MS,
   onIdleCheck,
   healthyAudio,
   pauseSession,
@@ -349,11 +350,14 @@ test("restart and lease expiry absorb uncheckpointed time and release revoked re
       const checkpoint = h.view().settledMs;
       assert.equal(checkpoint, durableMs);
       if (revoked) h.db.prepare("UPDATE allowance_grants SET revoked=1").run();
-      if (restart) recoverRestart(h.state);
-      else {
-        h.advance(idleMs);
-        assert.equal(expireStaleSessions(h.state), 1);
+      if (restart) {
+        recoverRestart(h.state);
+        assert.equal(h.view().state, "active");
+        assert.equal(h.view().settledMs, checkpoint);
+        assert.equal(h.state.sessions.size, 0);
       }
+      h.advance(idleMs);
+      assert.equal(expireStaleSessions(h.state), 1);
       assert.equal(h.view().settledMs, checkpoint);
       assert.equal(h.view().state, "stopped");
       assert.deepEqual(
@@ -384,6 +388,10 @@ test("delayed pause after resume cannot prevent restart from releasing revoked g
   assert.equal(stale.settledMs, 12_000n);
   h.db.prepare("UPDATE allowance_grants SET revoked=1").run();
   recoverRestart(h.state);
+  assert.equal(h.view().state, "active");
+  assert.deepEqual(lifecycle(h.state, 1n, ID, "pause", 1n, 1n), h.view());
+  h.advance(LEASE_MS);
+  assert.equal(expireStaleSessions(h.state), 1);
   assert.deepEqual(
     h.db
       .prepare("SELECT sum(meeting_ms_reserved) AS n FROM allowance_grants")
@@ -396,6 +404,32 @@ test("delayed pause after resume cannot prevent restart from releasing revoked g
   );
   assert.equal(h.view().state, "stopped");
   assert.equal(h.view().settledMs, 12_000n);
+});
+
+test("an active session that reconnects after a restart bills only audio delivered after it", (t) => {
+  const h = fixture(t);
+  h.create();
+  h.feed(12_000n);
+  assert.equal(h.view().settledMs, 10_000n);
+  recoverRestart(h.state);
+  h.advance(3000n);
+  h.feed(6000n);
+  assert.equal(h.view().state, "active");
+  lifecycle(h.state, 1n, ID, "stop", h.view().leaseVersion, 1n);
+  assert.equal(h.view().settledMs, 16_000n);
+  assert.deepEqual(
+    h.db
+      .prepare(
+        "SELECT sum(amount_ms) AS n FROM usage_events WHERE kind='debit_meeting'",
+      )
+      .get(),
+    { n: 16_000n },
+  );
+  assert.equal(balance(h.db, 1n, h.state.clock()).meetingMsReserved, 0n);
+  assert.equal(
+    balance(h.db, 1n, h.state.clock()).meetingMsAvailable,
+    36_000_000n - 16_000n,
+  );
 });
 
 test("exhaustion requires explicit resume, session ownership and single-account admission", (t) => {
@@ -717,6 +751,9 @@ test("a restored SQLite snapshot preserves identities and unique grants while ab
       h.state.authorize,
     );
     recoverRestart(restored);
+    assert.equal(requireSession(restoredDb, 1n, ID).state, "active");
+    h.advance(LEASE_MS);
+    assert.equal(expireStaleSessions(restored), 1);
     const row = requireSession(restoredDb, 1n, ID);
     assert.equal(row.state, "stopped");
     assert.throws(

@@ -126,6 +126,7 @@ import {
   onAudio,
   requireSession,
   recoverRestart,
+  stopSessionsForShutdown,
   detachSource,
   attachSource,
   healthyAudio,
@@ -2122,7 +2123,7 @@ test("draining refuses new sessions, briefs and checkout while releasing reserva
   const h = await fixture(t);
   h.live();
   h.state.draining = true;
-  recoverRestart(h.state);
+  stopSessionsForShutdown(h.state);
   for (const [path, body] of [
     ["/v1/sessions", { sessionId: SOURCE }],
     ["/v1/briefs", { idempotencyKey: "drain", request }],
