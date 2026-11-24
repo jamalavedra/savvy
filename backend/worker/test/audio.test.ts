@@ -127,7 +127,7 @@ async function stream(ws: WebSocket, ms: number, every = FRAME_MS) {
 
 async function row(id: string) {
   const [session] = await sql(
-    `SELECT state,settled_ms,reserved_ms,(SELECT count(*) FROM session_reservations r WHERE r.session_id=s.id) AS open,(SELECT coalesce(sum(amount_ms),0) FROM usage_events WHERE kind='debit_meeting' AND session_id='${id}') AS debited FROM managed_sessions s WHERE local_session_id='${id}'`,
+    `SELECT state,settled_ms,reserved_ms,(SELECT count(*) FROM session_reservations r WHERE r.session_id=s.id) AS open,(SELECT coalesce(sum(amount_ms),0) FROM usage_events WHERE kind='debit_meeting' AND session_id='${id}') AS debited,(SELECT coalesce(sum(meeting_ms_reserved),0) FROM allowance_grants g WHERE g.account_id=s.account_id) AS held FROM managed_sessions s WHERE local_session_id='${id}'`,
   );
   return session as {
     state: string;
@@ -135,6 +135,7 @@ async function row(id: string) {
     reserved_ms: number;
     open: number;
     debited: number;
+    held: number;
   };
 }
 
@@ -171,11 +172,11 @@ test("a stream delivers transcripts and settles on client close", async () => {
   const { ws, messages } = connect(m);
   await once(ws, "open");
   await stream(ws, 3000);
-  await eventually(async () => messages.length >= 30, 3000);
+  await eventually(async () => messages.length >= 3, 3000);
   assert.deepEqual(JSON.parse(messages[0]!), {
     type: "Results",
     start: 0,
-    duration: 0.1,
+    duration: 1,
     is_final: true,
     speech_final: true,
     channel: {
@@ -280,44 +281,40 @@ test("a supplier close ends the stream on the supplier-failure path", async () =
   assert.equal(ended.settled_ms, kept.settled_ms);
 });
 
-for (const [pace, failure] of [
-  [FRAME_MS, /^socket (output limit|write deadline)$/],
-  [500, /^socket write deadline$/],
-] as const)
-  test(
-    `a stalled supplier fed a frame every ${pace} ms fails within a bounded backlog`,
-    {
-      timeout: 30_000,
-    },
-    async () => {
-      await deepgram("reset");
-      await deepgram("stall");
-      const m = await meeting(`stall-user-${pace}`);
-      const { ws } = connect(m);
-      await once(ws, "open");
-      const closed = once(ws, "close");
-      await stream(ws, 9000, pace);
-      await closed;
-      const stalled = await diagnostic(m.id);
-      assert.equal(stalled.reason, "pump_provider_unavailable");
-      assert.equal(stalled.supplierFailure, true);
-      assert.match(stalled.upstreamWriteFailure!, failure);
-      assert.ok(stalled.upstreamBufferedBytes! <= MAX_QUEUED_AUDIO);
-      const supplier = await deepgram("stats");
-      assert.ok(supplier.forwarded <= MAX_QUEUED_AUDIO);
-      await eventually(async () => (await deepgram("stats")).open === 0, 3000);
-      assert.deepEqual((await deepgram("stats")).closeCodes, [1005]);
-      assert.equal((await row(m.id)).state, "active");
-      await deepgram("reset");
-      const next = connect(m);
-      await once(next.ws, "open");
-      await stream(next.ws, 500);
-      await eventually(async () => next.messages.length === 5, 3000);
-      next.ws.close();
-      await once(next.ws, "close");
-      await eventually(async () => (await row(m.id)).state === "paused", 5000);
-    },
-  );
+test(
+  "a stalled supplier fails within a bounded backlog",
+  {
+    timeout: 30_000,
+  },
+  async () => {
+    await deepgram("reset");
+    await deepgram("stall");
+    const m = await meeting("stall-user");
+    const { ws } = connect(m);
+    await once(ws, "open");
+    const closed = once(ws, "close");
+    await stream(ws, 9000);
+    await closed;
+    const stalled = await diagnostic(m.id);
+    assert.equal(stalled.reason, "pump_provider_unavailable");
+    assert.equal(stalled.supplierFailure, true);
+    assert.equal(stalled.upstreamWriteFailure, "socket output limit");
+    assert.ok(stalled.upstreamBufferedBytes! <= MAX_QUEUED_AUDIO);
+    const supplier = await deepgram("stats");
+    assert.ok(supplier.forwarded <= MAX_QUEUED_AUDIO);
+    await eventually(async () => (await deepgram("stats")).open === 0, 3000);
+    assert.deepEqual((await deepgram("stats")).closeCodes, [1005]);
+    assert.equal((await row(m.id)).state, "active");
+    await deepgram("reset");
+    const next = connect(m);
+    await once(next.ws, "open");
+    await stream(next.ws, 1000);
+    await eventually(async () => next.messages.length === 1, 3000);
+    next.ws.close();
+    await once(next.ws, "close");
+    await eventually(async () => (await row(m.id)).state === "paused", 5000);
+  },
+);
 
 test(
   "a supplier that never completes the upgrade fails after 10 s",
@@ -368,6 +365,26 @@ test("an abrupt client drop keeps the meeting active for a reconnect", async () 
   assertDebits(await row(m.id), 2000);
 });
 
+test("a client that stops reading frees its source after a supplier close", async () => {
+  await deepgram("reset");
+  const m = await meeting("deaf-user");
+  const first = connect(m);
+  await once(first.ws, "open");
+  await stream(first.ws, 1000);
+  (first.ws as unknown as { _socket: { pause(): void } })._socket.pause();
+  await deepgram("close");
+  assert.equal((await diagnostic(m.id)).reason, "supplier_closed");
+  const next = connect(m);
+  await once(next.ws, "open");
+  await stream(next.ws, 2000);
+  await eventually(async () => next.messages.length === 2, 3000);
+  assert.equal(next.ws.readyState, WebSocket.OPEN);
+  first.ws.terminate();
+  next.ws.close();
+  await once(next.ws, "close");
+  await eventually(async () => (await row(m.id)).state === "paused", 5000);
+});
+
 test(
   "a stream survives a sign-in transaction held for 6 s",
   {
@@ -386,7 +403,7 @@ test(
     await streamed;
     await held;
     assert.equal(ws.readyState, WebSocket.OPEN);
-    assert.ok(messages.length > before + 50, `${before} -> ${messages.length}`);
+    assert.ok(messages.length > before + 5, `${before} -> ${messages.length}`);
     ws.close();
     await once(ws, "close");
     await eventually(async () => (await row(m.id)).state === "paused", 5000);
@@ -430,6 +447,7 @@ test(
     const ended = await row(m.id);
     assert.equal(ended.reserved_ms, 0);
     assert.equal(ended.open, 0);
+    assert.equal(ended.held, 0);
     assert.equal(ended.settled_ms, kept.settled_ms);
     assert.equal(ended.debited, kept.settled_ms);
   },

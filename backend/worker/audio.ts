@@ -11,19 +11,16 @@ import {
   type RelaySocket,
   type SocketEvents,
 } from "../src/audio-relay.ts";
-import { AUDIO_IDLE_MS } from "../src/sessions.ts";
 import { ApiError, json } from "../src/errors.ts";
 import type { ServiceState } from "../src/state.ts";
 
 const HANDSHAKE_MS = 10_000;
-const STALL_MS = Number(AUDIO_IDLE_MS);
 
 /**
  * A Workers WebSocket behind the relay's socket contract. Workers expose no
  * `bufferedAmount` or send callback, so a supplier socket counts the audio
  * bytes it sent against the bytes the supplier reports as transcribed, and
- * fails a send once that backlog passes `limit` or stops shrinking for
- * `STALL_MS`. An abrupt drop surfaces as close code 1006, as it does on `ws`.
+ * fails a send once that backlog passes `limit`. An abrupt drop surfaces as close code 1006, as it does on `ws`.
  */
 class WorkersSocket implements RelaySocket {
   #ws: WebSocket | undefined;
@@ -32,7 +29,6 @@ class WorkersSocket implements RelaySocket {
   #waiters: (() => void)[] = [];
   #sent = 0;
   #processed = 0;
-  #progressAt = 0;
   abort: AbortController | undefined;
 
   constructor(
@@ -90,18 +86,13 @@ class WorkersSocket implements RelaySocket {
     const backlog = this.#backlog();
     if (backlog + byteLength(frame) > this.limit)
       throw new Error("socket output limit");
-    if (backlog > 0 && Date.now() - this.#progressAt >= STALL_MS)
-      throw new Error("socket write deadline");
     this.#ws!.send(frame);
     if (!this.tracksBacklog || typeof frame === "string") return;
-    if (backlog === 0) this.#progressAt = Date.now();
     this.#sent += frame.length;
   }
 
   processed(bytes: number) {
-    if (bytes <= this.#processed) return;
-    this.#processed = bytes;
-    this.#progressAt = Date.now();
+    this.#processed = Math.max(this.#processed, bytes);
   }
 
   async close() {

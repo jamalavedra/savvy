@@ -4,6 +4,7 @@ import worker, { SavvyBackend as Backend } from "../index.ts";
 
 const PROBE = "/__probe/";
 const DEEPGRAM = "/__deepgram/";
+const SECOND_OF_AUDIO = 32_000;
 
 type TestEnv = Env & { DEEPGRAM: DurableObjectNamespace };
 
@@ -75,7 +76,8 @@ export class SavvyBackend extends Backend {
 }
 
 // Speaks the slice of the Deepgram live protocol the relay uses: a Results
-// message per audio frame whose start and duration track the audio received.
+// message per second of audio whose start and duration track the audio
+// received, as live interim results arrive.
 // "stall" stops answering, even close frames; "hang" never completes the
 // upgrade; "close" drops every open supplier socket.
 export class FakeDeepgram extends DurableObject {
@@ -119,11 +121,14 @@ export class FakeDeepgram extends DurableObject {
     server!.binaryType = "arraybuffer";
     this.sockets.add(server!);
     let received = 0;
+    let pending = 0;
     server!.addEventListener("message", ({ data }) => {
       if (typeof data === "string") return;
-      const size = (data as ArrayBuffer).byteLength;
-      this.forwarded += size;
-      if (this.stall) return;
+      this.forwarded += (data as ArrayBuffer).byteLength;
+      pending += (data as ArrayBuffer).byteLength;
+      if (this.stall || pending < SECOND_OF_AUDIO) return;
+      const size = pending;
+      pending = 0;
       server!.send(
         JSON.stringify({
           type: "Results",
