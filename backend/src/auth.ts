@@ -4,14 +4,39 @@ import { emailOTP } from "better-auth/plugins/email-otp";
 import { jwt } from "better-auth/plugins/jwt";
 import { oauthProvider } from "@better-auth/oauth-provider";
 import { createHash, createHmac, hkdfSync } from "node:crypto";
-import { assertDistinctDatabases, openPrivateDatabase } from "./db.js";
+import { assertDistinctDatabases, openPrivateDatabase, type Db } from "./db.js";
+import { DoSqliteDialect, type DoSqlite } from "./do-sqlite.js";
 import nodemailer from "nodemailer";
 
-export function createAuth(env: NodeJS.ProcessEnv = process.env) {
-  assertDistinctDatabases(
+function authDatabase(env: NodeJS.ProcessEnv, injected?: DoSqlite) {
+  if (injected)
+    return {
+      db: injected,
+      database: {
+        dialect: new DoSqliteDialect(injected),
+        type: "sqlite" as const,
+        transaction: true,
+      },
+    };
+  const file = openPrivateDatabase(
     env.SAVVY_AUTH_DATABASE ?? "savvy-auth.sqlite",
-    env.SAVVY_DB_PATH ?? "savvy-service.sqlite",
   );
+  return { db: file, database: file };
+}
+
+/**
+ * Builds Better Auth over its own SQLite file, or over `database` when given:
+ * a Durable Object handle left on Number integers, which Better Auth expects.
+ */
+export function createAuth(
+  env: NodeJS.ProcessEnv = process.env,
+  database?: DoSqlite,
+) {
+  if (!database)
+    assertDistinctDatabases(
+      env.SAVVY_AUTH_DATABASE ?? "savvy-auth.sqlite",
+      env.SAVVY_DB_PATH ?? "savvy-service.sqlite",
+    );
   const baseURL = env.BETTER_AUTH_URL ?? "http://127.0.0.1:8788";
   const url = new URL(baseURL);
   if (
@@ -34,9 +59,8 @@ export function createAuth(env: NodeJS.ProcessEnv = process.env) {
   const hashOTP = async (otp: string) =>
     "v1-" +
     createHmac("sha256", Buffer.from(otpKey)).update(otp).digest("base64url");
-  const db = openPrivateDatabase(
-    env.SAVVY_AUTH_DATABASE ?? "savvy-auth.sqlite",
-  );
+  const handle = authDatabase(env, database);
+  const db: Db = handle.db;
   db.pragma("journal_mode = WAL");
   db.pragma("busy_timeout = 5000");
   // Separate from Better Auth migrations; never touches the service database.
@@ -85,7 +109,7 @@ export function createAuth(env: NodeJS.ProcessEnv = process.env) {
     appName: "Savvy",
     baseURL,
     secret: env.BETTER_AUTH_SECRET,
-    database: db,
+    database: handle.database,
     emailAndPassword: { enabled: false },
     // The browser session only bridges sign-in to the desktop's OAuth tokens.
     session: { expiresIn: 3600, updateAge: 3600 },

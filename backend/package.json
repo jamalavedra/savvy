@@ -21,7 +21,8 @@
     "test:package": "pnpm build && node --test e2e/package.test.mjs",
     "test:web-return": "pnpm --dir ../www build && tsx --test src/return.check.ts",
     "capability": "node build/capability.js",
-    "rollback-preflight": "node build/rollback-preflight.js"
+    "rollback-preflight": "node build/rollback-preflight.js",
+    "test:workerd": "tsx --test worker/test/*.test.ts"
   },
   "dependencies": {
     "@better-auth/oauth-provider": "1.7.7",
@@ -30,6 +31,7 @@
     "better-call": "1.4.0",
     "better-sqlite3": "13.0.3",
     "jose": "6.2.12",
+    "kysely": "0.29.5",
     "nodemailer": "10.1.4",
     "react": "19.1.0",
     "react-dom": "19.1.0",
@@ -50,7 +52,8 @@
     "smtp-server": "3.19.10",
     "tsx": "4.23.13",
     "typescript": "7.0.2",
-    "vite": "^7.3.7"
+    "vite": "^7.3.7",
+    "wrangler": "4.163.0"
   },
   "engines": {
     "node": "^22.23.4 || ^24.22.1 || >=26.12.1"

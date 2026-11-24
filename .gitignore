@@ -26,6 +26,7 @@ savy-brief-v*.md
 fixtures/private
 dist
 dist-ssr
+.wrangler
 *.local
 
 # Signing material — never commit. The release workflow reads these from
