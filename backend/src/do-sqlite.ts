@@ -152,6 +152,23 @@ export class DoSqlite implements Db {
   }
 }
 
+const USER_SCHEMA =
+  "sqlite_master AS (SELECT * FROM main.sqlite_master WHERE name NOT LIKE '\\_cf\\_%' ESCAPE '\\')";
+
+/**
+ * Schema introspection in Kysely and Better Auth reads every table in
+ * `sqlite_master`, and the runtime refuses any pragma on its own `_cf_` tables,
+ * which exist once the object has stored an alarm. A CTE of the same name hides
+ * them from those queries.
+ */
+function hideRuntimeTables(sql: string) {
+  if (!/\bsqlite_master\b/i.test(sql)) return sql;
+  const lead = /^\s*with(\s+recursive)?\s/i.exec(sql);
+  return lead
+    ? `WITH${lead[1] ?? ""} ${USER_SCHEMA}, ${sql.slice(lead[0].length)}`
+    : `WITH ${USER_SCHEMA} ${sql}`;
+}
+
 class DoSqliteConnection implements DatabaseConnection {
   #settle?: { commit(): void; rollback(reason: unknown): void };
   #done?: Promise<void>;
@@ -160,7 +177,7 @@ class DoSqliteConnection implements DatabaseConnection {
 
   async executeQuery<R>(compiled: CompiledQuery): Promise<QueryResult<R>> {
     const { rows, columnNames } = this.db.query(
-      compiled.sql,
+      hideRuntimeTables(compiled.sql),
       compiled.parameters,
     );
     if (columnNames.length > 0) return { rows: rows as R[] };
