@@ -9,7 +9,14 @@ const MIN_AGE_DAYS = 7;
 // Urgent security fixes that cannot wait out the cooldown. Each entry names the advisory
 // it clears; delete it once the release is older than MIN_AGE_DAYS. Example:
 //   ["zip@9.0.5", "fixes GHSA-m665-v7pm-7grj; clears cooldown 2026-10-24"],
-const EXCEPTIONS = new Map([]);
+const EXCEPTIONS = new Map([
+  ["url@2.5.9", "fixes RUSTSEC-2026-0592; clears cooldown 2026-11-27"],
+  [
+    "form_urlencoded@1.2.3",
+    "required by the RUSTSEC-2026-0592 fix; clears cooldown 2026-11-27",
+  ],
+  ["cookie@0.18.3", "fixes RUSTSEC-2026-0594; clears cooldown 2026-11-30"],
+]);
 
 function registryPackages(lock) {
   const packages = new Set();
