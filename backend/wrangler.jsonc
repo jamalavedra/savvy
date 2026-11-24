@@ -17,5 +17,12 @@
     "bindings": [{ "name": "BACKEND", "class_name": "SavvyBackend" }],
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["SavvyBackend"] }],
+  "r2_buckets": [
+    {
+      "binding": "BACKUPS",
+      "bucket_name": "savvy-api-dev-backups",
+      "jurisdiction": "eu",
+    },
+  ],
   "observability": { "enabled": true },
 }
