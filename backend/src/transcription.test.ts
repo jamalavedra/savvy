@@ -803,6 +803,30 @@ test("a 2 s event-loop block delivers the audio sent during it late", async (t) 
   assert.equal(h.forwarded(), 64_640);
 });
 
+test("live audio after a block the client was silent through is forwarded", async (t) => {
+  const h = await fixture(t),
+    ws = h.connect();
+  await once(ws, "open");
+  const ready = once(ws, "message");
+  ws.send(Buffer.alloc(640));
+  await ready;
+  const base = h.state.clock(),
+    started = performance.now();
+  t.mock.method(
+    h.state,
+    "clock",
+    () => base + BigInt(Math.floor(performance.now() - started)),
+  );
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 4500);
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  let received = 0;
+  ws.on("message", () => received++);
+  for (let i = 0; i < 10; i++) ws.send(Buffer.alloc(1600));
+  await waitFor(() => received === 10);
+  assert.equal(ws.readyState, WebSocket.OPEN);
+  assert.equal(h.forwarded(), 16_640);
+});
+
 test(
   "empty and odd frames close the relay even right after a long block",
   { timeout: 20_000 },

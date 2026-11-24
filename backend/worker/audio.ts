@@ -20,7 +20,8 @@ const HANDSHAKE_MS = 10_000;
  * A Workers WebSocket behind the relay's socket contract. Workers expose no
  * `bufferedAmount` or send callback, so a supplier socket counts the audio
  * bytes it sent against the bytes the supplier reports as transcribed, and
- * fails a send once that backlog passes `limit`. An abrupt drop surfaces as close code 1006, as it does on `ws`.
+ * fails a send once that backlog passes `limit`. An abrupt drop surfaces as
+ * close code 1006, as it does on `ws`.
  */
 class WorkersSocket implements RelaySocket {
   #ws: WebSocket | undefined;

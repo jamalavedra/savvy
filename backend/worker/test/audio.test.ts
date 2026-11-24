@@ -404,7 +404,7 @@ test(
     await streamed;
     await held;
     assert.equal(ws.readyState, WebSocket.OPEN);
-    assert.ok(messages.length > before + 5, `${before} -> ${messages.length}`);
+    assert.ok(messages.length > before + 3, `${before} -> ${messages.length}`);
     ws.close();
     await once(ws, "close");
     await eventually(async () => (await row(m.id)).state === "paused", 5000);

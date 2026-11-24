@@ -35,6 +35,7 @@ const MONITOR_MS = 100;
 // idle, and the audio sent meanwhile is dropped unbilled, since pacing cannot
 // catch it up. A shorter block is delivered late.
 const FREEZE_MS = Number(AUDIO_IDLE_MS) - 1000;
+const THAW_MS = 500;
 
 /** A text frame arrives as a string, a binary frame as bytes. */
 export type Frame = string | Uint8Array;
@@ -311,6 +312,7 @@ class Relay {
   monitor: ReturnType<typeof setInterval> | undefined;
   lastTick = performance.now();
   frozenBytes = 0;
+  thawedAt = 0;
   droppedBytes = 0;
   finishResolve!: () => void;
   finished = new Promise<void>((resolve) => {
@@ -600,6 +602,7 @@ class Relay {
       return;
     }
     this.noticeFreeze();
+    if (performance.now() - this.thawedAt > THAW_MS) this.frozenBytes = 0;
     if (this.frozenBytes >= chunk.length) {
       this.frozenBytes -= chunk.length;
       this.droppedBytes += chunk.length;
@@ -626,6 +629,7 @@ class Relay {
     if (frozen < FREEZE_MS) return;
     this.lastDelivered += BigInt(frozen);
     this.frozenBytes += frozen * 32;
+    this.thawedAt = tick;
   }
 
   check() {
