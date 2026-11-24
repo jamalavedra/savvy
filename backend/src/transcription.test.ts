@@ -780,6 +780,49 @@ test("catch-up after a long timer stall stays within the durable pacing allowanc
   assert.equal(h.forwarded(), 64_640);
 });
 
+test("a 2 s event-loop block delivers the audio sent during it late", async (t) => {
+  const h = await fixture(t),
+    ws = h.connect();
+  await once(ws, "open");
+  const ready = once(ws, "message");
+  ws.send(Buffer.alloc(640));
+  await ready;
+  const base = h.state.clock(),
+    started = performance.now();
+  t.mock.method(
+    h.state,
+    "clock",
+    () => base + BigInt(Math.floor(performance.now() - started)),
+  );
+  let received = 0;
+  ws.on("message", () => received++);
+  for (let i = 0; i < 40; i++) ws.send(Buffer.alloc(1600));
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2000);
+  await waitFor(() => received === 40);
+  assert.equal(ws.readyState, WebSocket.OPEN);
+  assert.equal(h.forwarded(), 64_640);
+});
+
+test("empty and odd frames close the relay even right after a long block", async (t) => {
+  for (const [frame, blockMs] of [
+    [Buffer.alloc(0), 0],
+    [Buffer.alloc(3), 4500],
+  ] as const) {
+    const h = await fixture(t),
+      ws = h.connect();
+    await once(ws, "open");
+    const ready = once(ws, "message");
+    ws.send(Buffer.alloc(640));
+    await ready;
+    const closed = once(ws, "close");
+    ws.send(frame);
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, blockMs);
+    await closed;
+    await waitFor(() => h.view().state === "paused");
+    assert.equal(h.forwarded(), 640);
+  }
+});
+
 test("a delayed audio burst survives the old one-second queue limit and settles only delivered audio", async (t) => {
   const h = await fixture(t),
     ws = h.connect();

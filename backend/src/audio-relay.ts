@@ -31,9 +31,10 @@ export const CLOSED = 3;
 const MAX_SOCKETS = 128;
 const MONITOR_MS = 100;
 // A blocked object (an open storage transaction) runs no timers and receives no
-// frames. That time is not the client going idle, and the audio the client
-// sent meanwhile is dropped unbilled, since pacing cannot catch it up.
-const FREEZE_MS = 1000;
+// frames. A block long enough to trip the idle cutoff is not the client going
+// idle, and the audio sent meanwhile is dropped unbilled, since pacing cannot
+// catch it up. A shorter block is delivered late.
+const FREEZE_MS = Number(AUDIO_IDLE_MS) - 1000;
 
 /** A text frame arrives as a string, a binary frame as bytes. */
 export type Frame = string | Uint8Array;
@@ -594,6 +595,10 @@ class Relay {
       return;
     }
     const chunk = frame;
+    if (!chunk.length || chunk.length % 2 || chunk.length > MAX_AUDIO) {
+      void this.finish("invalid_or_overflowing_audio");
+      return;
+    }
     this.noticeFreeze();
     if (this.frozenBytes >= chunk.length) {
       this.frozenBytes -= chunk.length;
@@ -601,11 +606,8 @@ class Relay {
       return;
     }
     if (
-      !chunk.length ||
-      chunk.length % 2 ||
-      chunk.length > MAX_AUDIO ||
       this.queuedBytes + chunk.length >
-        (this.upstreamOpened ? MAX_QUEUED_AUDIO : MAX_AUDIO)
+      (this.upstreamOpened ? MAX_QUEUED_AUDIO : MAX_AUDIO)
     ) {
       void this.finish("invalid_or_overflowing_audio");
       return;
