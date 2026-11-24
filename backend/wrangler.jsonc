@@ -17,6 +17,5 @@
     "bindings": [{ "name": "BACKEND", "class_name": "SavvyBackend" }],
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["SavvyBackend"] }],
-  "limits": { "cpu_ms": 300000 },
   "observability": { "enabled": true },
 }
