@@ -71,16 +71,10 @@ export class SavvyBackend extends DurableObject<Env> {
     this.auth = auth;
     await migrate(auth);
     migrateService(service);
-    this.state = createState(
-      config,
-      service,
-      systemClock(),
-      auth,
-      {
-        sendInvitation: invitationSender(mail),
-        onBriefCached: () => this.#keepBriefResults(),
-      },
-    );
+    this.state = createState(config, service, systemClock(), auth, {
+      sendInvitation: invitationSender(mail),
+      onBriefCached: () => this.#keepBriefResults(),
+    });
     recover(this.state);
     this.#audio = createAudio(this.state, (url, init) =>
       this.supplierFetch(url, init),

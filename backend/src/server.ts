@@ -18,13 +18,9 @@ if (!["x-savvy-proxy-ip", "cf-connecting-ip"].includes(proxyIpHeader))
 const auth = createAuth();
 const { db, mail } = auth;
 const serviceDb = openServiceDatabase(config.serviceDatabase);
-export const state = createState(
-  config,
-  serviceDb,
-  systemClock(),
-  auth,
-  { sendInvitation: invitationSender(mail) },
-);
+export const state = createState(config, serviceDb, systemClock(), auth, {
+  sendInvitation: invitationSender(mail),
+});
 recover(state);
 const trustedProxies = (process.env.SAVVY_AUTH_TRUSTED_PROXIES ?? "")
   .split(",")
