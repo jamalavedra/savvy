@@ -9,6 +9,7 @@ import { assertFundingCapability } from "./capability.js";
 export interface ServiceBindings {
   authorizeBrowser?: Authorizer;
   sendInvitation?: (email: string, link: string) => Promise<void>;
+  onBriefCached?: () => void;
 }
 
 export class ServiceState {

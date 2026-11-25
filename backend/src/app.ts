@@ -48,7 +48,7 @@ export function createState(
   db: Db,
   clock: () => bigint,
   auth: Auth,
-  sendInvitation: ServiceBindings["sendInvitation"],
+  bindings: Omit<ServiceBindings, "authorizeBrowser">,
 ) {
   const unmetered = config.billing === null;
   return new ServiceState(
@@ -62,13 +62,13 @@ export function createState(
       clock,
     ),
     {
+      ...bindings,
       authorizeBrowser: createBrowserAuthorizer(
         db,
         { issuer: config.issuer, unmetered },
         (headers) => auth.auth.api.getSession({ headers }),
         clock,
       ),
-      sendInvitation,
     },
   );
 }

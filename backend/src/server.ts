@@ -23,7 +23,7 @@ export const state = createState(
   serviceDb,
   systemClock(),
   auth,
-  invitationSender(mail),
+  { sendInvitation: invitationSender(mail) },
 );
 recover(state);
 const trustedProxies = (process.env.SAVVY_AUTH_TRUSTED_PROXIES ?? "")

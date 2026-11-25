@@ -7,7 +7,7 @@ import { migrateService } from "../src/db.ts";
 import { DoSqlite } from "../src/do-sqlite.ts";
 import { migrate } from "../src/migrate.ts";
 import { createHandler, createState, recover } from "../src/app.ts";
-import { pruneResults } from "../src/advice.ts";
+import { BRIEF_RESULT_TTL_MS, pruneResults } from "../src/advice.ts";
 import { reconcile } from "../src/stripe.ts";
 import { expireStaleSessions } from "../src/sessions.ts";
 import { noteError, persistErrorsIn } from "../src/recent-errors.ts";
@@ -51,6 +51,7 @@ export class SavvyBackend extends DurableObject<Env> {
   #audio!: (request: Request) => Promise<Response>;
   #reconciling: Promise<void> | null = null;
   #reconciledAt = 0;
+  #briefResultTimer: ReturnType<typeof setTimeout> | undefined;
   #frozen = false;
 
   constructor(ctx: DurableObjectState, env: Env) {
@@ -75,7 +76,10 @@ export class SavvyBackend extends DurableObject<Env> {
       service,
       systemClock(),
       auth,
-      invitationSender(mail),
+      {
+        sendInvitation: invitationSender(mail),
+        onBriefCached: () => this.#keepBriefResults(),
+      },
     );
     recover(this.state);
     this.#audio = createAudio(this.state, (url, init) =>
@@ -94,6 +98,15 @@ export class SavvyBackend extends DurableObject<Env> {
 
   protected supplierFetch(url: string, init: RequestInit) {
     return fetch(url, init);
+  }
+
+  #keepBriefResults() {
+    clearTimeout(this.#briefResultTimer);
+    // A pending timer protects the in-memory retry window from idle eviction.
+    this.#briefResultTimer = setTimeout(() => {
+      this.#briefResultTimer = undefined;
+      pruneResults(this.state);
+    }, Number(BRIEF_RESULT_TTL_MS));
   }
 
   async #readUi(path: string) {
