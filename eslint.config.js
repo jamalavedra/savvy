@@ -13,6 +13,7 @@ export default tseslint.config(
       "target",
       "www",
       "backend/build",
+      "backend/worker/worker-configuration.d.ts",
       ".deepsec",
     ],
   },
@@ -57,6 +58,19 @@ export default tseslint.config(
           selector:
             "JSXOpeningElement[name.name='Input']:has(JSXAttribute[name.name='type'][value.value='range'])",
           message: "Use the shared Slider for range controls.",
+        },
+      ],
+    },
+  },
+  {
+    files: ["backend/src/**/*.ts", "backend/worker/**/*.ts"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "Property[key.name='redirect'][value.value='error']",
+          message:
+            'Workers fetch throws on redirect: "error". Use "manual" and treat any 3xx as a failure.',
         },
       ],
     },

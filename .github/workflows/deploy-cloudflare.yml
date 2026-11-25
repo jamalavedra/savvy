@@ -1,0 +1,118 @@
+name: Deploy Cloudflare
+
+on:
+  # Runs only for Verify on a push to main of this repository; see the job guards.
+  workflow_run: # zizmor: ignore[dangerous-triggers]
+    workflows: [Verify]
+    types: [completed]
+
+permissions:
+  contents: read
+
+env:
+  DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
+
+jobs:
+  staging:
+    if: >-
+      github.repository == 'jamalavedra/savvy' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    environment: staging
+    concurrency:
+      group: deploy-savvy-cloudflare-staging
+      cancel-in-progress: false
+    timeout-minutes: 30
+    env:
+      WORKER_ENV: staging
+      API_URL: ${{ vars.API_URL }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ env.DEPLOY_SHA }}
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: backend/pnpm-lock.yaml
+      - name: Install and build
+        run: pnpm --dir backend install --frozen-lockfile && pnpm --dir backend build
+      - name: Check Worker secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm --dir backend check-deploy-env "$WORKER_ENV"
+      - name: Deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: >-
+          pnpm --dir backend exec wrangler deploy --env "$WORKER_ENV"
+          --durable-objects-code-update-mode immediate
+      - name: Check /ready
+        run: |
+          if [ -z "$API_URL" ]; then
+            echo "::notice::API_URL is unset for $WORKER_ENV (no route yet); skipped /ready"
+            exit 0
+          fi
+          curl -fsS -o /dev/null -w '/ready %{http_code}\n' --retry 5 --retry-all-errors \
+            --max-time 15 "${API_URL%/}/ready"
+
+  production:
+    needs: staging
+    # Set to true at cutover (plan CF-9); before then production serves no traffic.
+    if: vars.PRODUCTION_LIVE == 'true'
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: deploy-savvy-cloudflare-production
+      cancel-in-progress: false
+    timeout-minutes: 30
+    env:
+      WORKER_ENV: production
+      API_URL: ${{ vars.API_URL }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ env.DEPLOY_SHA }}
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: backend/pnpm-lock.yaml
+      - name: Install and build
+        run: pnpm --dir backend install --frozen-lockfile && pnpm --dir backend build
+      - name: Check Worker secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm --dir backend check-deploy-env "$WORKER_ENV"
+      - name: Export the database to R2
+        env:
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+        run: |
+          if [ -z "$API_URL" ]; then
+            echo "::error::API_URL is unset for $WORKER_ENV; refusing to deploy without a pre-deploy export"
+            exit 1
+          fi
+          # The manifest stays out of the public log; it is in R2 next to the export.
+          curl -fsS -o /dev/null -w 'export %{http_code}\n' --max-time 300 -X POST \
+            -H "authorization: Bearer $ADMIN_TOKEN" "${API_URL%/}/__admin/export"
+      - name: Deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: >-
+          pnpm --dir backend exec wrangler deploy --env "$WORKER_ENV"
+          --durable-objects-code-update-mode immediate
+      - name: Check /ready
+        run: |
+          curl -fsS -o /dev/null -w '/ready %{http_code}\n' --retry 5 --retry-all-errors \
+            --max-time 15 "${API_URL%/}/ready"

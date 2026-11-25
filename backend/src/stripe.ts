@@ -7,6 +7,7 @@ import type { ServiceState } from "./state.js";
 import { transition } from "./transition.js";
 import type { Db } from "./db.js";
 import { ApiError, readLimited } from "./errors.js";
+import { noteError } from "./recent-errors.js";
 import {
   reserveAttempt,
   insertGrant,
@@ -82,7 +83,7 @@ async function request(
             ...(key === undefined ? {} : { "Idempotency-Key": key }),
           },
           body: form,
-          redirect: "error",
+          redirect: "manual",
           signal: AbortSignal.any([
             AbortSignal.timeout(10_000),
             ...(billingDeadline.getStore()
@@ -954,7 +955,9 @@ export async function webhook(
     .immediate();
   let event: unknown;
   try {
-    event = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(body));
+    event = JSON.parse(
+      new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(body),
+    );
   } catch {
     throw new ApiError("invalid_request", "invalid webhook JSON");
   }
@@ -978,6 +981,7 @@ function logRetry(phase: string, error: unknown) {
   console.warn(
     `billing ${phase} requires retry code=${error instanceof ApiError ? error.code : "internal"}`,
   );
+  noteError("billing_retries_5m");
 }
 
 export async function reconcile(state: ServiceState) {

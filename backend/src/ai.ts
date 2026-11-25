@@ -1,6 +1,7 @@
 import type { ServiceState } from "./state.js";
 import { ApiError, readLimited } from "./errors.js";
 import { pauseSession } from "./sessions.js";
+import { noteError } from "./recent-errors.js";
 
 export function requestBody(
   state: ServiceState,
@@ -67,12 +68,13 @@ export async function post(
         },
         body: JSON.stringify(body),
         signal: deadline,
-        redirect: "error",
+        redirect: "manual",
       },
     );
     if (!response.ok) {
       // Supplier error bodies can echo customer context or credentials.
       console.error(`reasoning provider returned ${response.status}`);
+      noteError("reasoning_http_errors_5m");
       await response.body?.cancel().catch(() => {});
       // A rejected request shape fails only this caller; it must not trip the
       // shared circuit breaker that pauses every account.
@@ -96,7 +98,9 @@ export async function post(
     );
     let value: unknown;
     try {
-      value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(raw));
+      value = JSON.parse(
+        new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(raw),
+      );
     } catch {
       throw new ApiError(
         "provider_unavailable",

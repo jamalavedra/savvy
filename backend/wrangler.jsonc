@@ -1,0 +1,85 @@
+// The top level is the dev Worker. Staging and production set workers_dev to
+// false and are reached only through the route CF-8 and CF-9 add by hand.
+// Bindings and vars are not inherited, so each env lists its own; the top-level
+// migrations are, and each Worker gets its own SavvyBackend namespace.
+{
+  "name": "savvy-api-dev",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-11-16",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "alias": { "better-sqlite3": "./worker/better-sqlite3.js" },
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "run_worker_first": true,
+    "html_handling": "none",
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "BACKEND", "class_name": "SavvyBackend" }],
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["SavvyBackend"] }],
+  "r2_buckets": [
+    {
+      "binding": "BACKUPS",
+      "bucket_name": "savvy-api-dev-backups",
+      "jurisdiction": "eu",
+    },
+  ],
+  "send_email": [
+    {
+      "name": "EMAIL",
+      "allowed_sender_addresses": ["noreply@savvycopilot.com"],
+    },
+  ],
+  "vars": { "SAVVY_EMAIL_FROM": "noreply@savvycopilot.com" },
+  "observability": { "enabled": true },
+  "env": {
+    "staging": {
+      "name": "savvy-api-staging",
+      "workers_dev": false,
+      "preview_urls": false,
+      // Match the Epistoma staging release with funded team seats.
+      "define": { "SAVVY_BUILD_FUNDING_SCHEMA": "2" },
+      "durable_objects": {
+        "bindings": [{ "name": "BACKEND", "class_name": "SavvyBackend" }],
+      },
+      "r2_buckets": [
+        {
+          "binding": "BACKUPS",
+          "bucket_name": "savvy-api-staging-backups",
+          "jurisdiction": "eu",
+        },
+      ],
+      "send_email": [
+        {
+          "name": "EMAIL",
+          "allowed_sender_addresses": ["noreply@savvycopilot.com"],
+        },
+      ],
+      "vars": { "SAVVY_EMAIL_FROM": "noreply@savvycopilot.com" },
+    },
+    "production": {
+      "name": "savvy-api",
+      "workers_dev": false,
+      "preview_urls": false,
+      "durable_objects": {
+        "bindings": [{ "name": "BACKEND", "class_name": "SavvyBackend" }],
+      },
+      "r2_buckets": [
+        {
+          "binding": "BACKUPS",
+          "bucket_name": "savvy-api-backups",
+          "jurisdiction": "eu",
+        },
+      ],
+      "send_email": [
+        {
+          "name": "EMAIL",
+          "allowed_sender_addresses": ["noreply@savvycopilot.com"],
+        },
+      ],
+      "vars": { "SAVVY_EMAIL_FROM": "noreply@savvycopilot.com" },
+    },
+  },
+}

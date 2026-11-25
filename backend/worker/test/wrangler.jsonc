@@ -1,0 +1,12 @@
+// Test-only Worker that runs the backend's SQLite code inside a Durable Object.
+{
+  "name": "savvy-do-sqlite-harness",
+  "main": "harness.ts",
+  "compatibility_date": "2026-11-16",
+  "compatibility_flags": ["nodejs_compat"],
+  "alias": { "better-sqlite3": "../better-sqlite3.js" },
+  "durable_objects": {
+    "bindings": [{ "name": "HARNESS", "class_name": "Harness" }],
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Harness"] }],
+}

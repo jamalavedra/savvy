@@ -83,7 +83,7 @@ async function main() {
       config: { issuer },
       db,
       clock: () => BigInt(Date.now()),
-    } as ServiceState;
+    } as unknown as ServiceState;
     const service = new ComposioSources(state, key);
     const connections = await service.connections(accountId);
     const missing = connections.filter(

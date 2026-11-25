@@ -1,17 +1,15 @@
 import { z } from "zod";
-import { readFileSync } from "node:fs";
+import providerContracts from "./provider-contracts.json" with { type: "json" };
 import { validateSessionId } from "./sessions.js";
 import { ApiError } from "./errors.js";
 
-export const contracts = JSON.parse(
-  readFileSync(new URL("./provider-contracts.json", import.meta.url), "utf8"),
-) as {
+export const contracts: {
   briefSchema: Record<string, unknown>;
   adviceSchema: Record<string, unknown>;
   briefPrompt: string;
   advicePrompt: string;
   actionRules: { manual: string; opportunity: string; other: string };
-};
+} = providerContracts;
 const uint = z.number().int().nonnegative();
 const uuid = z.string().transform((value, ctx) => {
   try {

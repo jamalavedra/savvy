@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS audio_pacing (
+export const SCHEMA = `CREATE TABLE IF NOT EXISTS audio_pacing (
             account_id INTEGER NOT NULL REFERENCES accounts(id), source TEXT NOT NULL,
             debt INTEGER NOT NULL, updated_ms INTEGER NOT NULL, PRIMARY KEY(account_id,source)
         );
@@ -230,3 +230,4 @@ CREATE TABLE IF NOT EXISTS stripe_customers (
 CREATE TABLE IF NOT EXISTS service_capabilities (
     key TEXT PRIMARY KEY, value TEXT NOT NULL, set_at_ms INTEGER NOT NULL
 );
+`;

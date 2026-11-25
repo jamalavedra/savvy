@@ -1,0 +1,30 @@
+// backend/wrangler.jsonc with the probing entry in front of the same Worker.
+{
+  "name": "savvy-api-test",
+  "main": "entry.ts",
+  "compatibility_date": "2026-11-16",
+  "compatibility_flags": ["nodejs_compat"],
+  "alias": { "better-sqlite3": "../better-sqlite3.js" },
+  "assets": {
+    "directory": "../../dist",
+    "binding": "ASSETS",
+    "run_worker_first": true,
+    "html_handling": "none",
+  },
+  "durable_objects": {
+    "bindings": [
+      { "name": "BACKEND", "class_name": "SavvyBackend" },
+      { "name": "DEEPGRAM", "class_name": "FakeDeepgram" },
+    ],
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["SavvyBackend", "FakeDeepgram"] },
+  ],
+  "send_email": [
+    {
+      "name": "EMAIL",
+      "allowed_sender_addresses": ["noreply@savvycopilot.com"],
+    },
+  ],
+  "r2_buckets": [{ "binding": "BACKUPS", "bucket_name": "savvy-backups-test" }],
+}

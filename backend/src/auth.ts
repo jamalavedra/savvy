@@ -4,14 +4,86 @@ import { emailOTP } from "better-auth/plugins/email-otp";
 import { jwt } from "better-auth/plugins/jwt";
 import { oauthProvider } from "@better-auth/oauth-provider";
 import { createHash, createHmac, hkdfSync } from "node:crypto";
-import { assertDistinctDatabases, openPrivateDatabase } from "./db.js";
+import { assertDistinctDatabases, openPrivateDatabase, type Db } from "./db.js";
+import { DoSqliteDialect, type DoSqlite } from "./do-sqlite.js";
 import nodemailer from "nodemailer";
 
-export function createAuth(env: NodeJS.ProcessEnv = process.env) {
-  assertDistinctDatabases(
+function authDatabase(env: Partial<NodeJS.ProcessEnv>, injected?: DoSqlite) {
+  if (injected)
+    return {
+      db: injected,
+      database: {
+        dialect: new DoSqliteDialect(injected),
+        type: "sqlite" as const,
+        transaction: true,
+      },
+    };
+  const file = openPrivateDatabase(
     env.SAVVY_AUTH_DATABASE ?? "savvy-auth.sqlite",
-    env.SAVVY_DB_PATH ?? "savvy-service.sqlite",
   );
+  return { db: file, database: file };
+}
+
+export interface MailMessage {
+  to: string;
+  subject: string;
+  text: string;
+}
+
+export interface MailSender {
+  send(message: MailMessage): Promise<void>;
+}
+
+/** Sends through SMTP_HOST as SMTP_FROM, or returns null when either is unset. */
+export function smtpSender(env: Partial<NodeJS.ProcessEnv>): MailSender | null {
+  const from = env.SMTP_FROM;
+  if (!env.SMTP_HOST || !from) return null;
+  const transport = nodemailer.createTransport({
+    connectionTimeout: 10_000,
+    greetingTimeout: 10_000,
+    socketTimeout: 20_000,
+    dnsTimeout: 10_000,
+    requireTLS: !["127.0.0.1", "localhost", "::1"].includes(env.SMTP_HOST),
+    host: env.SMTP_HOST,
+    port: Number(env.SMTP_PORT ?? 587),
+    secure: env.SMTP_SECURE === "true",
+    ...(env.SMTP_USER
+      ? { auth: { user: env.SMTP_USER, pass: env.SMTP_PASSWORD } }
+      : {}),
+  });
+  return {
+    async send(message) {
+      await transport.sendMail({ from, ...message });
+    },
+  };
+}
+
+export function invitationSender(mail: MailSender | null) {
+  return async (email: string, link: string) => {
+    if (!mail) throw new Error("Invitation delivery is not configured");
+    await mail.send({
+      to: email,
+      subject: "Join your team on Savvy",
+      text: `You have been invited to join a Savvy team. Open this link and sign in with this email address:\n\n${link}\n\nThis invitation expires in 7 days. Your recordings, documents and connected sources stay private to your own account.`,
+    });
+  };
+}
+
+/**
+ * Builds Better Auth over its own SQLite file, or over `database` when given:
+ * a Durable Object handle left on Number integers, which Better Auth expects.
+ * Sign-in codes go through `mail`; null leaves email sign-in unavailable.
+ */
+export function createAuth(
+  env: Partial<NodeJS.ProcessEnv> = process.env,
+  database?: DoSqlite,
+  mail: MailSender | null = smtpSender(env),
+) {
+  if (!database)
+    assertDistinctDatabases(
+      env.SAVVY_AUTH_DATABASE ?? "savvy-auth.sqlite",
+      env.SAVVY_DB_PATH ?? "savvy-service.sqlite",
+    );
   const baseURL = env.BETTER_AUTH_URL ?? "http://127.0.0.1:8788";
   const url = new URL(baseURL);
   if (
@@ -34,9 +106,8 @@ export function createAuth(env: NodeJS.ProcessEnv = process.env) {
   const hashOTP = async (otp: string) =>
     "v1-" +
     createHmac("sha256", Buffer.from(otpKey)).update(otp).digest("base64url");
-  const db = openPrivateDatabase(
-    env.SAVVY_AUTH_DATABASE ?? "savvy-auth.sqlite",
-  );
+  const handle = authDatabase(env, database);
+  const db: Db = handle.db;
   db.pragma("journal_mode = WAL");
   db.pragma("busy_timeout = 5000");
   // Separate from Better Auth migrations; never touches the service database.
@@ -62,21 +133,6 @@ export function createAuth(env: NodeJS.ProcessEnv = process.env) {
       "INSERT OR REPLACE INTO otp_delivery_limit VALUES (?, ?, ?, ?)",
     ).run(key, now, fresh ? now : row.window_ms, fresh ? 1 : row.count + 1);
   });
-  const mail = nodemailer.createTransport({
-    connectionTimeout: 10_000,
-    greetingTimeout: 10_000,
-    socketTimeout: 20_000,
-    dnsTimeout: 10_000,
-    requireTLS: !["127.0.0.1", "localhost", "::1"].includes(
-      env.SMTP_HOST ?? "",
-    ),
-    host: env.SMTP_HOST,
-    port: Number(env.SMTP_PORT ?? 587),
-    secure: env.SMTP_SECURE === "true",
-    ...(env.SMTP_USER
-      ? { auth: { user: env.SMTP_USER, pass: env.SMTP_PASSWORD } }
-      : {}),
-  });
   const audience = env.SAVVY_OIDC_AUDIENCE ?? "https://api.savvycopilot.com";
   const clientId = env.SAVVY_OIDC_CLIENT_ID ?? "savvy-desktop";
   const hashToken = (token: string) =>
@@ -85,7 +141,7 @@ export function createAuth(env: NodeJS.ProcessEnv = process.env) {
     appName: "Savvy",
     baseURL,
     secret: env.BETTER_AUTH_SECRET,
-    database: db,
+    database: handle.database,
     emailAndPassword: { enabled: false },
     // The browser session only bridges sign-in to the desktop's OAuth tokens.
     session: { expiresIn: 3600, updateAge: 3600 },
@@ -196,13 +252,12 @@ export function createAuth(env: NodeJS.ProcessEnv = process.env) {
             throw new APIError("BAD_REQUEST", {
               message: "Unsupported email operation.",
             });
-          if (!env.SMTP_HOST || !env.SMTP_FROM)
+          if (!mail)
             throw new APIError("SERVICE_UNAVAILABLE", {
               message: "Email delivery is unavailable. Try again later.",
             });
           try {
-            await mail.sendMail({
-              from: env.SMTP_FROM,
+            await mail.send({
               to: email,
               subject: "Your Savvy sign-in code",
               text: `Your Savvy code is ${otp}. It expires in 10 minutes. If you did not request it, ignore this email.`,
@@ -261,7 +316,6 @@ export function createAuth(env: NodeJS.ProcessEnv = process.env) {
       return (auth ??= buildAuth());
     },
     mail,
-    mailFrom: env.SMTP_FROM,
     options,
     audience,
     db,

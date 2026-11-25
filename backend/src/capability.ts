@@ -1,9 +1,12 @@
 import { readFileSync, realpathSync, statSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { openPrivateDatabase, type Db } from "./db.js";
+import serviceCapabilities from "./service-capabilities.json" with { type: "json" };
 
 export function manifestCapability(path: string | URL): number {
-  const value: unknown = JSON.parse(readFileSync(path, "utf8"));
+  return fundingSchema(JSON.parse(readFileSync(path, "utf8")));
+}
+function fundingSchema(value: unknown): number {
   if (
     value === null ||
     typeof value !== "object" ||
@@ -14,8 +17,11 @@ export function manifestCapability(path: string | URL): number {
     throw new Error("Invalid funding capability manifest");
   return Number(value.funding_schema);
 }
-export const FUNDING_SCHEMA = manifestCapability(
-  new URL("./service-capabilities.json", import.meta.url),
+declare const SAVVY_BUILD_FUNDING_SCHEMA: number;
+export const FUNDING_SCHEMA = fundingSchema(
+  typeof SAVVY_BUILD_FUNDING_SCHEMA === "undefined"
+    ? serviceCapabilities
+    : { funding_schema: SAVVY_BUILD_FUNDING_SCHEMA },
 );
 
 export function capability(db: Db, key: string): string | undefined {
@@ -171,7 +177,7 @@ if (
                 Authorization: `Bearer ${key}`,
                 "Stripe-Version": "2025-06-30.basil",
               },
-              redirect: "error",
+              redirect: "manual",
               signal: AbortSignal.timeout(10_000),
             },
           );

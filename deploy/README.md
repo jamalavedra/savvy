@@ -23,7 +23,7 @@ pnpm --dir backend build
 A backend release needs `backend/build/`, `backend/dist/`, `backend/package.json`,
 the lockfile, production `node_modules`, and `config/managed-catalog.json` at the
 release root alongside `backend/`. Preserve that relative path; the compiled catalog
-module reads it. Run migrations with `node build/migrate.js service`, which refuses
+module imports it. Run migrations with `node build/migrate.js service`, which refuses
 without changing anything if existing rows break a schema constraint, then
 `node build/migrate.js`, and start with `node build/server.js` from the package
 working directory. TypeScript tooling is not a runtime requirement. Deploy frontend
@@ -303,6 +303,67 @@ readiness must also be observed every minute from a separate machine during the
 24-hour launch gate, and an existing external monitor should be connected before
 leaving production unattended. A failed monitor does not stop or restart the
 backend automatically.
+
+## Cloudflare Workers (migration in progress)
+
+The backend is moving to one SQLite-backed Durable Object per Worker in the EU
+jurisdiction. `backend/wrangler.jsonc` defines three Workers:
+
+| Env             | Worker              | Reached through | Backups bucket (EU)         |
+| --------------- | ------------------- | --------------- | --------------------------- |
+| top level (dev) | `savvy-api-dev`     | workers.dev     | `savvy-api-dev-backups`     |
+| `staging`       | `savvy-api-staging` | its route only  | `savvy-api-staging-backups` |
+| `production`    | `savvy-api`         | its route only  | `savvy-api-backups`         |
+
+Staging and production have no route in the file; add it by hand at cutover.
+Create each bucket once, before the first deploy of its Worker:
+
+```sh
+pnpm --dir backend exec wrangler r2 bucket create savvy-api-staging-backups --jurisdiction eu
+pnpm --dir backend exec wrangler r2 bucket create savvy-api-backups --jurisdiction eu
+```
+
+Each Worker needs these secrets, set with `wrangler secret put <NAME> --env <env>`:
+`BETTER_AUTH_URL`, `BETTER_AUTH_SECRET`, `SAVVY_FIREWORKS_API_KEY`,
+`SAVVY_DEEPGRAM_API_KEY`, the four `SAVVY_STRIPE_*` names, `ADMIN_TOKEN`,
+`SAVVY_OIDC_AUDIENCE` and `SAVVY_OIDC_CLIENT_ID`. The object does not boot without the
+supplier keys, and without the two OIDC names it falls back to production's audience
+and client id, so staging would refuse every staging sign-in. `pnpm --dir backend build &&
+pnpm --dir backend check-deploy-env <env>` lists any that are missing.
+
+`.github/workflows/deploy-cloudflare.yml` deploys staging after each green `Verify`
+on main; to redeploy, re-run that workflow run, which keeps its verified commit. The production job runs only when the repository variable `PRODUCTION_LIVE`
+is `true` (set at cutover), and then waits for the `production` environment's approval. Both GitHub
+environments hold `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`; production also
+holds `ADMIN_TOKEN`, which the workflow uses to call `POST /__admin/export` before
+deploying and fails if the export fails. Set the environment variable `API_URL` to the
+Worker's route origin once the route exists. Staging skips its `/ready` check with a
+notice until then; production refuses to deploy without it.
+
+Email Service sign-in failures to watch. A suppressed address (soft bounce for 24 h,
+hard bounce for 7 days or permanently, complaint permanently) fails with
+`E_RECIPIENT_SUPPRESSED`, and the user sees "Email delivery failed. Try again later."
+Each retry also spends the 30 s resend cooldown. Keep **Drop suppressed recipients**
+off for the sending domain: with it on, the send succeeds and no code ever arrives.
+`E_DAILY_LIMIT_EXCEEDED` blocks every email sign-in for the account until the quota
+resets, and new accounts start with a low quota. Find both codes in Workers Logs.
+
+A new object refuses traffic with 503 until it is sealed. After the first deploy,
+either run `transfer import` with the VPS databases (it seals against their manifest), or
+seal an empty object:
+
+```sh
+curl -fsS -X POST -H "authorization: Bearer $ADMIN_TOKEN" \
+  -d '{"schema":[],"tables":[]}' "$API_URL/__admin/seal"
+```
+
+`GET /__admin/status` (same token) returns aggregate soak health: the alarm's next and
+last run and the `savvy-monitor.py` invariants, with no identities. `ADMIN_TOKEN=... pnpm
+--dir backend soak-probe "$API_URL"` polls it and `/ready` every minute and prints one
+JSON line per poll; `ok: false` names each problem, including an alarm over 3 minutes late.
+
+The VPS workflow, `deploy-backend.yml`, keeps deploying production until the
+cutover and is removed when Savvy leaves the VPS.
 
 ## Acceptance still required
 

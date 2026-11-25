@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { openServiceDatabase } from "./db.js";
-import { rollbackPreflight } from "./rollback-preflight.js";
+import { requiredCapability, rollbackPreflight } from "./rollback-preflight.js";
 import {
   activateTeamPurchases,
   disableTeamPurchases,
@@ -107,30 +107,49 @@ test("activation permanently refuses legacy and checkpoint rollback even before 
   const legacy = join(directory, "missing-manifest.json"),
     checkpoint = candidate(1),
     complete = candidate(2);
-  assert.equal(rollbackPreflight(db, legacy).requiredFundingSchema, 0);
-  assert.equal(rollbackPreflight(db, checkpoint).availableFundingSchema, 1);
+  assert.equal(
+    rollbackPreflight(requiredCapability(db), legacy).requiredFundingSchema,
+    0,
+  );
+  assert.equal(
+    rollbackPreflight(requiredCapability(db), checkpoint)
+      .availableFundingSchema,
+    1,
+  );
   db.transaction(() =>
     setCapability(db, "organization_portal_configuration_id", "bpc_team", 1n),
   ).immediate();
   activateTeamPurchases(db, "a".repeat(40), 2, 1n, 2);
   for (const path of [legacy, candidate(0), checkpoint])
-    assert.throws(() => rollbackPreflight(db, path), /switch refused/);
-  assert.deepEqual(rollbackPreflight(db, complete), {
+    assert.throws(
+      () => rollbackPreflight(requiredCapability(db), path),
+      /switch refused/,
+    );
+  assert.deepEqual(rollbackPreflight(requiredCapability(db), complete), {
     requiredFundingSchema: 2,
     availableFundingSchema: 2,
   });
   assert.throws(() => assertFundingCapability(db, 1));
   disableTeamPurchases(db, 2n);
-  assert.throws(() => rollbackPreflight(db, checkpoint), /switch refused/);
+  assert.throws(
+    () => rollbackPreflight(requiredCapability(db), checkpoint),
+    /switch refused/,
+  );
   assert.equal(
     db
       .prepare<[], { n: bigint }>("SELECT count(*) AS n FROM allowance_grants")
       .get()!.n,
     0n,
   );
-  assert.equal(rollbackPreflight(db, complete).requiredFundingSchema, 2);
+  assert.equal(
+    rollbackPreflight(requiredCapability(db), complete).requiredFundingSchema,
+    2,
+  );
   writeFileSync(complete, "{}");
-  assert.throws(() => rollbackPreflight(db, complete), /Invalid funding/);
+  assert.throws(
+    () => rollbackPreflight(requiredCapability(db), complete),
+    /Invalid funding/,
+  );
 });
 
 test("a pending team payment or acquisition flag cannot evade the floor when no grant exists", (t) => {
@@ -145,7 +164,10 @@ test("a pending team payment or acquisition flag cannot evade the floor when no 
   db.transaction(() =>
     setCapability(db, "team_purchase_enabled", "1", 1n),
   ).immediate();
-  assert.throws(() => rollbackPreflight(db, candidate), /switch refused/);
+  assert.throws(
+    () => rollbackPreflight(requiredCapability(db), candidate),
+    /switch refused/,
+  );
   disableTeamPurchases(db, 2n);
   db.prepare(
     "INSERT INTO organizations(id,name,created_at_ms) VALUES(1,'Team',0)",
@@ -153,7 +175,10 @@ test("a pending team payment or acquisition flag cannot evade the floor when no 
   db.prepare(
     "INSERT INTO organization_checkouts(organization_id,request_key,quantity,price_id,return_url,stripe_idempotency_key,state,created_at_ms,updated_at_ms) VALUES(1,'pending',2,'price','https://example.test/team','key','unknown',0,0)",
   ).run();
-  assert.throws(() => rollbackPreflight(db, candidate), /switch refused/);
+  assert.throws(
+    () => rollbackPreflight(requiredCapability(db), candidate),
+    /switch refused/,
+  );
   assert.equal(
     db
       .prepare<[], { n: bigint }>("SELECT count(*) AS n FROM allowance_grants")
@@ -166,14 +191,15 @@ test("a legacy database is readable without migrations and malformed database re
   const db = new Database(":memory:");
   t.after(() => db.close());
   assert.equal(
-    rollbackPreflight(db, "/missing/manifest.json").requiredFundingSchema,
+    rollbackPreflight(requiredCapability(db), "/missing/manifest.json")
+      .requiredFundingSchema,
     0,
   );
   db.exec(
     "CREATE TABLE service_capabilities(key TEXT PRIMARY KEY,value TEXT); INSERT INTO service_capabilities VALUES('required_funding_schema','not-a-number')",
   );
   assert.throws(
-    () => rollbackPreflight(db, "/missing/manifest.json"),
+    () => rollbackPreflight(requiredCapability(db), "/missing/manifest.json"),
     /Invalid database/,
   );
 });

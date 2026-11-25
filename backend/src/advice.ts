@@ -288,6 +288,7 @@ export async function postBrief(
       state.briefResults.set(account, cache);
     }
     cache.set(key, { at: state.clock(), value: response });
+    state.bindings.onBriefCached?.();
     return response;
   } catch (error) {
     throw error instanceof ApiError

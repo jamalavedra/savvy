@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import managedCatalog from "../../config/managed-catalog.json" with { type: "json" };
 import type { Db } from "./db.js";
 import { ApiError } from "./errors.js";
 import { isDeepStrictEqual } from "node:util";
@@ -14,12 +14,7 @@ export interface Offer {
   briefs: number;
   expiry: string;
 }
-export const CATALOG: Record<"monthly" | "pack", Offer> = JSON.parse(
-  readFileSync(
-    new URL("../../config/managed-catalog.json", import.meta.url),
-    "utf8",
-  ),
-);
+export const CATALOG: Record<"monthly" | "pack", Offer> = managedCatalog;
 export type Product = keyof typeof CATALOG;
 
 export function historical(db: Db, price: string, product: Product): Offer {

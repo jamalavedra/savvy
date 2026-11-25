@@ -550,3 +550,70 @@ test("real Better Auth: delivered OTP, persistent limits, discovery, PKCE and si
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("a failed mail send maps to 503 and logs only the error code", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "savvy-auth-"));
+  const recipient = "suppressed@example.test";
+  const attempts: string[] = [];
+  const env = {
+    BETTER_AUTH_URL: "http://127.0.0.1:8788",
+    BETTER_AUTH_SECRET: "test-only-secret-that-is-over-32-characters",
+    SAVVY_AUTH_DATABASE: join(directory, "auth.sqlite"),
+  };
+  const instance = createAuth(env, undefined, {
+    async send(message) {
+      attempts.push(message.to);
+      throw Object.assign(
+        new Error(`${message.to} is on the suppression list`),
+        {
+          code: "E_RECIPIENT_SUPPRESSED",
+        },
+      );
+    },
+  });
+  const logged = t.mock.method(console, "error", () => {});
+  t.after(async () => {
+    instance.db.close();
+    await rm(directory, { recursive: true, force: true });
+  });
+  await migrate(instance);
+  const response = await instance.auth.handler(
+    new Request(
+      `${env.BETTER_AUTH_URL}/api/auth/email-otp/send-verification-otp`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          origin: env.BETTER_AUTH_URL,
+          "x-savvy-client-ip": "127.0.0.1",
+        },
+        body: JSON.stringify({ email: recipient, type: "sign-in" }),
+      },
+    ),
+  );
+  assert.equal(response.status, 503);
+  assert.equal(
+    (await response.json()).message,
+    "Email delivery failed. Try again later.",
+  );
+  assert.deepEqual(attempts, [recipient]);
+  const failure = logged.mock.calls.find(
+    (call) => call.arguments[0] === "sign-in code email failed",
+  );
+  assert.deepEqual(failure?.arguments, [
+    "sign-in code email failed",
+    {
+      code: "E_RECIPIENT_SUPPRESSED",
+      responseCode: undefined,
+      command: undefined,
+    },
+  ]);
+  assert.doesNotMatch(
+    JSON.stringify(logged.mock.calls.map((call) => call.arguments)),
+    /suppressed@/,
+  );
+  assert.deepEqual(
+    instance.db.prepare("SELECT count FROM otp_delivery_limit").all(),
+    [{ count: 1 }],
+  );
+});

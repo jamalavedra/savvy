@@ -1,6 +1,5 @@
 import Database from "better-sqlite3";
 import {
-  readFileSync,
   openSync,
   closeSync,
   fchmodSync,
@@ -14,11 +13,8 @@ import {
 
 import { resolve, dirname, basename, join } from "node:path";
 import { LIFECYCLES, PAUSE_REASONS } from "./transition.js";
+import { SCHEMA } from "./service-schema.js";
 
-const SCHEMA = readFileSync(
-  new URL("./service-schema.sql", import.meta.url),
-  "utf8",
-);
 /** Columns whose values the schema restricts, as [table, column, values]. */
 const CONSTRAINED_COLUMNS: [string, string, readonly string[]][] = [
   ...Object.entries(LIFECYCLES).map(
@@ -54,10 +50,34 @@ export function assertDistinctDatabases(auth: string, service: string) {
     throw new Error("Auth and service databases must be distinct");
 }
 
-export type Db = Database.Database;
+export interface RunResult {
+  changes: number;
+  lastInsertRowid: number | bigint;
+}
+export interface Statement<P extends unknown[], R> {
+  get(...params: P): R | undefined;
+  all(...params: P): R[];
+  run(...params: P): RunResult;
+}
+export interface Transaction<A extends unknown[], R> {
+  (...args: A): R;
+  immediate(...args: A): R;
+}
+/** The SQLite surface the backend uses, met by better-sqlite3 and by `DoSqlite`. */
+export interface Db {
+  prepare<P extends unknown[] = unknown[], R = unknown>(
+    source: string,
+  ): Statement<P, R>;
+  transaction<A extends unknown[], R>(fn: (...args: A) => R): Transaction<A, R>;
+  exec(source: string): unknown;
+  pragma(source: string, options?: { simple?: boolean }): unknown;
+  defaultSafeIntegers(toggle?: boolean): unknown;
+  readonly inTransaction: boolean;
+  close(): unknown;
+}
 
 // SQLite otherwise creates the main file as 0644 before a later chmod can run.
-export function openPrivateDatabase(path: string): Db {
+export function openPrivateDatabase(path: string): Database.Database {
   if (path === ":memory:") return new Database(path);
   const directory = statSync(dirname(resolve(path)));
   // Windows uses the containing profile's ACL; POSIX mode bits are not meaningful there.
@@ -118,15 +138,18 @@ function addLifecycleConstraints(db: Db) {
   // normalisation; a rebuilt table then matches and is left alone.
   const normalise = (sql: string) =>
     sql.replace(/["`]/g, "").replace(/\s+/g, " ").trim();
-  const pending = Object.keys(LIFECYCLES).filter((table) => {
-    const current = db
-      .prepare<[string], { sql: string }>(
-        "SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
-      )
-      .get(table)!.sql;
-    return normalise(current) !== normalise(canonicalDefinition(table));
-  });
+  const lifecycleTables = Object.keys(LIFECYCLES);
+  const canonical = canonicalDefinitions(lifecycleTables);
+  const pending = lifecycleTables.filter(
+    (table) =>
+      normalise(tableDefinition(db, table)) !==
+      normalise(canonical.get(table)!),
+  );
   if (pending.length === 0) return;
+  if (Number(db.pragma("foreign_keys", { simple: true })) === 1)
+    throw new Error(
+      `Lifecycle tables ${pending.join(", ")} need a rebuild, which requires foreign keys off; this database enforces them, so rebuild them with a dedicated migration`,
+    );
   const rebuilt = new Set(pending);
   for (const [table, column, values] of CONSTRAINED_COLUMNS) {
     if (!rebuilt.has(table)) continue;
@@ -143,10 +166,10 @@ function addLifecycleConstraints(db: Db) {
   for (const table of rebuilt) {
     // sqlite_master stores the statement without its IF NOT EXISTS clause.
     const prefix = `CREATE TABLE ${table} (`;
-    const canonical = canonicalDefinition(table);
-    if (!canonical.startsWith(prefix))
+    const definition = canonical.get(table)!;
+    if (!definition.startsWith(prefix))
       throw new Error(`Unexpected schema definition for ${table}`);
-    db.exec(`CREATE TABLE new_${table} (${canonical.slice(prefix.length)}`);
+    db.exec(`CREATE TABLE new_${table} (${definition.slice(prefix.length)}`);
     const columns = (
       db.pragma(`table_info('new_${table}')`) as { name: string }[]
     )
@@ -175,18 +198,24 @@ function addLifecycleConstraints(db: Db) {
       );
   }
 }
-function canonicalDefinition(table: string): string {
-  const scratch = new Database(":memory:");
-  try {
-    scratch.exec(SCHEMA);
-    return scratch
-      .prepare<[string], { sql: string }>(
-        "SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
-      )
-      .get(table)!.sql;
-  } finally {
-    scratch.close();
+function tableDefinition(db: Db, table: string): string {
+  return db
+    .prepare<[string], { sql: string }>(
+      "SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
+    )
+    .get(table)!.sql;
+}
+/** The CREATE TABLE statement SCHEMA gives each table, as sqlite_master stores it. */
+function canonicalDefinitions(tables: string[]): Map<string, string> {
+  const definitions = new Map<string, string>();
+  for (const table of tables) {
+    const match = new RegExp(
+      `CREATE TABLE IF NOT EXISTS (${table} \\([\\s\\S]*?\\));`,
+    ).exec(SCHEMA);
+    if (!match) throw new Error(`SCHEMA defines no table ${table}`);
+    definitions.set(table, `CREATE TABLE ${match[1]}`);
   }
+  return definitions;
 }
 
 export function migrateService(db: Db) {
@@ -295,7 +324,7 @@ function migrateSchema(db: Db) {
   }).immediate();
 }
 
-export function openServiceDatabase(path: string): Db {
+export function openServiceDatabase(path: string): Database.Database {
   const db = openPrivateDatabase(path);
   try {
     db.defaultSafeIntegers(true);

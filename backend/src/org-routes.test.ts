@@ -96,8 +96,7 @@ async function fixture(t: TestContext) {
       sendInvitation: async (email, link) => {
         links.push({ email, link });
         if (failMail) throw new Error(`fixture delivery failed ${link}`);
-        await instance.mail.sendMail({
-          from: env.SMTP_FROM,
+        await instance.mail!.send({
           to: email,
           subject: "Join your Savvy team",
           text: `Join your team: ${link}`,
@@ -111,7 +110,6 @@ async function fixture(t: TestContext) {
     server.closeAllConnections();
     await new Promise<void>((r) => server.close(() => r()));
     await new Promise<void>((r) => smtp.close(() => r()));
-    instance.mail.close();
     instance.db.close();
     db.close();
     await rm(directory, { recursive: true, force: true });

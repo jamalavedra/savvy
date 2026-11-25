@@ -294,3 +294,15 @@ test("the rebuild refuses a database holding a state outside the allowed set and
     { pause_reason: "user" },
   );
 });
+
+test("a current database is left byte-for-byte alone by a second migration", () => {
+  const db = new Database(":memory:");
+  db.defaultSafeIntegers(true);
+  migrateService(db);
+  const schema = () =>
+    db.prepare("SELECT type,name,sql FROM sqlite_master ORDER BY name").all();
+  const before = schema();
+  migrateService(db);
+  assert.deepEqual(schema(), before);
+  db.close();
+});
