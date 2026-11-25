@@ -39,6 +39,8 @@
       "name": "savvy-api-staging",
       "workers_dev": false,
       "preview_urls": false,
+      // Match the Epistoma staging release with funded team seats.
+      "define": { "SAVVY_BUILD_FUNDING_SCHEMA": "2" },
       "durable_objects": {
         "bindings": [{ "name": "BACKEND", "class_name": "SavvyBackend" }],
       },

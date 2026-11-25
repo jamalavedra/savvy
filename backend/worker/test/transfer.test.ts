@@ -327,6 +327,66 @@ test("a backend that fails to boot stays unsealed and its import can be aborted"
   assert.equal((await server.fetch("/ready")).status, 200);
 });
 
+test("the staging Worker serves funded team data and production refuses it at capability 1", async () => {
+  const funded = copySource("funded");
+  const db = new Database(funded.service);
+  db.exec(
+    "INSERT OR REPLACE INTO service_capabilities (key, value, set_at_ms) VALUES ('required_funding_schema', '2', 0)",
+  );
+  db.close();
+
+  for (const env of ["staging", "production"]) {
+    const candidate = createTestHarness({
+      workers: [
+        {
+          configPath: new URL("../../wrangler.jsonc", import.meta.url),
+          env,
+          secrets: {
+            BETTER_AUTH_SECRET: FIXTURE_SECRET,
+            SAVVY_ANTHROPIC_API_KEY: "synthetic",
+            SAVVY_DEEPGRAM_API_KEY: "synthetic",
+            ADMIN_TOKEN,
+          },
+        },
+      ],
+    });
+    try {
+      await candidate.listen();
+      const { BACKEND } = await candidate
+        .getWorker<{ BACKEND: DurableObjectNamespace }>()
+        .getEnv();
+      // Local workerd cannot apply the EU jurisdiction in the public entrypoint.
+      const object = () => BACKEND.getByName("primary");
+      const origin = "http://127.0.0.1:8788";
+      const send: Send = async (path, body) => {
+        const response = await object().fetch(`${origin}/__admin/${path}`, {
+          method: body === undefined ? "GET" : "POST",
+          headers: { authorization: `Bearer ${ADMIN_TOKEN}` },
+          body: body === undefined ? undefined : JSON.stringify(body),
+        });
+        assert.equal(response.status, 200, path);
+        return response.json();
+      };
+      const ready = () =>
+        object().fetch(`${origin}/ready`, {
+          headers: { "x-savvy-proxy-ip": "127.0.0.1" },
+        });
+      if (env === "staging") {
+        await importFiles(funded, send);
+        assert.equal((await ready()).status, 200);
+      } else {
+        await assert.rejects(
+          importFiles(funded, send),
+          /Backend cannot enforce this database's funding requirements/,
+        );
+        assert.equal((await ready()).status, 503);
+      }
+    } finally {
+      await candidate.close();
+    }
+  }
+});
+
 test("freeze stops traffic, exports what was sealed and resumes on re-seal", async () => {
   await server.reset();
   send = adminSender((await server.listen()).url.href, ADMIN_TOKEN);

@@ -17,7 +17,12 @@ function fundingSchema(value: unknown): number {
     throw new Error("Invalid funding capability manifest");
   return Number(value.funding_schema);
 }
-export const FUNDING_SCHEMA = fundingSchema(serviceCapabilities);
+declare const SAVVY_BUILD_FUNDING_SCHEMA: number;
+export const FUNDING_SCHEMA = fundingSchema(
+  typeof SAVVY_BUILD_FUNDING_SCHEMA === "undefined"
+    ? serviceCapabilities
+    : { funding_schema: SAVVY_BUILD_FUNDING_SCHEMA },
+);
 
 export function capability(db: Db, key: string): string | undefined {
   return db
